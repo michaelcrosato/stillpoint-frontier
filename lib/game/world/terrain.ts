@@ -34,3 +34,13 @@ export function chunkCenter(coordinate: ChunkCoordinate) {
     z: coordinate.z * CHUNK_SIZE,
   };
 }
+
+export function chunksAround(center: ChunkCoordinate, radius: number) {
+  const coordinates: ChunkCoordinate[] = [];
+  for (let dz = -radius; dz <= radius; dz += 1) {
+    for (let dx = -radius; dx <= radius; dx += 1) {
+      coordinates.push({ x: center.x + dx, z: center.z + dz });
+    }
+  }
+  return coordinates;
+}

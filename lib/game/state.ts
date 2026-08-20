@@ -12,6 +12,8 @@ export interface GameSnapshot {
   chunk: { x: number; z: number };
   loadedChunks: number;
   triangles: number;
+  geometries: number;
+  textures: number;
   quality: QualityLevel;
   scanned: BeaconId[];
   nearbyBeacon: BeaconId | null;
@@ -31,6 +33,8 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
   chunk: { x: 0, z: 0 },
   loadedChunks: 0,
   triangles: 0,
+  geometries: 0,
+  textures: 0,
   quality: "cinematic",
   scanned: [],
   nearbyBeacon: null,

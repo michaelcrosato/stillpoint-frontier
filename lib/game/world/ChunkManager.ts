@@ -13,6 +13,7 @@ import type { CircleCollider } from "../systems/collision";
 import {
   chunkCenter,
   chunkKey,
+  chunksAround,
   sampleTerrainHeight,
   worldToChunk,
 } from "./terrain";
@@ -52,14 +53,10 @@ export class ChunkManager {
     this.activeChunkKey = nextActiveKey;
 
     const desired = new Set<string>();
-    for (let dz = -CHUNK_LOAD_RADIUS; dz <= CHUNK_LOAD_RADIUS; dz += 1) {
-      for (let dx = -CHUNK_LOAD_RADIUS; dx <= CHUNK_LOAD_RADIUS; dx += 1) {
-        const x = center.x + dx;
-        const z = center.z + dz;
-        const key = chunkKey(x, z);
-        desired.add(key);
-        if (!this.loaded.has(key)) this.loadChunk(x, z);
-      }
+    for (const coordinate of chunksAround(center, CHUNK_LOAD_RADIUS)) {
+      const key = chunkKey(coordinate.x, coordinate.z);
+      desired.add(key);
+      if (!this.loaded.has(key)) this.loadChunk(coordinate.x, coordinate.z);
     }
 
     for (const [key, chunk] of this.loaded) {

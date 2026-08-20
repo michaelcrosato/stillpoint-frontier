@@ -7,8 +7,10 @@ import {
   type QualityLevel,
 } from "./config";
 import { SystemPipeline } from "./core/SystemPipeline";
+import { FeatureRegistry } from "./core/FeatureRegistry";
 import { createEnvironment, type EnvironmentRuntime } from "./environment";
 import { InputManager } from "./input/InputManager";
+import { SaveStore } from "./persistence/SaveStore";
 import { InteractionSystem } from "./systems/InteractionSystem";
 import { PlayerControllerSystem } from "./systems/PlayerControllerSystem";
 import type { GameRuntimeContext } from "./systems/runtime";
@@ -39,6 +41,7 @@ declare global {
 interface EngineOptions {
   canvas: HTMLCanvasElement;
   testMode?: boolean;
+  storageEnabled?: boolean;
   onSnapshot: (snapshot: GameSnapshot) => void;
 }
 
@@ -53,6 +56,7 @@ export class Engine {
   private readonly pipeline = new SystemPipeline<GameRuntimeContext>();
   private readonly onSnapshot: (snapshot: GameSnapshot) => void;
   private readonly testMode: boolean;
+  private readonly saveStore: SaveStore;
   private readonly player = {
     position: new THREE.Vector3(0, 0, 8),
     yaw: -0.565,
@@ -76,11 +80,23 @@ export class Engine {
   private scanned: BeaconId[] = [];
   private lastDiscovery: BeaconId | null = null;
   private snapshot = { ...INITIAL_SNAPSHOT };
+  private disposed = false;
 
   constructor(options: EngineOptions) {
     this.canvas = options.canvas;
     this.testMode = options.testMode ?? false;
     this.onSnapshot = options.onSnapshot;
+    let browserStorage: Storage | null = null;
+    const storageEnabled = options.storageEnabled ?? !this.testMode;
+    if (storageEnabled) {
+      try {
+        browserStorage = window.localStorage;
+      } catch {
+        browserStorage = null;
+      }
+    }
+    this.saveStore = new SaveStore(browserStorage);
+    this.scanned = this.saveStore.load().scanned;
 
     this.renderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
@@ -120,15 +136,21 @@ export class Engine {
       toggleQuality: () => this.toggleQuality(),
     };
 
-    this.pipeline
-      .register(new PlayerControllerSystem())
-      .register(new WorldStreamingSystem())
-      .register(new InteractionSystem());
+    new FeatureRegistry(this.pipeline).use({
+      id: "frontier-survey",
+      install: (registry) => {
+        registry
+          .system(new PlayerControllerSystem())
+          .system(new WorldStreamingSystem())
+          .system(new InteractionSystem());
+      },
+    });
   }
 
   async initialize() {
     this.resize();
     this.world.update(this.player.position.x, this.player.position.z);
+    for (const beaconId of this.scanned) this.world.markScanned(beaconId);
     window.addEventListener("resize", this.resize);
     document.addEventListener("visibilitychange", this.handleVisibilityChange);
     this.canvas.addEventListener("webglcontextlost", this.handleContextLost);
@@ -140,6 +162,7 @@ export class Engine {
     } catch {
       this.renderer.compile(this.scene, this.camera);
     }
+    if (this.disposed) return;
     this.renderer.render(this.scene, this.camera);
     this.renderer.render(this.scene, this.camera);
     this.ready = true;
@@ -150,8 +173,8 @@ export class Engine {
 
   beginSession() {
     this.started = true;
-    this.paused = false;
     this.mapOpen = false;
+    this.paused = !this.testMode;
     if (!this.testMode) this.input.requestPointerLock();
     this.emitSnapshot(true);
   }
@@ -160,7 +183,11 @@ export class Engine {
     if (!this.started) return;
     this.mapOpen = false;
     if (this.testMode) this.paused = false;
-    else this.input.requestPointerLock();
+    else if (this.input.isLocked()) this.paused = false;
+    else {
+      this.paused = true;
+      this.input.requestPointerLock();
+    }
     this.emitSnapshot(true);
   }
 
@@ -168,7 +195,10 @@ export class Engine {
     const previousLength = this.scanned.length;
     this.scanned = addDiscovery(this.scanned, beaconId);
     this.world.markScanned(beaconId);
-    if (this.scanned.length !== previousLength) this.lastDiscovery = beaconId;
+    if (this.scanned.length !== previousLength) {
+      this.lastDiscovery = beaconId;
+      this.saveStore.save(this.scanned);
+    }
     this.emitSnapshot(true);
   }
 
@@ -184,6 +214,8 @@ export class Engine {
   }
 
   dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
     cancelAnimationFrame(this.animationFrame);
     window.removeEventListener("resize", this.resize);
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
@@ -198,6 +230,7 @@ export class Engine {
   }
 
   private frame = (timestamp: number) => {
+    if (this.disposed) return;
     const delta = this.previousTime
       ? Math.min((timestamp - this.previousTime) / 1000, MAX_FRAME_DELTA)
       : FIXED_STEP;
@@ -254,6 +287,8 @@ export class Engine {
       chunk,
       loadedChunks: this.world.loadedCount,
       triangles: this.renderer.info.render.triangles,
+      geometries: this.renderer.info.memory.geometries,
+      textures: this.renderer.info.memory.textures,
       quality: this.quality,
       scanned: [...this.scanned],
       nearbyBeacon: this.runtime.nearbyBeacon,
@@ -302,6 +337,7 @@ export class Engine {
   private handleVisibilityChange = () => {
     if (document.hidden && this.started) {
       this.paused = true;
+      if (this.input.isLocked()) document.exitPointerLock?.();
       this.emitSnapshot(true);
     }
   };
@@ -310,6 +346,7 @@ export class Engine {
     event.preventDefault();
     this.contextStatus = "lost";
     this.paused = true;
+    if (this.input.isLocked()) document.exitPointerLock?.();
     this.emitSnapshot(true);
   };
 

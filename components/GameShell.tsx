@@ -30,17 +30,22 @@ export default function GameShell() {
     if (!canvas) return;
     let active = true;
     const testMode = new URLSearchParams(window.location.search).get("test") === "1";
+    const storageEnabled =
+      !testMode || new URLSearchParams(window.location.search).get("storage") === "1";
 
     try {
       const engine = new Engine({
         canvas,
         testMode,
+        storageEnabled,
         onSnapshot: (nextSnapshot) => {
           if (active) setSnapshot(nextSnapshot);
         },
       });
       engineRef.current = engine;
       void engine.initialize().catch((error: unknown) => {
+        engine.dispose();
+        if (engineRef.current === engine) engineRef.current = null;
         if (!active) return;
         const message = error instanceof Error ? error.message : "Unknown renderer error";
         setEngineError(message);

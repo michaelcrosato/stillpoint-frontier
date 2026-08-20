@@ -27,11 +27,16 @@ export class InputManager {
     window.addEventListener("blur", this.handleBlur);
     document.addEventListener("mousemove", this.handleMouseMove);
     document.addEventListener("pointerlockchange", this.handlePointerLockChange);
+    document.addEventListener("pointerlockerror", this.handlePointerLockError);
   }
 
   requestPointerLock() {
-    if (document.pointerLockElement !== this.canvas) {
-      this.canvas.requestPointerLock?.();
+    if (document.pointerLockElement === this.canvas) return;
+    try {
+      const request = this.canvas.requestPointerLock?.();
+      void Promise.resolve(request).catch(this.handlePointerLockError);
+    } catch {
+      this.handlePointerLockError();
     }
   }
 
@@ -62,6 +67,7 @@ export class InputManager {
     window.removeEventListener("blur", this.handleBlur);
     document.removeEventListener("mousemove", this.handleMouseMove);
     document.removeEventListener("pointerlockchange", this.handlePointerLockChange);
+    document.removeEventListener("pointerlockerror", this.handlePointerLockError);
     this.held.clear();
     this.pressed.clear();
   }
@@ -78,6 +84,9 @@ export class InputManager {
 
   private handleBlur = () => {
     this.held.clear();
+    this.pressed.clear();
+    this.lookDelta.x = 0;
+    this.lookDelta.y = 0;
   };
 
   private handleMouseMove = (event: MouseEvent) => {
@@ -88,5 +97,9 @@ export class InputManager {
 
   private handlePointerLockChange = () => {
     this.onPointerLockChange?.(this.isLocked());
+  };
+
+  private handlePointerLockError = () => {
+    this.onPointerLockChange?.(false);
   };
 }

@@ -13,6 +13,7 @@ export class InteractionSystem implements GameSystem<GameRuntimeContext> {
   update(context: GameRuntimeContext) {
     if (context.input.consumePressed("KeyM")) context.toggleMap();
     if (context.input.consumePressed("KeyQ")) context.toggleQuality();
+    const interactPressed = context.input.consumePressed("KeyE");
 
     context.nearbyBeacon = null;
     context.nearbyDistance = null;
@@ -33,7 +34,7 @@ export class InteractionSystem implements GameSystem<GameRuntimeContext> {
       context.nearbyDistance = distance;
     }
 
-    if (context.nearbyBeacon && context.input.consumePressed("KeyE")) {
+    if (context.nearbyBeacon && interactPressed) {
       context.discover(context.nearbyBeacon);
     }
   }
