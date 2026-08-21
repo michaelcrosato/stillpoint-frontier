@@ -1,4 +1,24 @@
 import { BEACONS, type BeaconId, type QualityLevel } from "./config";
+import { EMPTY_INVENTORY, type InventoryState, type ItemId } from "./gameplay/items";
+
+export interface NearbyTargetSnapshot {
+  id: string;
+  kind: "beacon" | "pickup" | "resource";
+  action: "scan" | "collect" | "harvest";
+  name: string;
+  item: ItemId | null;
+  hits: number;
+  hitsRequired: number;
+  beaconId: BeaconId | null;
+}
+
+export interface LastGatherSnapshot {
+  targetName: string;
+  item: ItemId;
+  quantity: number;
+  result: "hit" | "collected" | "depleted";
+  remainingHits: number;
+}
 
 export interface GameSnapshot {
   ready: boolean;
@@ -16,9 +36,26 @@ export interface GameSnapshot {
   textures: number;
   quality: QualityLevel;
   scanned: BeaconId[];
+  inventory: InventoryState;
+  worldChanges: number;
+  grounded: boolean;
+  crouching: boolean;
+  sprinting: boolean;
+  stamina: number;
+  biome: { id: string; name: string; region: string };
+  nearestSettlement: {
+    id: string;
+    name: string;
+    tier: "megacity" | "city" | "town" | "village";
+    distance: number;
+    economy: string;
+    reason: string;
+  };
+  nearbyTarget: NearbyTargetSnapshot | null;
   nearbyBeacon: BeaconId | null;
   nearbyDistance: number | null;
   lastDiscovery: BeaconId | null;
+  lastGather: LastGatherSnapshot | null;
 }
 
 export const INITIAL_SNAPSHOT: GameSnapshot = {
@@ -37,9 +74,26 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
   textures: 0,
   quality: "cinematic",
   scanned: [],
+  inventory: { ...EMPTY_INVENTORY },
+  worldChanges: 0,
+  grounded: true,
+  crouching: false,
+  sprinting: false,
+  stamina: 1,
+  biome: { id: "grey_meadow", name: "Grey Meadow", region: "Red Basin Marches" },
+  nearestSettlement: {
+    id: "dustmere",
+    name: "Dustmere",
+    tier: "village",
+    distance: 0,
+    economy: "goats · dry farming · relay salvage",
+    reason: "A basin settlement.",
+  },
+  nearbyTarget: null,
   nearbyBeacon: null,
   nearbyDistance: null,
   lastDiscovery: null,
+  lastGather: null,
 };
 
 export function addDiscovery(

@@ -1,5 +1,8 @@
 import * as THREE from "three";
 import {
+  CROUCH_HEIGHT,
+  CROUCH_SPEED,
+  JUMP_SPEED,
   PLAYER_HEIGHT,
   PLAYER_RADIUS,
   SPRINT_SPEED,
@@ -8,6 +11,7 @@ import {
 import type { GameSystem } from "../core/SystemPipeline";
 import { sampleTerrainHeight } from "../world/terrain";
 import { resolveCircleMovement } from "./collision";
+import { stepStamina, stepVertical } from "./locomotion";
 import type { GameRuntimeContext } from "./runtime";
 
 const LOOK_SENSITIVITY = 0.00175;
@@ -17,7 +21,10 @@ export class PlayerControllerSystem implements GameSystem<GameRuntimeContext> {
   readonly order = 10;
 
   update(context: GameRuntimeContext, deltaSeconds: number) {
-    if (!context.started || context.paused) return;
+    if (!context.started || context.paused) {
+      context.player.sprinting = false;
+      return;
+    }
     if (!context.testMode && !context.input.isLocked()) return;
 
     const look = context.input.consumeLookDelta();
@@ -34,22 +41,55 @@ export class PlayerControllerSystem implements GameSystem<GameRuntimeContext> {
     if (context.input.isDown("KeyD")) inputX += 1;
     if (context.input.isDown("KeyW")) inputZ -= 1;
     if (context.input.isDown("KeyS")) inputZ += 1;
-
     const inputLength = Math.hypot(inputX, inputZ);
+
+    context.player.crouching =
+      context.input.isDown("ControlLeft") ||
+      context.input.isDown("ControlRight") ||
+      context.input.isDown("KeyC");
+    const sprintHeld =
+      context.input.isDown("ShiftLeft") || context.input.isDown("ShiftRight");
+    context.player.sprinting =
+      inputLength > 0 &&
+      sprintHeld &&
+      !context.player.crouching &&
+      context.player.grounded &&
+      context.player.stamina > 0;
+
+    const staminaStep = stepStamina(
+      context.player.stamina,
+      context.player.staminaRecoveryDelay,
+      context.player.sprinting,
+      deltaSeconds,
+    );
+    context.player.stamina = staminaStep.stamina;
+    context.player.staminaRecoveryDelay = staminaStep.recoveryDelay;
+
+    if (
+      context.input.consumePressed("Space") &&
+      context.player.grounded &&
+      !context.player.crouching &&
+      context.player.stamina >= 0.08
+    ) {
+      context.player.verticalVelocity = JUMP_SPEED;
+      context.player.grounded = false;
+      context.player.stamina = Math.max(0, context.player.stamina - 0.08);
+      context.player.staminaRecoveryDelay = Math.max(context.player.staminaRecoveryDelay, 0.35);
+    }
+
     if (inputLength > 0) {
       inputX /= inputLength;
       inputZ /= inputLength;
-      const sprinting =
-        context.input.isDown("ShiftLeft") || context.input.isDown("ShiftRight");
-      const speed = sprinting ? SPRINT_SPEED : WALK_SPEED;
+      const speed = context.player.crouching
+        ? CROUCH_SPEED
+        : context.player.sprinting
+          ? SPRINT_SPEED
+          : WALK_SPEED;
       const sin = Math.sin(context.player.yaw);
       const cos = Math.cos(context.player.yaw);
       const worldX = inputX * cos + inputZ * sin;
       const worldZ = inputZ * cos - inputX * sin;
-      const current = {
-        x: context.player.position.x,
-        z: context.player.position.z,
-      };
+      const current = { x: context.player.position.x, z: context.player.position.z };
       const desired = {
         x: current.x + worldX * speed * deltaSeconds,
         z: current.z + worldZ * speed * deltaSeconds,
@@ -64,15 +104,23 @@ export class PlayerControllerSystem implements GameSystem<GameRuntimeContext> {
       context.player.position.z = resolved.z;
     }
 
-    context.player.position.y =
-      sampleTerrainHeight(context.player.position.x, context.player.position.z) +
-      PLAYER_HEIGHT;
-    context.camera.position.copy(context.player.position);
-    context.camera.rotation.set(
-      context.player.pitch,
-      context.player.yaw,
-      0,
-      "YXZ",
+    const groundY = sampleTerrainHeight(context.player.position.x, context.player.position.z);
+    const vertical = stepVertical(
+      context.player.position.y,
+      context.player.verticalVelocity,
+      groundY,
+      deltaSeconds,
     );
+    context.player.position.y = vertical.y;
+    context.player.verticalVelocity = vertical.velocity;
+    context.player.grounded = vertical.grounded;
+
+    const eyeHeight = context.player.crouching ? CROUCH_HEIGHT : PLAYER_HEIGHT;
+    context.camera.position.set(
+      context.player.position.x,
+      context.player.position.y + eyeHeight,
+      context.player.position.z,
+    );
+    context.camera.rotation.set(context.player.pitch, context.player.yaw, 0, "YXZ");
   }
 }

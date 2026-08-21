@@ -117,6 +117,77 @@ test("restores a saved survey after reload", async ({ page }) => {
   ]);
 });
 
+test("supports sprint, crouch, and a complete jump arc", async ({ page }) => {
+  await openDeterministicWorld(page);
+  await page.getByTestId("enter-frontier").click();
+
+  await page.keyboard.down("KeyW");
+  await page.keyboard.down("ShiftLeft");
+  await expect
+    .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().sprinting))
+    .toBe(true);
+  await expect
+    .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().stamina ?? 1))
+    .toBeLessThan(0.99);
+  await page.keyboard.up("ShiftLeft");
+  await page.keyboard.up("KeyW");
+
+  await page.keyboard.down("KeyC");
+  await expect
+    .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().crouching))
+    .toBe(true);
+  await page.keyboard.up("KeyC");
+
+  await page.keyboard.press("Space");
+  await expect
+    .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().grounded))
+    .toBe(false);
+  await expect
+    .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().grounded), {
+      timeout: 2_000,
+    })
+    .toBe(true);
+});
+
+test("collects and harvests deterministic resources without duplicate loot", async ({ page }, testInfo) => {
+  await page.goto("/?test=1&storage=1", { waitUntil: "load" });
+  await page.evaluate(() => window.localStorage.clear());
+  await page.reload({ waitUntil: "load" });
+  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  await page.getByTestId("enter-frontier").click();
+
+  const targets = await page.evaluate(() => window.__STILLPOINT_TEST__?.targets() ?? []);
+  const pickup = targets.find((target) => target.kind === "pickup");
+  const rock = targets.find((target) => target.id.includes("resource:rock:v1:0:0"));
+  expect(pickup).toBeTruthy();
+  expect(rock).toBeTruthy();
+  if (!pickup || !rock) return;
+
+  await page.evaluate((id) => window.__STILLPOINT_TEST__?.interactTarget(id), pickup.id);
+  const afterPickup = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
+  expect(Object.values(afterPickup?.inventory ?? {}).reduce((sum, value) => sum + value, 0)).toBe(1);
+
+  for (let hit = 0; hit < 3; hit += 1) {
+    await page.evaluate((id) => window.__STILLPOINT_TEST__?.interactTarget(id), rock.id);
+  }
+  const afterRock = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
+  expect(afterRock?.inventory.stone).toBe(3);
+  await page.evaluate((id) => window.__STILLPOINT_TEST__?.interactTarget(id), rock.id);
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().inventory.stone)).toBe(3);
+  await expect(page.getByTestId("gather-card")).toContainText("+3 STONE");
+  await attachScreenshot(page, testInfo, "resource-harvested");
+
+  await page.reload({ waitUntil: "load" });
+  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  const restored = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
+  expect(restored?.inventory.stone).toBe(3);
+  expect((await page.evaluate(() => window.__STILLPOINT_TEST__?.targets() ?? [])).some(
+    (target) => target.id === rock.id,
+  )).toBe(false);
+});
+
 test("keeps GPU resource counts bounded through repeated chunk churn", async ({ page }) => {
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
@@ -165,6 +236,18 @@ test("entry and fixed world views are visually reviewable @visual", async ({ pag
   } else {
     await attachScreenshot(page, testInfo, "visual-world-candidate");
   }
+});
+
+test("HUD and territory-map fixtures are visually reviewable without a GPU @visual", async ({ page }, testInfo) => {
+  await page.goto("/?visual=hud", { waitUntil: "load" });
+  await expect(page.getByTestId("movement-readout")).toContainText("READY");
+  await expect(page.getByTestId("inventory-belt")).toContainText("WOOD");
+  await attachScreenshot(page, testInfo, "hud-layout-fixture");
+
+  await page.goto("/?visual=map", { waitUntil: "load" });
+  await expect(page.getByTestId("map-panel")).toContainText("9,216 KM²");
+  await expect(page.getByTestId("map-panel")).toContainText("24");
+  await attachScreenshot(page, testInfo, "territory-map-fixture");
 });
 
 test("explains unavailable graphics acceleration @fallback", async ({ page }, testInfo) => {

@@ -11,12 +11,20 @@ import { FeatureRegistry } from "./core/FeatureRegistry";
 import { createEnvironment, type EnvironmentRuntime } from "./environment";
 import { InputManager } from "./input/InputManager";
 import { SaveStore } from "./persistence/SaveStore";
+import { applyGather, type EntityDiff } from "./gameplay/interactions";
+import { EMPTY_INVENTORY, type InventoryState } from "./gameplay/items";
 import { InteractionSystem } from "./systems/InteractionSystem";
 import { PlayerControllerSystem } from "./systems/PlayerControllerSystem";
 import type { GameRuntimeContext } from "./systems/runtime";
 import { WorldStreamingSystem } from "./systems/WorldStreamingSystem";
-import { type GameSnapshot, INITIAL_SNAPSHOT, addDiscovery } from "./state";
-import { ChunkManager } from "./world/ChunkManager";
+import {
+  type GameSnapshot,
+  type LastGatherSnapshot,
+  INITIAL_SNAPSHOT,
+  addDiscovery,
+} from "./state";
+import { ChunkManager, type WorldTarget } from "./world/ChunkManager";
+import { nearestSettlement, sampleClimate } from "./world/macroWorld";
 import { sampleTerrainHeight, worldToChunk } from "./world/terrain";
 
 const FIXED_STEP = 1 / 60;
@@ -30,6 +38,9 @@ export interface GameTestBridge {
   discover(beaconId: BeaconId): void;
   loseContext(): void;
   restoreContext(): void;
+  targets(): Array<{ id: string; kind: string; x: number; z: number }>;
+  faceTarget(id: string): void;
+  interactTarget(id: string): void;
 }
 
 declare global {
@@ -61,6 +72,12 @@ export class Engine {
     position: new THREE.Vector3(0, 0, 8),
     yaw: -0.565,
     pitch: -0.035,
+    verticalVelocity: 0,
+    grounded: true,
+    crouching: false,
+    sprinting: false,
+    stamina: 1,
+    staminaRecoveryDelay: 0,
   };
 
   private runtime: GameRuntimeContext;
@@ -78,7 +95,10 @@ export class Engine {
   private contextStatus: "ready" | "lost" = "ready";
   private quality: QualityLevel = "cinematic";
   private scanned: BeaconId[] = [];
+  private inventory: InventoryState = { ...EMPTY_INVENTORY };
+  private worldDiffs: Record<string, EntityDiff> = {};
   private lastDiscovery: BeaconId | null = null;
+  private lastGather: LastGatherSnapshot | null = null;
   private snapshot = { ...INITIAL_SNAPSHOT };
   private disposed = false;
 
@@ -96,7 +116,10 @@ export class Engine {
       }
     }
     this.saveStore = new SaveStore(browserStorage);
-    this.scanned = this.saveStore.load().scanned;
+    const saved = this.saveStore.load();
+    this.scanned = saved.scanned;
+    this.inventory = saved.inventory;
+    this.worldDiffs = saved.worldDiffs;
 
     this.renderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
@@ -113,12 +136,17 @@ export class Engine {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     this.input = new InputManager(this.canvas, this.handlePointerLockChange);
-    this.world = new ChunkManager(this.scene, this.quality);
+    this.world = new ChunkManager(this.scene, this.quality, this.worldDiffs);
     this.environment = createEnvironment(this.scene, this.quality);
-    this.player.position.y =
-      sampleTerrainHeight(this.player.position.x, this.player.position.z) +
-      PLAYER_HEIGHT;
-    this.camera.position.copy(this.player.position);
+    this.player.position.y = sampleTerrainHeight(
+      this.player.position.x,
+      this.player.position.z,
+    );
+    this.camera.position.set(
+      this.player.position.x,
+      this.player.position.y + PLAYER_HEIGHT,
+      this.player.position.z,
+    );
     this.camera.rotation.set(this.player.pitch, this.player.yaw, 0, "YXZ");
 
     this.runtime = {
@@ -129,9 +157,10 @@ export class Engine {
       started: false,
       paused: false,
       testMode: this.testMode,
-      nearbyBeacon: null,
+      nearbyTarget: null,
       nearbyDistance: null,
       discover: (beaconId) => this.discover(beaconId),
+      performInteraction: (target) => this.performInteraction(target),
       toggleMap: () => this.toggleMap(),
       toggleQuality: () => this.toggleQuality(),
     };
@@ -197,8 +226,40 @@ export class Engine {
     this.world.markScanned(beaconId);
     if (this.scanned.length !== previousLength) {
       this.lastDiscovery = beaconId;
-      this.saveStore.save(this.scanned);
+      this.persist();
     }
+    this.emitSnapshot(true);
+  }
+
+  performInteraction(target: WorldTarget) {
+    if (target.action === "scan" && target.beaconId) {
+      this.discover(target.beaconId);
+      return;
+    }
+    if (!target.item || target.action === "scan") return;
+    const outcome = applyGather(
+      { inventory: this.inventory, worldDiffs: this.worldDiffs },
+      {
+        id: target.id,
+        action: target.action,
+        item: target.item,
+        yieldAmount: target.yieldAmount ?? 0,
+        hitsRequired: target.hitsRequired,
+      },
+    );
+    if (outcome.result === "unchanged") return;
+    this.inventory = outcome.state.inventory;
+    this.worldDiffs = outcome.state.worldDiffs;
+    const diff = this.worldDiffs[target.id];
+    if (diff) this.world.applyEntityDiff(target.id, diff);
+    this.lastGather = {
+      targetName: target.name,
+      item: target.item,
+      quantity: outcome.loot?.quantity ?? 0,
+      result: outcome.result,
+      remainingHits: outcome.remainingHits,
+    };
+    this.persist();
     this.emitSnapshot(true);
   }
 
@@ -211,6 +272,19 @@ export class Engine {
   clearDiscoveryNotice() {
     this.lastDiscovery = null;
     this.emitSnapshot(true);
+  }
+
+  clearGatherNotice() {
+    this.lastGather = null;
+    this.emitSnapshot(true);
+  }
+
+  private persist() {
+    this.saveStore.save({
+      scanned: this.scanned,
+      inventory: this.inventory,
+      worldDiffs: this.worldDiffs,
+    });
   }
 
   dispose() {
@@ -271,6 +345,9 @@ export class Engine {
     this.lastSnapshotTime = performance.now();
     const chunk = worldToChunk(this.player.position.x, this.player.position.z);
     const heading = ((THREE.MathUtils.radToDeg(this.player.yaw) % 360) + 360) % 360;
+    const climate = sampleClimate(this.player.position.x, this.player.position.z);
+    const nearest = nearestSettlement(this.player.position.x, this.player.position.z);
+    const nearbyTarget = this.runtime.nearbyTarget;
     this.snapshot = {
       ready: this.ready,
       started: this.started,
@@ -291,9 +368,41 @@ export class Engine {
       textures: this.renderer.info.memory.textures,
       quality: this.quality,
       scanned: [...this.scanned],
-      nearbyBeacon: this.runtime.nearbyBeacon,
+      inventory: { ...this.inventory },
+      worldChanges: Object.values(this.worldDiffs).filter((diff) => diff.removed).length,
+      grounded: this.player.grounded,
+      crouching: this.player.crouching,
+      sprinting: this.player.sprinting,
+      stamina: this.player.stamina,
+      biome: {
+        id: climate.biome.id,
+        name: climate.biome.name,
+        region: climate.biome.region,
+      },
+      nearestSettlement: {
+        id: nearest.settlement.id,
+        name: nearest.settlement.name,
+        tier: nearest.settlement.tier,
+        distance: nearest.distance,
+        economy: nearest.settlement.economy,
+        reason: nearest.settlement.reason,
+      },
+      nearbyTarget: nearbyTarget
+        ? {
+            id: nearbyTarget.id,
+            kind: nearbyTarget.kind,
+            action: nearbyTarget.action,
+            name: nearbyTarget.name,
+            item: nearbyTarget.item ?? null,
+            hits: nearbyTarget.hits,
+            hitsRequired: nearbyTarget.hitsRequired,
+            beaconId: nearbyTarget.beaconId ?? null,
+          }
+        : null,
+      nearbyBeacon: nearbyTarget?.beaconId ?? null,
       nearbyDistance: this.runtime.nearbyDistance,
       lastDiscovery: this.lastDiscovery,
+      lastGather: this.lastGather,
     };
     this.onSnapshot(this.snapshot);
   }
@@ -361,8 +470,11 @@ export class Engine {
       isReady: () => this.ready,
       snapshot: () => structuredClone(this.snapshot),
       teleport: (x, z) => {
-        this.player.position.set(x, sampleTerrainHeight(x, z) + PLAYER_HEIGHT, z);
-        this.camera.position.copy(this.player.position);
+        this.player.position.set(x, sampleTerrainHeight(x, z), z);
+        this.player.verticalVelocity = 0;
+        this.player.grounded = true;
+        this.player.crouching = false;
+        this.camera.position.set(x, this.player.position.y + PLAYER_HEIGHT, z);
         this.world.update(x, z);
         this.emitSnapshot(true);
       },
@@ -384,6 +496,27 @@ export class Engine {
       restoreContext: () => {
         const extension = this.renderer.getContext().getExtension("WEBGL_lose_context");
         extension?.restoreContext();
+      },
+      targets: () =>
+        this.world.targets.map((target) => ({
+          id: target.id,
+          kind: target.kind,
+          x: target.position.x,
+          z: target.position.z,
+        })),
+      faceTarget: (id) => {
+        const target = this.world.targets.find((candidate) => candidate.id === id);
+        if (!target) return;
+        const deltaX = target.position.x - this.player.position.x;
+        const deltaZ = target.position.z - this.player.position.z;
+        this.player.yaw = Math.atan2(-deltaX, -deltaZ);
+        this.player.pitch = -0.04;
+        this.camera.rotation.set(this.player.pitch, this.player.yaw, 0, "YXZ");
+        this.emitSnapshot(true);
+      },
+      interactTarget: (id) => {
+        const target = this.world.targets.find((candidate) => candidate.id === id);
+        if (target) this.performInteraction(target);
       },
     };
   }

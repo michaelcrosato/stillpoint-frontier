@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import { INTERACTION_DISTANCE } from "../config";
 import type { GameSystem } from "../core/SystemPipeline";
+import type { WorldTarget } from "../world/ChunkManager";
 import type { GameRuntimeContext } from "./runtime";
 
 const forward = new THREE.Vector3();
@@ -13,29 +13,35 @@ export class InteractionSystem implements GameSystem<GameRuntimeContext> {
   update(context: GameRuntimeContext) {
     if (context.input.consumePressed("KeyM")) context.toggleMap();
     if (context.input.consumePressed("KeyQ")) context.toggleQuality();
-    const interactPressed = context.input.consumePressed("KeyE");
+    const usePressed = context.input.consumePressed("KeyE");
+    const harvestPressed =
+      context.input.consumePressed("KeyF") || context.input.consumePressed("Mouse0");
 
-    context.nearbyBeacon = null;
+    context.nearbyTarget = null;
     context.nearbyDistance = null;
     if (!context.started || context.paused) return;
 
     context.camera.getWorldDirection(forward);
+    let bestTarget: WorldTarget | null = null;
+    let bestDistance: number | null = null;
     let bestScore = Number.POSITIVE_INFINITY;
-    for (const interactable of context.world.interactables) {
-      toTarget.copy(interactable.position).sub(context.camera.position);
+    for (const target of context.world.targets) {
+      toTarget.copy(target.position).sub(context.camera.position);
       const distance = toTarget.length();
-      if (distance > INTERACTION_DISTANCE) continue;
+      if (distance > target.maxDistance) continue;
       const alignment = forward.dot(toTarget.normalize());
-      if (alignment < 0.64) continue;
+      if (alignment < (target.kind === "pickup" ? 0.5 : 0.58)) continue;
       const score = distance + (1 - alignment) * 4;
       if (score >= bestScore) continue;
       bestScore = score;
-      context.nearbyBeacon = interactable.id;
-      context.nearbyDistance = distance;
+      bestTarget = target;
+      bestDistance = distance;
     }
 
-    if (context.nearbyBeacon && interactPressed) {
-      context.discover(context.nearbyBeacon);
-    }
+    context.nearbyTarget = bestTarget;
+    context.nearbyDistance = bestDistance;
+    if (!bestTarget) return;
+    const pressed = bestTarget.action === "harvest" ? harvestPressed : usePressed;
+    if (pressed) context.performInteraction(bestTarget);
   }
 }

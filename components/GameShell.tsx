@@ -3,7 +3,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BEACONS, GAME_TITLE, WORLD_SEED, type BeaconId } from "../lib/game/config";
 import { Engine } from "../lib/game/Engine";
+import { ITEM_DEFINITIONS, type ItemId } from "../lib/game/gameplay/items";
 import { INITIAL_SNAPSHOT, nextUnscannedBeacon, type GameSnapshot } from "../lib/game/state";
+import {
+  ROAD_LINKS,
+  SETTLEMENTS,
+  WORLD_AREA_KM2,
+  WORLD_HALF_EXTENT,
+  getSettlement,
+  riverCenterX,
+} from "../lib/game/world/macroWorld";
 
 const CARDINALS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 
@@ -19,19 +28,77 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+function mapPercent(value: number) {
+  return 50 + (value / (WORLD_HALF_EXTENT * 2)) * 100;
+}
+
+function formatDistance(meters: number) {
+  return meters >= 1_000 ? `${(meters / 1_000).toFixed(1)} KM` : `${Math.round(meters)} M`;
+}
+
 export default function GameShell() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
   const [snapshot, setSnapshot] = useState<GameSnapshot>(INITIAL_SNAPSHOT);
+  const [visualFixture, setVisualFixture] = useState(false);
   const [engineError, setEngineError] = useState<string | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     let active = true;
-    const testMode = new URLSearchParams(window.location.search).get("test") === "1";
+    const parameters = new URLSearchParams(window.location.search);
+    const fixture = parameters.get("visual");
+    if (fixture) {
+      queueMicrotask(() => {
+        if (!active) return;
+        setVisualFixture(true);
+        setSnapshot({
+          ...INITIAL_SNAPSHOT,
+          ready: true,
+          started: fixture !== "entry",
+          mapOpen: fixture === "map",
+          position: { x: 4_240, y: 8.4, z: -3_180 },
+          heading: 42,
+          fps: 60,
+          chunk: { x: 44, z: -33 },
+          loadedChunks: 25,
+          triangles: 48_620,
+          geometries: 138,
+          textures: 4,
+          scanned: ["amber-relay"],
+          inventory: { stone: 3, wood: 4, fiber: 2, ore: 1, relic: 0 },
+          worldChanges: 4,
+          stamina: 0.72,
+          biome: { id: "pine_forest", name: "Sable Pine Forest", region: "Sablewood" },
+          nearestSettlement: {
+            id: "timberfall",
+            name: "Timberfall",
+            tier: "town",
+            distance: 1_240,
+            economy: "timber · resin · paper · carpentry",
+            reason: "A managed-forest town where two logging valleys meet the highland road.",
+          },
+          nearbyTarget: {
+            id: "resource:tree:v1:44:-33:0",
+            kind: "resource",
+            action: "harvest",
+            name: "Workable pine",
+            item: "wood",
+            hits: 1,
+            hitsRequired: 3,
+            beaconId: null,
+          },
+          nearbyDistance: 4.2,
+        });
+      });
+      return () => {
+        active = false;
+      };
+    }
+    const testMode = parameters.get("test") === "1";
     const storageEnabled =
-      !testMode || new URLSearchParams(window.location.search).get("storage") === "1";
+      !testMode || parameters.get("storage") === "1";
 
     try {
       const engine = new Engine({
@@ -70,7 +137,15 @@ export default function GameShell() {
   );
   const nearbyBeacon = beaconById(snapshot.nearbyBeacon);
   const discoveredBeacon = beaconById(snapshot.lastDiscovery);
+  const nearbyTarget = snapshot.nearbyTarget;
+  const lastGatherItem = snapshot.lastGather
+    ? ITEM_DEFINITIONS[snapshot.lastGather.item]
+    : null;
   const surveyComplete = snapshot.scanned.length === BEACONS.length;
+  const riverMapPoints = Array.from({ length: 33 }, (_, index) => {
+    const z = -WORLD_HALF_EXTENT + (index / 32) * WORLD_HALF_EXTENT * 2;
+    return `${mapPercent(riverCenterX(z)).toFixed(2)},${mapPercent(z).toFixed(2)}`;
+  }).join(" ");
 
   return (
     <main className="game-shell" data-testid="game-shell">
@@ -83,6 +158,13 @@ export default function GameShell() {
           if (snapshot.started && snapshot.paused) engineRef.current?.resume();
         }}
       />
+
+      {visualFixture && (
+        <>
+          <div className="visual-world-fixture" aria-hidden="true"><i /><span /><b /></div>
+          <small className="visual-fixture-label">UI TEST FIXTURE / WEBGL BYPASSED</small>
+        </>
+      )}
 
       <div className="optical-grain" aria-hidden="true" />
       <div className="frame-corners" aria-hidden="true" />
@@ -121,14 +203,14 @@ export default function GameShell() {
           </header>
 
           <div className="entry-main">
-            <p className="eyebrow">FIELD DIRECTIVE 01 / RED BASIN</p>
+            <p className="eyebrow">FIELD DIRECTIVE 01 / GREYWATER TERRITORY</p>
             <h1>
               Read the land.<br />
               <em>Wake the signal.</em>
             </h1>
             <p className="entry-deck">
-              Three silent relays remain in an unbounded procedural frontier.
-              Traverse the basin, recover their records, and leave the world changed.
+              A 96-kilometre territory unfolds around the Greywater: forest, highland,
+              steppe, badland, coast, and the megacity that binds their economies together.
             </p>
             <button
               type="button"
@@ -157,7 +239,7 @@ export default function GameShell() {
               <span>RENDER TARGET</span>
               <strong>RTX 30 / 1440P</strong>
             </div>
-            <p>No combat. No cutscenes. Just place, signal, and distance.</p>
+            <p>No combat. No cutscenes. A static world shaped by distance and work.</p>
           </footer>
         </section>
       )}
@@ -244,37 +326,83 @@ export default function GameShell() {
             </div>
           </aside>
 
+          <aside className="region-card" data-testid="region-card">
+            <p>{snapshot.biome.region}</p>
+            <h2>{snapshot.biome.name}</h2>
+            <div>
+              <span>NEAREST {snapshot.nearestSettlement.tier.toUpperCase()}</span>
+              <strong>{snapshot.nearestSettlement.name}</strong>
+              <small>{formatDistance(snapshot.nearestSettlement.distance)} · {snapshot.nearestSettlement.economy}</small>
+            </div>
+          </aside>
+
           <div className="crosshair" aria-hidden="true">
             <span />
             <i />
           </div>
 
-          {nearbyBeacon && !snapshot.scanned.includes(nearbyBeacon.id) && (
+          {nearbyTarget &&
+            !(nearbyTarget.beaconId && snapshot.scanned.includes(nearbyTarget.beaconId)) && (
             <div className="interaction-prompt" data-testid="interaction-prompt">
-              <kbd>E</kbd>
+              <kbd>{nearbyTarget.action === "harvest" ? "F" : "E"}</kbd>
               <div>
-                <span>RECOVER RECORD</span>
-                <strong>{nearbyBeacon.code} / {nearbyBeacon.name}</strong>
+                <span>
+                  {nearbyTarget.action === "harvest"
+                    ? "HARVEST RESOURCE"
+                    : nearbyTarget.action === "collect"
+                      ? "COLLECT"
+                      : "RECOVER RECORD"}
+                </span>
+                <strong>
+                  {nearbyTarget.beaconId && nearbyBeacon?.code ? `${nearbyBeacon.code} / ` : ""}
+                  {nearbyTarget.name}
+                </strong>
               </div>
-              <small>{snapshot.nearbyDistance?.toFixed(1)}M</small>
+              <small>
+                {nearbyTarget.action === "harvest"
+                  ? `${Math.max(1, nearbyTarget.hitsRequired - nearbyTarget.hits)} HITS · `
+                  : ""}
+                {snapshot.nearbyDistance?.toFixed(1)}M
+              </small>
             </div>
           )}
 
-          {nearbyBeacon && snapshot.scanned.includes(nearbyBeacon.id) && (
+          {nearbyTarget?.beaconId && snapshot.scanned.includes(nearbyTarget.beaconId) && (
             <div className="interaction-prompt is-complete">
               <span className="prompt-check">✓</span>
               <div>
                 <span>RECORD SECURED</span>
-                <strong>{nearbyBeacon.code} / {nearbyBeacon.name}</strong>
+                <strong>{nearbyBeacon?.code} / {nearbyBeacon?.name}</strong>
               </div>
             </div>
           )}
 
+          <div className="survival-readout" data-testid="movement-readout">
+            <div className="stamina-line">
+              <span>
+                {snapshot.crouching ? "CROUCHED" : snapshot.sprinting ? "SPRINTING" : snapshot.grounded ? "READY" : "AIRBORNE"}
+              </span>
+              <i><b style={{ width: `${snapshot.stamina * 100}%` }} /></i>
+              <strong>{Math.round(snapshot.stamina * 100)}</strong>
+            </div>
+            <div className="inventory-belt" data-testid="inventory-belt">
+              {(Object.keys(ITEM_DEFINITIONS) as ItemId[]).map((item) => (
+                <span key={item} className={snapshot.inventory[item] > 0 ? "has-item" : ""}>
+                  <small>{ITEM_DEFINITIONS[item].shortName}</small>
+                  <strong>{String(snapshot.inventory[item]).padStart(2, "0")}</strong>
+                </span>
+              ))}
+            </div>
+          </div>
+
           <footer className="hud-footer">
             <div className="controls-strip">
               <span><kbd>WASD</kbd> MOVE</span>
-              <span><kbd>SHIFT</kbd> TRAVERSE</span>
-              <span><kbd>E</kbd> SCAN</span>
+              <span><kbd>SHIFT</kbd> SPRINT</span>
+              <span><kbd>SPACE</kbd> JUMP</span>
+              <span><kbd>CTRL/C</kbd> CROUCH</span>
+              <span><kbd>E</kbd> USE</span>
+              <span><kbd>F/CLICK</kbd> HARVEST</span>
               <button type="button" onClick={() => engineRef.current?.setMapOpen(true)}>
                 <kbd>M</kbd> MAP
               </button>
@@ -305,7 +433,7 @@ export default function GameShell() {
           <header>
             <div>
               <p className="eyebrow">FIELD CARTOGRAPHY</p>
-              <h2>RED BASIN / SURVEY GRID</h2>
+              <h2>GREYWATER TERRITORY / 96 × 96 KM</h2>
             </div>
             <button type="button" onClick={() => engineRef.current?.setMapOpen(false)}>
               CLOSE <kbd>M</kbd>
@@ -313,11 +441,29 @@ export default function GameShell() {
           </header>
           <div className="map-body">
             <div className="map-plot">
+              <svg className="map-geography" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                <polyline className="map-river" points={riverMapPoints} />
+                {ROAD_LINKS.map((link) => {
+                  const from = getSettlement(link.from);
+                  const to = getSettlement(link.to);
+                  if (!from || !to) return null;
+                  return (
+                    <line
+                      key={`${link.from}:${link.to}`}
+                      className={`map-road is-${link.class}`}
+                      x1={mapPercent(from.x)}
+                      y1={mapPercent(from.z)}
+                      x2={mapPercent(to.x)}
+                      y2={mapPercent(to.z)}
+                    />
+                  );
+                })}
+              </svg>
               <span
                 className="map-player"
                 style={{
-                  left: `${50 + clamp(snapshot.position.x / 4.4, -46, 46)}%`,
-                  top: `${50 + clamp(snapshot.position.z / 4.4, -46, 46)}%`,
+                  left: `${clamp(mapPercent(snapshot.position.x), 2, 98)}%`,
+                  top: `${clamp(mapPercent(snapshot.position.z), 2, 98)}%`,
                 }}
               >
                 YOU
@@ -327,12 +473,23 @@ export default function GameShell() {
                   key={beacon.id}
                   className={`map-beacon ${snapshot.scanned.includes(beacon.id) ? "is-scanned" : ""}`}
                   style={{
-                    left: `${50 + beacon.x / 4.4}%`,
-                    top: `${50 + beacon.z / 4.4}%`,
+                    left: `${mapPercent(beacon.x)}%`,
+                    top: `${mapPercent(beacon.z)}%`,
                   }}
                 >
                   <i />
                   {beacon.code}
+                </span>
+              ))}
+              {SETTLEMENTS.map((settlement) => (
+                <span
+                  key={settlement.id}
+                  className={`map-settlement is-${settlement.tier}`}
+                  style={{ left: `${mapPercent(settlement.x)}%`, top: `${mapPercent(settlement.z)}%` }}
+                  title={`${settlement.name}: ${settlement.economy}`}
+                >
+                  <i />
+                  <b>{settlement.name}</b>
                 </span>
               ))}
             </div>
@@ -340,11 +497,17 @@ export default function GameShell() {
               <p>WORLD STATE</p>
               <dl>
                 <div><dt>SEED</dt><dd>{WORLD_SEED}</dd></div>
+                <div><dt>AUTHORED AREA</dt><dd>{WORLD_AREA_KM2.toLocaleString()} KM²</dd></div>
+                <div><dt>SETTLEMENTS</dt><dd>{SETTLEMENTS.length}</dd></div>
                 <div><dt>ACTIVE GRID</dt><dd>{snapshot.chunk.x}:{snapshot.chunk.z}</dd></div>
                 <div><dt>RESIDENT</dt><dd>{snapshot.loadedChunks} CHUNKS</dd></div>
                 <div><dt>RECORDS</dt><dd>{snapshot.scanned.length} / {BEACONS.length}</dd></div>
+                <div><dt>WORLD CHANGES</dt><dd>{snapshot.worldChanges}</dd></div>
               </dl>
-              <small>The map indexes relay coordinates. Terrain continues beyond this survey plate.</small>
+              <small>
+                <strong>{snapshot.nearestSettlement.name}</strong> — {snapshot.nearestSettlement.reason}
+                <br /><br />Its economy: {snapshot.nearestSettlement.economy}.
+              </small>
             </aside>
           </div>
         </section>
@@ -371,6 +534,20 @@ export default function GameShell() {
           <h2>{discoveredBeacon.name}</h2>
           <blockquote>{discoveredBeacon.note}</blockquote>
           <small>{snapshot.scanned.length} OF {BEACONS.length} SIGNALS COHERENT</small>
+        </aside>
+      )}
+
+      {snapshot.lastGather && lastGatherItem && (
+        <aside className="gather-card" data-testid="gather-card" aria-live="polite">
+          <button type="button" aria-label="Dismiss gathering result" onClick={() => engineRef.current?.clearGatherNotice()}>×</button>
+          <p>{snapshot.lastGather.result === "hit" ? "RESOURCE WORKED" : "MATERIAL SECURED"}</p>
+          <h2>{snapshot.lastGather.targetName}</h2>
+          <strong>
+            {snapshot.lastGather.quantity > 0
+              ? `+${snapshot.lastGather.quantity} ${lastGatherItem.shortName}`
+              : `${snapshot.lastGather.remainingHits} HITS REMAIN`}
+          </strong>
+          <small>STATE SAVED TO THE WORLD DELTA</small>
         </aside>
       )}
     </main>

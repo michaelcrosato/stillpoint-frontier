@@ -1,8 +1,9 @@
-# vinext-starter
+# Stillpoint Frontier
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+A low-animation, first-person Three.js open-world foundation running on
+[vinext](https://github.com/cloudflare/vinext). It streams a deterministic 96×96 km
+territory with biome geography, settlements and roads, gathering, movement, persistence,
+and a GPU-aware test harness.
 
 ## Prerequisites
 

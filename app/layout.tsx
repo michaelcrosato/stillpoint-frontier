@@ -5,10 +5,10 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://stillpoint-frontier.michaelcrosato.chatgpt.site"),
   title: "Stillpoint Frontier",
   description:
-    "A low-motion first-person open-world survey game powered by Three.js.",
+    "A low-motion Three.js frontier across a streamed 96 km territory of biomes, settlements, movement, and gathering.",
   openGraph: {
     title: "Stillpoint Frontier",
-    description: "Read the land. Wake the signal.",
+    description: "Cross the Greywater. Read the land. Shape the frontier.",
     type: "website",
     images: [
       {
@@ -22,7 +22,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Stillpoint Frontier",
-    description: "Read the land. Wake the signal.",
+    description: "Cross the Greywater. Read the land. Shape the frontier.",
     images: ["/og.png"],
   },
   icons: {

@@ -4,11 +4,15 @@ const GAME_KEYS = new Set([
   "KeyS",
   "KeyD",
   "KeyE",
+  "KeyF",
+  "KeyC",
   "KeyM",
   "KeyQ",
   "ShiftLeft",
   "ShiftRight",
   "Space",
+  "ControlLeft",
+  "ControlRight",
 ]);
 
 export class InputManager {
@@ -25,6 +29,8 @@ export class InputManager {
     window.addEventListener("keydown", this.handleKeyDown);
     window.addEventListener("keyup", this.handleKeyUp);
     window.addEventListener("blur", this.handleBlur);
+    window.addEventListener("mouseup", this.handleMouseUp);
+    this.canvas.addEventListener("mousedown", this.handleMouseDown);
     document.addEventListener("mousemove", this.handleMouseMove);
     document.addEventListener("pointerlockchange", this.handlePointerLockChange);
     document.addEventListener("pointerlockerror", this.handlePointerLockError);
@@ -65,6 +71,8 @@ export class InputManager {
     window.removeEventListener("keydown", this.handleKeyDown);
     window.removeEventListener("keyup", this.handleKeyUp);
     window.removeEventListener("blur", this.handleBlur);
+    window.removeEventListener("mouseup", this.handleMouseUp);
+    this.canvas.removeEventListener("mousedown", this.handleMouseDown);
     document.removeEventListener("mousemove", this.handleMouseMove);
     document.removeEventListener("pointerlockchange", this.handlePointerLockChange);
     document.removeEventListener("pointerlockerror", this.handlePointerLockError);
@@ -95,8 +103,20 @@ export class InputManager {
     this.lookDelta.y += event.movementY;
   };
 
+  private handleMouseDown = (event: MouseEvent) => {
+    if (event.button !== 0) return;
+    this.pressed.add("Mouse0");
+    this.held.add("Mouse0");
+  };
+
+  private handleMouseUp = (event: MouseEvent) => {
+    if (event.button === 0) this.held.delete("Mouse0");
+  };
+
   private handlePointerLockChange = () => {
-    this.onPointerLockChange?.(this.isLocked());
+    const locked = this.isLocked();
+    if (!locked) this.handleBlur();
+    this.onPointerLockChange?.(locked);
   };
 
   private handlePointerLockError = () => {
