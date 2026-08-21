@@ -6,11 +6,10 @@ import { Engine } from "../lib/game/Engine";
 import { ITEM_DEFINITIONS, type ItemId } from "../lib/game/gameplay/items";
 import { INITIAL_SNAPSHOT, nextUnscannedBeacon, type GameSnapshot } from "../lib/game/state";
 import {
-  ROAD_LINKS,
+  ROAD_CORRIDORS,
   SETTLEMENTS,
   WORLD_AREA_KM2,
   WORLD_HALF_EXTENT,
-  getSettlement,
   riverCenterX,
 } from "../lib/game/world/macroWorld";
 
@@ -63,6 +62,8 @@ export default function GameShell() {
           fps: 60,
           chunk: { x: 44, z: -33 },
           loadedChunks: 25,
+          citizenCount: 486,
+          crowdDensity: "ACTIVE",
           triangles: 48_620,
           geometries: 138,
           textures: 4,
@@ -233,13 +234,13 @@ export default function GameShell() {
             </div>
             <div>
               <span>MOTION PROFILE</span>
-              <strong>STATIC WORLD</strong>
+              <strong>RIG-FREE CROWDS</strong>
             </div>
             <div>
               <span>RENDER TARGET</span>
               <strong>RTX 30 / 1440P</strong>
             </div>
-            <p>No combat. No cutscenes. A static world shaped by distance and work.</p>
+            <p>No combat. No cutscenes. A low-animation world shaped by distance and work.</p>
           </footer>
         </section>
       )}
@@ -271,6 +272,10 @@ export default function GameShell() {
               <div>
                 <span>CHUNKS</span>
                 <strong>{String(snapshot.loadedChunks).padStart(2, "0")}</strong>
+              </div>
+              <div>
+                <span>CITIZENS</span>
+                <strong>{snapshot.citizenCount.toLocaleString()}</strong>
               </div>
               <div>
                 <span>PROFILE</span>
@@ -333,6 +338,11 @@ export default function GameShell() {
               <span>NEAREST {snapshot.nearestSettlement.tier.toUpperCase()}</span>
               <strong>{snapshot.nearestSettlement.name}</strong>
               <small>{formatDistance(snapshot.nearestSettlement.distance)} · {snapshot.nearestSettlement.economy}</small>
+            </div>
+            <div className="crowd-readout" data-testid="crowd-readout">
+              <span>AMBIENT / NON-INTERACTIVE</span>
+              <strong>{snapshot.crowdDensity} · {snapshot.citizenCount.toLocaleString()} VISIBLE</strong>
+              <small>INSTANCED ROUTES · NO DIALOGUE STATE</small>
             </div>
           </aside>
 
@@ -443,18 +453,15 @@ export default function GameShell() {
             <div className="map-plot">
               <svg className="map-geography" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
                 <polyline className="map-river" points={riverMapPoints} />
-                {ROAD_LINKS.map((link) => {
-                  const from = getSettlement(link.from);
-                  const to = getSettlement(link.to);
-                  if (!from || !to) return null;
+                {ROAD_CORRIDORS.map((corridor) => {
                   return (
                     <line
-                      key={`${link.from}:${link.to}`}
-                      className={`map-road is-${link.class}`}
-                      x1={mapPercent(from.x)}
-                      y1={mapPercent(from.z)}
-                      x2={mapPercent(to.x)}
-                      y2={mapPercent(to.z)}
+                      key={corridor.id}
+                      className={`map-road is-${corridor.class}`}
+                      x1={mapPercent(corridor.from.x)}
+                      y1={mapPercent(corridor.from.z)}
+                      x2={mapPercent(corridor.to.x)}
+                      y2={mapPercent(corridor.to.z)}
                     />
                   );
                 })}
@@ -501,6 +508,7 @@ export default function GameShell() {
                 <div><dt>SETTLEMENTS</dt><dd>{SETTLEMENTS.length}</dd></div>
                 <div><dt>ACTIVE GRID</dt><dd>{snapshot.chunk.x}:{snapshot.chunk.z}</dd></div>
                 <div><dt>RESIDENT</dt><dd>{snapshot.loadedChunks} CHUNKS</dd></div>
+                <div><dt>AMBIENT CITIZENS</dt><dd>{snapshot.citizenCount.toLocaleString()} / {snapshot.crowdDensity}</dd></div>
                 <div><dt>RECORDS</dt><dd>{snapshot.scanned.length} / {BEACONS.length}</dd></div>
                 <div><dt>WORLD CHANGES</dt><dd>{snapshot.worldChanges}</dd></div>
               </dl>

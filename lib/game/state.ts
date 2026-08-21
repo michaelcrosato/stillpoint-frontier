@@ -31,6 +31,8 @@ export interface GameSnapshot {
   fps: number;
   chunk: { x: number; z: number };
   loadedChunks: number;
+  citizenCount: number;
+  crowdDensity: "WILDERNESS" | "QUIET" | "LOCAL" | "ACTIVE" | "BUSY" | "SURGE";
   triangles: number;
   geometries: number;
   textures: number;
@@ -69,6 +71,8 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
   fps: 60,
   chunk: { x: 0, z: 0 },
   loadedChunks: 0,
+  citizenCount: 0,
+  crowdDensity: "WILDERNESS",
   triangles: 0,
   geometries: 0,
   textures: 0,

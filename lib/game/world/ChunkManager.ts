@@ -12,19 +12,21 @@ import type { EntityDiff } from "../gameplay/interactions";
 import type { ItemId } from "../gameplay/items";
 import { randomRange, seededRandom } from "../core/random";
 import type { CircleCollider } from "../systems/collision";
-import { clipSegmentToRect } from "./geometry";
 import {
-  ROAD_LINKS,
   WATER_LEVEL,
   WORLD_MODEL_SCALE,
   riverCenterX,
   riverWidth,
-  roadEndpoints,
   sampleClimate,
   settlementInfluence,
   settlementsNear,
   type Settlement,
 } from "./macroWorld";
+import {
+  distanceToPathSegment,
+  settlementStreetSegmentsForChunk,
+  worldPathSegmentsForChunk,
+} from "./roads";
 import {
   chunkCenter,
   chunkKey,
@@ -60,7 +62,6 @@ interface ChunkRuntime {
   targets: WorldTarget[];
 }
 
-const ROAD_WIDTHS = { trunk: 9, regional: 6.2, local: 3.8 } as const;
 const SETTLEMENT_BUILDINGS = {
   megacity: { count: 44, height: 82, color: 0x343936 },
   city: { count: 28, height: 38, color: 0x4b4d48 },
@@ -290,22 +291,18 @@ export class ChunkManager {
   }
 
   private addRoads(root: THREE.Group, centerX: number, centerZ: number, key: string) {
-    const half = CHUNK_SIZE / 2;
-    const recipes: Array<{ x: number; z: number; length: number; width: number; angle: number }> = [];
-    for (const link of ROAD_LINKS) {
-      const endpoints = roadEndpoints(link);
-      if (!endpoints) continue;
-      const clipped = clipSegmentToRect(
-        { x: endpoints.from.x, z: endpoints.from.z },
-        { x: endpoints.to.x, z: endpoints.to.z },
-        centerX - half,
-        centerX + half,
-        centerZ - half,
-        centerZ + half,
-      );
-      if (!clipped) continue;
-      const dx = clipped.end.x - clipped.start.x;
-      const dz = clipped.end.z - clipped.start.z;
+    const chunk = worldToChunk(centerX, centerZ);
+    const recipes: Array<{
+      x: number;
+      z: number;
+      length: number;
+      width: number;
+      angle: number;
+      kind: "road" | "street";
+    }> = [];
+    for (const segment of worldPathSegmentsForChunk(chunk.x, chunk.z)) {
+      const dx = segment.end.x - segment.start.x;
+      const dz = segment.end.z - segment.start.z;
       const distance = Math.hypot(dx, dz);
       if (distance < 0.5) continue;
       const count = Math.max(1, Math.ceil(distance / 14));
@@ -313,11 +310,12 @@ export class ChunkManager {
         const start = index / count;
         const end = (index + 1) / count;
         recipes.push({
-          x: clipped.start.x + dx * (start + end) * 0.5,
-          z: clipped.start.z + dz * (start + end) * 0.5,
+          x: segment.start.x + dx * (start + end) * 0.5,
+          z: segment.start.z + dz * (start + end) * 0.5,
           length: distance / count + 0.4,
-          width: ROAD_WIDTHS[link.class],
+          width: segment.width,
           angle: -Math.atan2(dz, dx),
+          kind: segment.kind,
         });
       }
     }
@@ -325,7 +323,7 @@ export class ChunkManager {
 
     const roads = new THREE.InstancedMesh(
       new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshStandardMaterial({ color: 0x4a4338, roughness: 1 }),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, vertexColors: true }),
       recipes.length,
     );
     roads.name = `roads:${key}`;
@@ -335,8 +333,10 @@ export class ChunkManager {
     const quaternion = new THREE.Quaternion();
     const position = new THREE.Vector3();
     const scale = new THREE.Vector3();
+    const color = new THREE.Color();
     recipes.forEach((recipe, index) => {
       const crossesRiver =
+        recipe.kind === "road" &&
         Math.abs(recipe.x - riverCenterX(recipe.z)) < riverWidth(recipe.z) + recipe.width;
       position.set(
         recipe.x,
@@ -349,8 +349,10 @@ export class ChunkManager {
       scale.set(recipe.length, 0.1, recipe.width);
       matrix.compose(position, quaternion, scale);
       roads.setMatrixAt(index, matrix);
+      roads.setColorAt(index, color.setHex(recipe.kind === "street" ? 0x3d3c36 : 0x4a4338));
     });
     roads.instanceMatrix.needsUpdate = true;
+    if (roads.instanceColor) roads.instanceColor.needsUpdate = true;
     roads.computeBoundingSphere();
     root.add(roads);
   }
@@ -363,6 +365,8 @@ export class ChunkManager {
     colliders: CircleCollider[],
   ) {
     const nearby = settlementsNear(centerX, centerZ, CHUNK_SIZE * 0.72);
+    const chunk = worldToChunk(centerX, centerZ);
+    const chunkStreets = settlementStreetSegmentsForChunk(chunk.x, chunk.z);
     for (const settlement of nearby) {
       const spec = SETTLEMENT_BUILDINGS[settlement.tier];
       const influence = Math.max(0.08, settlementInfluence(settlement, centerX, centerZ));
@@ -382,13 +386,23 @@ export class ChunkManager {
       const quaternion = new THREE.Quaternion();
       const position = new THREE.Vector3();
       const scale = new THREE.Vector3();
+      const streets = chunkStreets.filter((street) => street.settlementId === settlement.id);
 
       for (let index = 0; index < count; index += 1) {
-        let x = centerX + randomRange(random, -CHUNK_SIZE * 0.43, CHUNK_SIZE * 0.43);
-        const z = centerZ + randomRange(random, -CHUNK_SIZE * 0.43, CHUNK_SIZE * 0.43);
-        if (Math.abs(x - riverCenterX(z)) < riverWidth(z) + 8) x += CHUNK_SIZE * 0.33;
         const width = randomRange(random, 4.5, settlement.tier === "megacity" ? 14 : 9);
         const depth = randomRange(random, 4.2, settlement.tier === "megacity" ? 13 : 8);
+        let x = centerX;
+        let z = centerZ;
+        for (let attempt = 0; attempt < 10; attempt += 1) {
+          x = centerX + randomRange(random, -CHUNK_SIZE * 0.43, CHUNK_SIZE * 0.43);
+          z = centerZ + randomRange(random, -CHUNK_SIZE * 0.43, CHUNK_SIZE * 0.43);
+          if (Math.abs(x - riverCenterX(z)) < riverWidth(z) + 8) x += CHUNK_SIZE * 0.33;
+          const streetClearance = Math.max(width, depth) * 0.54 + 4.5;
+          if (streets.some((street) => distanceToPathSegment({ x, z }, street) < streetClearance)) {
+            continue;
+          }
+          break;
+        }
         const radial = settlementInfluence(settlement, x, z);
         const height = randomRange(random, 3.5, Math.max(5, spec.height * (0.18 + radial * 0.82)));
         position.set(x, sampleTerrainHeight(x, z) + height / 2, z);

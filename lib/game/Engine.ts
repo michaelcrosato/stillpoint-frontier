@@ -6,6 +6,7 @@ import {
   type BeaconId,
   type QualityLevel,
 } from "./config";
+import { CitizenEngine } from "./citizens/CitizenEngine";
 import { SystemPipeline } from "./core/SystemPipeline";
 import { FeatureRegistry } from "./core/FeatureRegistry";
 import { createEnvironment, type EnvironmentRuntime } from "./environment";
@@ -14,6 +15,7 @@ import { SaveStore } from "./persistence/SaveStore";
 import { applyGather, type EntityDiff } from "./gameplay/interactions";
 import { EMPTY_INVENTORY, type InventoryState } from "./gameplay/items";
 import { InteractionSystem } from "./systems/InteractionSystem";
+import { CitizenCrowdSystem } from "./systems/CitizenCrowdSystem";
 import { PlayerControllerSystem } from "./systems/PlayerControllerSystem";
 import type { GameRuntimeContext } from "./systems/runtime";
 import { WorldStreamingSystem } from "./systems/WorldStreamingSystem";
@@ -39,6 +41,14 @@ export interface GameTestBridge {
   loseContext(): void;
   restoreContext(): void;
   targets(): Array<{ id: string; kind: string; x: number; z: number }>;
+  citizens(): {
+    visible: number;
+    generated: number;
+    density: string;
+    chunks: number;
+    updateHz: number;
+    ids: string[];
+  };
   faceTarget(id: string): void;
   interactTarget(id: string): void;
 }
@@ -63,6 +73,7 @@ export class Engine {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly input: InputManager;
   private readonly world: ChunkManager;
+  private readonly citizens: CitizenEngine;
   private readonly environment: EnvironmentRuntime;
   private readonly pipeline = new SystemPipeline<GameRuntimeContext>();
   private readonly onSnapshot: (snapshot: GameSnapshot) => void;
@@ -137,6 +148,7 @@ export class Engine {
 
     this.input = new InputManager(this.canvas, this.handlePointerLockChange);
     this.world = new ChunkManager(this.scene, this.quality, this.worldDiffs);
+    this.citizens = new CitizenEngine(this.scene, this.quality);
     this.environment = createEnvironment(this.scene, this.quality);
     this.player.position.y = sampleTerrainHeight(
       this.player.position.x,
@@ -153,6 +165,7 @@ export class Engine {
       input: this.input,
       camera: this.camera,
       world: this.world,
+      citizens: this.citizens,
       player: this.player,
       started: false,
       paused: false,
@@ -165,20 +178,28 @@ export class Engine {
       toggleQuality: () => this.toggleQuality(),
     };
 
-    new FeatureRegistry(this.pipeline).use({
-      id: "frontier-survey",
-      install: (registry) => {
-        registry
-          .system(new PlayerControllerSystem())
-          .system(new WorldStreamingSystem())
-          .system(new InteractionSystem());
-      },
-    });
+    new FeatureRegistry(this.pipeline)
+      .use({
+        id: "frontier-survey",
+        install: (registry) => {
+          registry
+            .system(new PlayerControllerSystem())
+            .system(new WorldStreamingSystem())
+            .system(new InteractionSystem());
+        },
+      })
+      .use({
+        id: "ambient-citizens",
+        install: (registry) => {
+          registry.system(new CitizenCrowdSystem());
+        },
+      });
   }
 
   async initialize() {
     this.resize();
     this.world.update(this.player.position.x, this.player.position.z);
+    this.citizens.updateStreaming(this.player.position.x, this.player.position.z);
     for (const beaconId of this.scanned) this.world.markScanned(beaconId);
     window.addEventListener("resize", this.resize);
     document.addEventListener("visibilitychange", this.handleVisibilityChange);
@@ -297,6 +318,7 @@ export class Engine {
     this.canvas.removeEventListener("webglcontextrestored", this.handleContextRestored);
     this.input.dispose();
     this.pipeline.dispose();
+    this.citizens.dispose();
     this.world.dispose();
     this.environment.dispose();
     this.renderer.dispose();
@@ -363,6 +385,8 @@ export class Engine {
       fps: this.fps,
       chunk,
       loadedChunks: this.world.loadedCount,
+      citizenCount: this.citizens.visibleCount,
+      crowdDensity: this.citizens.density,
       triangles: this.renderer.info.render.triangles,
       geometries: this.renderer.info.memory.geometries,
       textures: this.renderer.info.memory.textures,
@@ -420,6 +444,7 @@ export class Engine {
     );
     this.environment.setQuality(this.quality);
     this.world.setQuality(this.quality);
+    this.citizens.setQuality(this.quality);
     this.resize();
     this.emitSnapshot(true);
   }
@@ -476,6 +501,7 @@ export class Engine {
         this.player.crouching = false;
         this.camera.position.set(x, this.player.position.y + PLAYER_HEIGHT, z);
         this.world.update(x, z);
+        this.citizens.update(x, z, 0, true);
         this.emitSnapshot(true);
       },
       faceBeacon: (beaconId) => {
@@ -504,6 +530,7 @@ export class Engine {
           x: target.position.x,
           z: target.position.z,
         })),
+      citizens: () => this.citizens.debugSnapshot(),
       faceTarget: (id) => {
         const target = this.world.targets.find((candidate) => candidate.id === id);
         if (!target) return;

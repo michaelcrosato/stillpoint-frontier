@@ -1,5 +1,6 @@
 import type * as THREE from "three";
 import type { BeaconId } from "../config";
+import type { CitizenEngine } from "../citizens/CitizenEngine";
 import type { InputManager } from "../input/InputManager";
 import type { ChunkManager } from "../world/ChunkManager";
 import type { WorldTarget } from "../world/ChunkManager";
@@ -21,6 +22,7 @@ export interface GameRuntimeContext {
   input: InputManager;
   camera: THREE.PerspectiveCamera;
   world: ChunkManager;
+  citizens: CitizenEngine;
   player: PlayerRuntime;
   started: boolean;
   paused: boolean;

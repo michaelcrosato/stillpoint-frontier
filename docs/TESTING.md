@@ -10,7 +10,8 @@ still produce reviewable evidence.
 - `npm run test:coverage` — coverage report with enforced thresholds.
 - `npm test` — unit tests, production build, and rendered-worker HTML contract.
 - `npm run test:e2e` — browser boot, WebGL pixel, streaming, movement, gathering,
-  persistence, interaction, resource budgets, and context-loss tests.
+  persistence, interaction, proportional citizen streaming, resource budgets, and
+  context-loss tests.
 - `npm run test:visual` — captures deterministic entry/world screenshots as Playwright artifacts.
 - `npm run test:visual:update` — writes or reviews golden snapshots when
   `VISUAL_BASELINES=1` is set in a pinned browser environment.
@@ -32,6 +33,12 @@ Macro-world tests enforce the 9,216 km² area, biome coverage, settlement hierar
 economic metadata, bounds, road connectivity, and river continuity. Gathering tests prove
 that partial work persists, final hits grant loot exactly once, and removed objects cannot
 duplicate inventory. Locomotion property tests constrain stamina and landing math.
+
+Citizen property tests sample random atlas chunks and enforce deterministic IDs, provenance,
+road/settlement route bounds, hierarchy-scaled density, quality caps, finite time sampling,
+empty wilderness, and the absence of interaction fields. Browser coverage teleports between
+Vesper Crown, Dustmere, and wilderness; it verifies population ratios, stable reload IDs,
+non-interactivity, and a dedicated megacity crowd screenshot candidate.
 
 Each Playwright test retains traces, failure screenshots, and video on failure. Visual
 tests attach full-page candidate screenshots even when golden comparison is not enabled.

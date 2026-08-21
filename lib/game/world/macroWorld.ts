@@ -470,6 +470,15 @@ export interface RoadLink {
   class: "trunk" | "regional" | "local";
 }
 
+export interface RoadCorridor {
+  id: string;
+  class: RoadLink["class"];
+  kind: "trade" | "service";
+  from: { x: number; z: number };
+  to: { x: number; z: number };
+  endpointPopulations: readonly [number, number];
+}
+
 export const ROAD_LINKS: readonly RoadLink[] = [
   { from: "ironvale", to: "greybridge", class: "regional" },
   { from: "greybridge", to: "reedwater", class: "trunk" },
@@ -546,3 +555,44 @@ export function roadEndpoints(link: RoadLink) {
   const to = getSettlement(link.to);
   return from && to ? { from, to } : null;
 }
+
+/**
+ * Renderable road geometry, including the old service spur that connects the
+ * opening relay survey to Dustmere. ROAD_LINKS remains the settlement trade
+ * graph; service corridors are deliberately not counted as towns or cities.
+ */
+export const ROAD_CORRIDORS: readonly RoadCorridor[] = [
+  ...ROAD_LINKS.flatMap((link) => {
+    const endpoints = roadEndpoints(link);
+    if (!endpoints) return [];
+    return [
+      {
+        id: `${link.from}:${link.to}`,
+        class: link.class,
+        kind: "trade" as const,
+        from: { x: endpoints.from.x, z: endpoints.from.z },
+        to: { x: endpoints.to.x, z: endpoints.to.z },
+        endpointPopulations: [endpoints.from.population, endpoints.to.population] as const,
+      },
+    ];
+  }),
+  {
+    id: "old-relay-spur:west",
+    class: "local",
+    kind: "service",
+    from: {
+      x: getSettlement("dustmere")?.x ?? -1_575,
+      z: getSettlement("dustmere")?.z ?? -1_800,
+    },
+    to: { x: -112, z: -118 },
+    endpointPopulations: [getSettlement("dustmere")?.population ?? 1_420, 48],
+  },
+  {
+    id: "old-relay-spur:east",
+    class: "local",
+    kind: "service",
+    from: { x: -112, z: -118 },
+    to: { x: 38, z: -52 },
+    endpointPopulations: [48, 34],
+  },
+];

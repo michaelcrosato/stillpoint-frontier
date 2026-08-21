@@ -3,7 +3,8 @@
 A low-animation, first-person Three.js open-world foundation running on
 [vinext](https://github.com/cloudflare/vinext). It streams a deterministic 96×96 km
 territory with biome geography, settlements and roads, gathering, movement, persistence,
-and a GPU-aware test harness.
+an instanced ambient-citizen engine, and a GPU-aware test harness. Citizens are deterministic
+road-and-settlement bustle rather than dialogue NPCs: no rigs, colliders, interactions, or saves.
 
 ## Prerequisites
 

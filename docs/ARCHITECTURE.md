@@ -1,9 +1,10 @@
 # Stillpoint Frontier architecture
 
-Stillpoint Frontier is intentionally built around static-world gameplay. There are no
-skeletal rigs, animation clips, `AnimationMixer` instances, or character state machines
-in the engine core. Variety comes from deterministic terrain, sightlines, discovery,
-lighting, navigation, and state changes.
+Stillpoint Frontier is intentionally built around low-animation gameplay. There are no
+skeletal rigs, animation clips, `AnimationMixer` instances, or ambient-character state
+machines in the engine core. Variety comes from deterministic terrain, sightlines,
+discovery, lighting, navigation, state changes, and rigid instanced citizens translating
+along authored procedural lanes.
 
 ## Runtime layers
 
@@ -16,6 +17,14 @@ lighting, navigation, and state changes.
 - `ChunkManager` maintains a 5×5 resident ring, creates deterministic chunk content from
   the world seed and integer chunk coordinates, and owns every render/collision resource
   that must be disposed when a chunk leaves the ring.
+- `CitizenEngine` independently streams the same resident ring. Its pure recipes place
+  proportional crowds only on settlement sidewalks or road shoulders, while one shared
+  low-poly figure and one instanced draw per populated chunk keep Vesper Crown's thousands
+  of visible citizens within budget. Citizens never enter target, collider, dialogue, or
+  persistence systems.
+- `world/roads` is the shared path layer for rendered roads, urban street grids, building
+  clearance, and pedestrian lanes. The Old Relay Spur makes the opening survey site a
+  credible quiet work stop without promoting it to a settlement.
 - `macroWorld` is the immutable atlas layer: a 96×96 km territory with seven biomes,
   the Greywater river/estuary, 24 economically grounded settlements, and a connected
   hierarchy of trunk, regional, and local roads. Chunks clip those features into local
@@ -60,8 +69,10 @@ The initial target is an RTX 3060-class machine at 1440p/60:
 - Fixed simulation: 60 Hz, with large frame deltas clamped and spiral-of-death protection.
 - Resident terrain: 25 chunks; decorative props are instanced per chunk.
 - Atlas territory: 9,216 km²; world size does not alter the 25-chunk resident budget.
-- Roads, settlement blocks, forest, rocks, water, and ruins use static or instanced meshes;
-  no gameplay object requires an animation clip.
+- Roads, settlement blocks, forest, rocks, water, ruins, and citizens use static or instanced
+  meshes; no gameplay object requires an animation clip.
+- Citizen matrices update at 20 Hz in cinematic mode and 12 Hz in performance mode. Hard
+  resident targets are 5,000 and 2,200 visible citizens respectively, with no citizen shadows.
 - One shadow-casting directional light; 2K shadow map in cinematic mode.
 - Pixel ratio capped at 1.75; performance mode forces DPR 1 and disables shadows.
 - Renderer diagnostics expose FPS, active chunks, and triangles to both the HUD and tests.

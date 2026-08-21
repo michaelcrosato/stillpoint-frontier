@@ -1,4 +1,5 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { getSettlement } from "../../lib/game/world/macroWorld";
 
 async function openDeterministicWorld(page: Page) {
   await page.goto("/?test=1", { waitUntil: "load" });
@@ -78,6 +79,36 @@ test("starts the survey, streams distant chunks, and opens the map", async ({ pa
   await page.getByRole("button", { name: /map/i }).click();
   await expect(page.getByTestId("map-panel")).toBeVisible();
   await attachScreenshot(page, testInfo, "distant-world-map");
+});
+
+test("streams proportional ambient citizens without making them interaction targets", async ({ page }) => {
+  await openDeterministicWorld(page);
+  await page.getByTestId("enter-frontier").click();
+  const mega = getSettlement("vesper-crown");
+  const village = getSettlement("dustmere");
+  expect(mega).not.toBeNull();
+  expect(village).not.toBeNull();
+  if (!mega || !village) return;
+
+  await page.evaluate(([x, z]) => window.__STILLPOINT_TEST__?.teleport(x, z), [mega.x, mega.z]);
+  const megacityCrowd = await page.evaluate(() => window.__STILLPOINT_TEST__?.citizens());
+  const targets = await page.evaluate(() => window.__STILLPOINT_TEST__?.targets() ?? []);
+  expect(megacityCrowd?.visible).toBeGreaterThan(3_000);
+  expect(megacityCrowd?.density).toBe("SURGE");
+  expect(targets.some((target) => target.id.startsWith("citizen:"))).toBe(false);
+  await expect(page.getByTestId("crowd-readout")).toContainText("NON-INTERACTIVE");
+
+  await page.evaluate(([x, z]) => window.__STILLPOINT_TEST__?.teleport(x, z), [village.x, village.z]);
+  const villageCrowd = await page.evaluate(() => window.__STILLPOINT_TEST__?.citizens());
+  expect(villageCrowd?.visible).toBeGreaterThan(0);
+  expect(villageCrowd?.visible).toBeLessThan((megacityCrowd?.visible ?? 0) / 20);
+
+  await page.evaluate(() => window.__STILLPOINT_TEST__?.teleport(44_000, -44_000));
+  expect((await page.evaluate(() => window.__STILLPOINT_TEST__?.citizens().visible)) ?? -1).toBe(0);
+
+  await page.evaluate(([x, z]) => window.__STILLPOINT_TEST__?.teleport(x, z), [mega.x, mega.z]);
+  const returnedCrowd = await page.evaluate(() => window.__STILLPOINT_TEST__?.citizens());
+  expect(returnedCrowd?.ids).toEqual(megacityCrowd?.ids);
 });
 
 test("recovers records and updates persistent survey UI", async ({ page }, testInfo) => {
@@ -236,6 +267,18 @@ test("entry and fixed world views are visually reviewable @visual", async ({ pag
   } else {
     await attachScreenshot(page, testInfo, "visual-world-candidate");
   }
+});
+
+test("megacity crowd density is visually reviewable @visual", async ({ page }, testInfo) => {
+  await openDeterministicWorld(page);
+  await page.getByTestId("enter-frontier").click();
+  const mega = getSettlement("vesper-crown");
+  expect(mega).not.toBeNull();
+  if (!mega) return;
+  await page.evaluate(([x, z]) => window.__STILLPOINT_TEST__?.teleport(x, z), [mega.x, mega.z]);
+  await expect(page.getByTestId("crowd-readout")).toContainText("SURGE");
+  await page.waitForTimeout(150);
+  await attachScreenshot(page, testInfo, "megacity-crowd-candidate");
 });
 
 test("HUD and territory-map fixtures are visually reviewable without a GPU @visual", async ({ page }, testInfo) => {
