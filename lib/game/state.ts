@@ -48,6 +48,8 @@ export interface EnvironmentSnapshot {
   windKph: number;
   windDirection: number;
   visibilityMeters: number;
+  clockState: "running" | "paused" | "frozen" | "test_hold";
+  gameMinutesPerRealSecond: number;
 }
 
 export interface FastTravelSnapshot {
@@ -80,6 +82,7 @@ export interface GameSnapshot {
   loadedChunks: number;
   drawDistanceMeters: number;
   citizenCount: number;
+  citizenActivity: number;
   crowdDensity: "WILDERNESS" | "QUIET" | "LOCAL" | "ACTIVE" | "BUSY" | "SURGE";
   triangles: number;
   geometries: number;
@@ -132,6 +135,7 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
   loadedChunks: 0,
   drawDistanceMeters: CAMERA_DRAW_DISTANCE,
   citizenCount: 0,
+  citizenActivity: 0,
   crowdDensity: "WILDERNESS",
   triangles: 0,
   geometries: 0,
@@ -158,6 +162,8 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
     windKph: 12,
     windDirection: 0,
     visibilityMeters: 638,
+    clockState: "paused",
+    gameMinutesPerRealSecond: 1,
   },
   nearestSettlement: {
     id: "dustmere",

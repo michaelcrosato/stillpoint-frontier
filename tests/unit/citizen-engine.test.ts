@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import { CITIZEN_RESIDENT_CHUNKS } from "../../lib/game/config";
 import { CitizenEngine } from "../../lib/game/citizens/CitizenEngine";
+import { getSettlement } from "../../lib/game/world/macroWorld";
 
 describe("citizen presentation", () => {
   it("interpolates instance transforms between fixed simulation ticks", () => {
@@ -37,5 +38,42 @@ describe("citizen presentation", () => {
 
     citizens.dispose();
     expect(scene.children).toHaveLength(0);
+  });
+
+  it("thins the same deterministic city crowd sharply at 03:00", () => {
+    const settlement = getSettlement("vesper-crown");
+    expect(settlement).not.toBeNull();
+    if (!settlement) return;
+    const scene = new THREE.Scene();
+    const citizens = new CitizenEngine(scene, "cinematic");
+    citizens.updateStreaming(settlement.x, settlement.z);
+    citizens.setWorldMinutes(12 * 60);
+    citizens.present();
+    const noon = citizens.debugSnapshot();
+    const firstMesh = scene.children.find(
+      (child): child is THREE.InstancedMesh => child instanceof THREE.InstancedMesh,
+    );
+    expect(firstMesh).toBeDefined();
+    const matrixVersionAtNoon = firstMesh?.instanceMatrix.version ?? -1;
+
+    citizens.setWorldMinutes(3 * 60);
+    expect(firstMesh?.instanceMatrix.version).toBe(matrixVersionAtNoon);
+    citizens.present();
+    expect(firstMesh?.instanceMatrix.version ?? -1).toBeGreaterThan(matrixVersionAtNoon);
+    const threeAm = citizens.debugSnapshot();
+    expect(noon.visible).toBeGreaterThan(3_000);
+    expect(threeAm.visible).toBeLessThan(noon.visible / 4);
+    expect(threeAm.visible).toBeGreaterThan(0);
+    expect(threeAm.generated).toBe(noon.generated);
+    expect(new Set(threeAm.ids).size).toBe(threeAm.ids.length);
+    expect(threeAm.activityMultiplier).toBeCloseTo(0.18, 2);
+
+    citizens.setWorldMinutes(12 * 60);
+    citizens.present();
+    expect(citizens.debugSnapshot().ids).toEqual(noon.ids);
+
+    citizens.setWorldMinutes(Number.NaN);
+    expect(citizens.activityMultiplier).toBeCloseTo(1, 2);
+    citizens.dispose();
   });
 });

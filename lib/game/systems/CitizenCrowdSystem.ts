@@ -6,6 +6,9 @@ export class CitizenCrowdSystem implements GameSystem<GameRuntimeContext> {
   readonly order = 25;
 
   update(context: GameRuntimeContext, deltaSeconds: number) {
+    context.citizens.setWorldMinutes(
+      context.environment.getSample().totalMinutes,
+    );
     context.citizens.update(
       context.player.position.x,
       context.player.position.z,

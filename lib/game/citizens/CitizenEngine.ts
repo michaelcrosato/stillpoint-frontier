@@ -5,16 +5,20 @@ import {
   crowdDensityForCount,
   generateCitizenChunk,
   sampleCitizenPose,
+  scheduledVisibleCitizenCount,
   visibleCitizenCount,
+  type CitizenActivityClass,
   type CitizenRecipe,
   type CrowdDensity,
 } from "./citizenRecipes";
+import { getSettlement } from "../world/macroWorld";
 import { chunkKey, chunksAround, worldToChunk } from "../world/terrain";
 
 interface CitizenChunkRuntime {
   key: string;
   recipes: CitizenRecipe[];
   mesh: THREE.InstancedMesh | null;
+  activityClass: CitizenActivityClass;
 }
 
 const MODEL_HEIGHT = 1.8;
@@ -68,6 +72,7 @@ export class CitizenEngine {
   private readonly loaded = new Map<string, CitizenChunkRuntime>();
   private activeChunkKey = "";
   private elapsedSeconds = 0;
+  private worldMinutes = 12 * 60;
   private disposed = false;
 
   constructor(
@@ -120,6 +125,16 @@ export class CitizenEngine {
     this.updateMatrices(this.elapsedSeconds);
   }
 
+  setWorldMinutes(totalWorldMinutes: number) {
+    const nextMinutes = Number.isFinite(totalWorldMinutes)
+      ? totalWorldMinutes
+      : 12 * 60;
+    const previousDisplayMinute = Math.floor(this.worldMinutes);
+    this.worldMinutes = nextMinutes;
+    if (Math.floor(nextMinutes) === previousDisplayMinute) return;
+    this.updateVisibleCounts();
+  }
+
   get visibleCount() {
     let total = 0;
     for (const chunk of this.loaded.values()) total += chunk.mesh?.count ?? 0;
@@ -134,6 +149,14 @@ export class CitizenEngine {
 
   get density(): CrowdDensity {
     return crowdDensityForCount(this.visibleCount);
+  }
+
+  get activityMultiplier() {
+    let daytimeTotal = 0;
+    for (const chunk of this.loaded.values()) {
+      daytimeTotal += visibleCitizenCount(chunk.recipes.length, this.quality);
+    }
+    return daytimeTotal > 0 ? this.visibleCount / daytimeTotal : 0;
   }
 
   get updateHz() {
@@ -155,6 +178,7 @@ export class CitizenEngine {
       density: this.density,
       chunks: this.loadedCount,
       updateHz: this.updateHz,
+      activityMultiplier: this.activityMultiplier,
       ids,
     };
   }
@@ -171,6 +195,12 @@ export class CitizenEngine {
   private loadChunk(chunkX: number, chunkZ: number) {
     const key = chunkKey(chunkX, chunkZ);
     const recipes = generateCitizenChunk(chunkX, chunkZ);
+    const firstRecipe = recipes[0];
+    const settlement =
+      firstRecipe?.source === "settlement"
+        ? getSettlement(firstRecipe.sourceId)
+        : null;
+    const activityClass: CitizenActivityClass = settlement?.tier ?? "road";
     let mesh: THREE.InstancedMesh | null = null;
     if (recipes.length > 0) {
       mesh = new THREE.InstancedMesh(this.geometry, this.material, recipes.length);
@@ -187,13 +217,25 @@ export class CitizenEngine {
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       this.scene.add(mesh);
     }
-    this.loaded.set(key, { key, recipes, mesh });
+    this.loaded.set(key, { key, recipes, mesh, activityClass });
   }
 
   private unloadChunk(chunk: CitizenChunkRuntime) {
     if (!chunk.mesh) return;
     this.scene.remove(chunk.mesh);
     chunk.mesh.dispose();
+  }
+
+  private updateVisibleCounts() {
+    for (const chunk of this.loaded.values()) {
+      if (!chunk.mesh) continue;
+      chunk.mesh.count = scheduledVisibleCitizenCount(
+        chunk.recipes.length,
+        this.quality,
+        this.worldMinutes,
+        chunk.activityClass,
+      );
+    }
   }
 
   private updateMatrices(presentationTime: number) {
@@ -205,7 +247,12 @@ export class CitizenEngine {
     for (const chunk of this.loaded.values()) {
       const mesh = chunk.mesh;
       if (!mesh) continue;
-      const visible = visibleCitizenCount(chunk.recipes.length, this.quality);
+      const visible = scheduledVisibleCitizenCount(
+        chunk.recipes.length,
+        this.quality,
+        this.worldMinutes,
+        chunk.activityClass,
+      );
       mesh.count = visible;
       for (let index = 0; index < visible; index += 1) {
         const recipe = chunk.recipes[index];

@@ -165,8 +165,14 @@ test("exposes a deterministic day-night clock and weather readout", async ({ pag
   await page.getByTestId("enter-frontier").click();
   await page.evaluate(() => window.__STILLPOINT_TEST__?.setWorldMinutes(0));
   await expect(page.getByTestId("environment-readout")).toContainText("NIGHT");
+  await expect(page.getByTestId("world-clock")).toContainText("00:00");
+  await expect(page.getByTestId("world-clock")).toContainText("NIGHT");
+  await expect(page.getByTestId("world-clock-state")).toContainText("TEST HOLD");
   expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().environment.phase))
     .toBe("night");
+
+  await page.evaluate(() => window.__STILLPOINT_TEST__?.advanceWorldMinutes(65));
+  await expect(page.getByTestId("world-clock")).toContainText("01:05");
 
   await page.evaluate(() => window.__STILLPOINT_TEST__?.setWorldMinutes(12 * 60));
   await expect(page.getByTestId("environment-readout")).toContainText("12:00");
@@ -177,6 +183,33 @@ test("exposes a deterministic day-night clock and weather readout", async ({ pag
   );
   expect(environment?.weatherLabel.length).toBeGreaterThan(3);
   expect(environment?.visibilityMeters).toBeGreaterThan(100);
+});
+
+test("lights cities and sharply reduces ambient population at 03:00", async ({ page }) => {
+  await openDeterministicWorld(page);
+  await page.getByTestId("enter-frontier").click();
+  const mega = getSettlement("vesper-crown");
+  expect(mega).not.toBeNull();
+  if (!mega) return;
+  await page.evaluate(([x, z]) => window.__STILLPOINT_TEST__?.teleport(x, z), [mega.x, mega.z]);
+
+  await page.evaluate(() => window.__STILLPOINT_TEST__?.setWorldMinutes(12 * 60));
+  const noonCrowd = await page.evaluate(() => window.__STILLPOINT_TEST__?.citizens());
+  const dayLights = await page.evaluate(() => window.__STILLPOINT_TEST__?.nightLighting());
+  expect(dayLights?.windows).toBeGreaterThan(100);
+  expect(dayLights?.visibleWindowMeshes).toBe(0);
+  expect(dayLights?.activeAreaLights).toBe(0);
+
+  await page.evaluate(() => window.__STILLPOINT_TEST__?.setWorldMinutes(3 * 60));
+  const nightCrowd = await page.evaluate(() => window.__STILLPOINT_TEST__?.citizens());
+  const nightLights = await page.evaluate(() => window.__STILLPOINT_TEST__?.nightLighting());
+  expect(nightCrowd?.visible ?? 0).toBeLessThan((noonCrowd?.visible ?? 0) / 4);
+  expect(nightCrowd?.visible ?? 0).toBeGreaterThan(0);
+  expect(nightLights?.strength).toBeGreaterThan(0.95);
+  expect(nightLights?.visibleWindowMeshes).toBeGreaterThan(0);
+  expect(nightLights?.activeAreaLights).toBeGreaterThan(0);
+  await expect(page.getByTestId("crowd-readout")).toContainText("TIME DEMAND");
+  await expect(page.getByTestId("world-clock")).toContainText("03:00");
 });
 
 test("keeps developer time and weather overrides out of the normal save", async ({ page }) => {
@@ -486,16 +519,36 @@ test("entry and fixed world views are visually reviewable @visual", async ({ pag
   }
 });
 
-test("megacity crowd density is visually reviewable @visual", async ({ page }, testInfo) => {
+test("megacity day and night activity are visually reviewable @visual", async ({ page }, testInfo) => {
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   const mega = getSettlement("vesper-crown");
   expect(mega).not.toBeNull();
   if (!mega) return;
   await page.evaluate(([x, z]) => window.__STILLPOINT_TEST__?.teleport(x, z), [mega.x, mega.z]);
+  await page.evaluate(() => window.__STILLPOINT_TEST__?.setWorldMinutes(12 * 60));
   await expect(page.getByTestId("crowd-readout")).toContainText("SURGE");
+  await expect(page.getByTestId("crowd-readout")).toContainText("TIME DEMAND 100%");
   await page.waitForTimeout(150);
-  await attachScreenshot(page, testInfo, "megacity-crowd-candidate");
+  if (process.env.VISUAL_BASELINES === "1") {
+    await expect(page).toHaveScreenshot("vesper-crown-noon.png");
+  } else {
+    await attachScreenshot(page, testInfo, "vesper-crown-noon-candidate");
+  }
+
+  await page.evaluate(() => window.__STILLPOINT_TEST__?.setWorldMinutes(3 * 60));
+  await expect(page.getByTestId("world-clock")).toContainText("03:00");
+  await expect(page.getByTestId("crowd-readout")).toContainText("TIME DEMAND 18%");
+  expect((await page.evaluate(() => window.__STILLPOINT_TEST__?.nightLighting()))?.strength)
+    .toBeGreaterThan(0.95);
+  await page.waitForTimeout(150);
+  const nightPixels = await canvasVisualStats(page);
+  expect(nightPixels.range).toBeGreaterThan(8);
+  if (process.env.VISUAL_BASELINES === "1") {
+    await expect(page).toHaveScreenshot("vesper-crown-0300.png");
+  } else {
+    await attachScreenshot(page, testInfo, "vesper-crown-0300-candidate");
+  }
 });
 
 test("HUD and territory-map fixtures are visually reviewable without a GPU @visual", async ({ page }, testInfo) => {
@@ -513,6 +566,12 @@ test("HUD and territory-map fixtures are visually reviewable without a GPU @visu
   await expect(page.getByTestId("developer-panel")).toContainText("SESSION-ONLY SANDBOX");
   await expect(page.getByTestId("developer-panel")).toContainText("Canopy drizzle");
   await attachScreenshot(page, testInfo, "developer-tools-fixture");
+
+  await page.goto("/?visual=night", { waitUntil: "load" });
+  await expect(page.getByTestId("world-clock")).toContainText("02:06");
+  await expect(page.getByTestId("world-clock")).toContainText("RUNNING");
+  await expect(page.getByTestId("crowd-readout")).toContainText("TIME DEMAND 18%");
+  await attachScreenshot(page, testInfo, "night-clock-fixture");
 });
 
 test("explains unavailable graphics acceleration @fallback", async ({ page }, testInfo) => {

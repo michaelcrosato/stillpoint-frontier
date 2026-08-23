@@ -13,7 +13,10 @@ import { CitizenEngine } from "./citizens/CitizenEngine";
 import { SystemPipeline } from "./core/SystemPipeline";
 import { FeatureRegistry } from "./core/FeatureRegistry";
 import { createEnvironment, type EnvironmentRuntime } from "./environment";
-import type { WeatherId } from "./environment/model";
+import {
+  GAME_MINUTES_PER_REAL_SECOND,
+  type WeatherId,
+} from "./environment/model";
 import { InputManager } from "./input/InputManager";
 import {
   MANUAL_WAYPOINT_ID,
@@ -70,7 +73,15 @@ export interface GameTestBridge {
     density: string;
     chunks: number;
     updateHz: number;
+    activityMultiplier: number;
     ids: string[];
+  };
+  nightLighting(): {
+    strength: number;
+    windows: number;
+    visibleWindowMeshes: number;
+    areaLights: number;
+    activeAreaLights: number;
   };
   faceTarget(id: string): void;
   interactTarget(id: string): void;
@@ -230,6 +241,7 @@ export class Engine {
       camera: this.camera,
       world: this.world,
       citizens: this.citizens,
+      environment: this.environment,
       navigation: this.navigation,
       player: this.player,
       started: false,
@@ -281,6 +293,7 @@ export class Engine {
     this.citizens.updateStreaming(this.player.position.x, this.player.position.z);
     this.environment.sync(this.player.position, true);
     this.environment.present(this.player.position, 0);
+    this.synchronizeTimeDependentWorld();
     for (const beaconId of this.scanned) this.world.markScanned(beaconId);
     window.addEventListener("resize", this.resize);
     document.addEventListener("visibilitychange", this.handleVisibilityChange);
@@ -466,6 +479,7 @@ export class Engine {
     this.environment.setWorldMinutes(minutes);
     this.environment.sync(this.player.position, true);
     this.environment.present(this.player.position, 0);
+    this.synchronizeTimeDependentWorld();
     this.persist();
     this.emitSnapshot(true);
   }
@@ -547,6 +561,7 @@ export class Engine {
     this.navigation.update(this.player.position);
     this.environment.sync(this.player.position, true);
     this.environment.present(this.player.position, 0);
+    this.synchronizeTimeDependentWorld();
     this.emitPresentation();
   }
 
@@ -672,6 +687,7 @@ export class Engine {
       loadedChunks: this.world.loadedCount,
       drawDistanceMeters: CAMERA_DRAW_DISTANCE,
       citizenCount: this.citizens.visibleCount,
+      citizenActivity: this.citizens.activityMultiplier,
       crowdDensity: this.citizens.density,
       triangles: this.renderer.info.render.triangles,
       geometries: this.renderer.info.memory.geometries,
@@ -702,6 +718,19 @@ export class Engine {
         windKph: atmosphere.windKph,
         windDirection: atmosphere.windDirection,
         visibilityMeters: atmosphere.visibilityMeters,
+        clockState:
+          developer.enabled && developer.clockPaused
+            ? "frozen"
+            : this.testMode
+              ? "test_hold"
+              : this.started &&
+                    this.contextStatus === "ready" &&
+                    !this.paused &&
+                    !this.mapOpen &&
+                    !this.developerPanelOpen
+                ? "running"
+                : "paused",
+        gameMinutesPerRealSecond: GAME_MINUTES_PER_REAL_SECOND,
       },
       nearestSettlement: {
         id: nearest.settlement.id,
@@ -786,7 +815,14 @@ export class Engine {
   private refreshEnvironment(snap = true) {
     this.environment.sync(this.player.position, snap);
     this.environment.present(this.player.position, 0);
+    this.synchronizeTimeDependentWorld();
     this.emitSnapshot(true);
+  }
+
+  private synchronizeTimeDependentWorld() {
+    const atmosphere = this.environment.getSample();
+    this.world.setNightLighting(atmosphere.night);
+    this.citizens.setWorldMinutes(atmosphere.totalMinutes);
   }
 
   private toggleQuality() {
@@ -881,6 +917,7 @@ export class Engine {
           z: target.position.z,
         })),
       citizens: () => this.citizens.debugSnapshot(),
+      nightLighting: () => this.world.nightLightingSnapshot,
       faceTarget: (id) => {
         const target = this.world.targets.find((candidate) => candidate.id === id);
         if (!target) return;

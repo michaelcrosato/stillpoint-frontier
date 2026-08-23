@@ -25,6 +25,7 @@ export const MAX_RESIDENT_CITIZENS = { cinematic: 5_000, performance: 2_200 } as
 
 export type CitizenRole = "commuter" | "worker" | "trader" | "porter" | "traveler";
 export type CrowdDensity = "WILDERNESS" | "QUIET" | "LOCAL" | "ACTIVE" | "BUSY" | "SURGE";
+export type CitizenActivityClass = SettlementTier | "road";
 
 export interface CitizenRecipe {
   id: string;
@@ -250,6 +251,68 @@ export function visibleCitizenCount(count: number, quality: QualityLevel) {
   if (count <= 0) return 0;
   const multiplier = quality === "cinematic" ? 0.92 : 0.4;
   return Math.min(count, Math.max(1, Math.round(count * multiplier)));
+}
+
+const NIGHT_ACTIVITY_FLOOR: Record<CitizenActivityClass, number> = {
+  megacity: 0.18,
+  city: 0.12,
+  town: 0.07,
+  village: 0.03,
+  road: 0.05,
+};
+
+const DAILY_ACTIVITY_ANCHORS = [
+  { minute: 0, demand: 0.08 },
+  { minute: 180, demand: 0 },
+  { minute: 360, demand: 0.12 },
+  { minute: 480, demand: 0.58 },
+  { minute: 720, demand: 1 },
+  { minute: 1_020, demand: 0.9 },
+  { minute: 1_200, demand: 0.62 },
+  { minute: 1_380, demand: 0.18 },
+  { minute: 1_440, demand: 0.08 },
+] as const;
+
+export function citizenActivityMultiplier(
+  totalWorldMinutes: number,
+  activityClass: CitizenActivityClass,
+) {
+  const safeMinutes = Number.isFinite(totalWorldMinutes) ? totalWorldMinutes : 720;
+  const minuteOfDay = ((safeMinutes % 1_440) + 1_440) % 1_440;
+  let left: { minute: number; demand: number } = DAILY_ACTIVITY_ANCHORS[0];
+  let right: { minute: number; demand: number } = DAILY_ACTIVITY_ANCHORS[1];
+  for (let index = 1; index < DAILY_ACTIVITY_ANCHORS.length; index += 1) {
+    right = DAILY_ACTIVITY_ANCHORS[index];
+    if (minuteOfDay <= right.minute) break;
+    left = right;
+  }
+  const progress =
+    right.minute === left.minute
+      ? 0
+      : (minuteOfDay - left.minute) / (right.minute - left.minute);
+  const eased = smoothstep(0, 1, progress);
+  const demand = left.demand + (right.demand - left.demand) * eased;
+  const floor = NIGHT_ACTIVITY_FLOOR[activityClass];
+  return floor + (1 - floor) * demand;
+}
+
+export function scheduledVisibleCitizenCount(
+  count: number,
+  quality: QualityLevel,
+  totalWorldMinutes: number,
+  activityClass: CitizenActivityClass,
+) {
+  const daytimeVisible = visibleCitizenCount(count, quality);
+  if (daytimeVisible <= 0) return 0;
+  return Math.min(
+    count,
+    Math.max(
+      0,
+      Math.round(
+        daytimeVisible * citizenActivityMultiplier(totalWorldMinutes, activityClass),
+      ),
+    ),
+  );
 }
 
 export function crowdDensityForCount(count: number): CrowdDensity {

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { GAMEPLAY_CHUNK_RADIUS, PLAYER_RADIUS } from "../../lib/game/config";
 import { isPlanarPositionClear, type PlanarCollider } from "../../lib/game/systems/collision";
 import { ChunkManager } from "../../lib/game/world/ChunkManager";
@@ -150,7 +150,34 @@ describe("streamed world collider coverage", () => {
     expect(rockInstances).toBeGreaterThan(50);
     expect(ruinInstances).toBeGreaterThan(0);
     expect(landmarkMeshes).toBeGreaterThan(0);
+
+    const dayLighting = world.nightLightingSnapshot;
+    expect(dayLighting.strength).toBe(0);
+    expect(dayLighting.windows).toBeGreaterThan(buildingInstances);
+    expect(dayLighting.visibleWindowMeshes).toBe(0);
+    expect(dayLighting.areaLights).toBeGreaterThan(0);
+    expect(dayLighting.activeAreaLights).toBe(0);
+
+    world.setNightLighting(1);
+    const nightLighting = world.nightLightingSnapshot;
+    expect(nightLighting.strength).toBe(1);
+    expect(nightLighting.visibleWindowMeshes).toBeGreaterThan(0);
+    expect(nightLighting.activeAreaLights).toBe(nightLighting.areaLights);
+
+    world.setNightLighting(0);
+    expect(world.nightLightingSnapshot.visibleWindowMeshes).toBe(0);
+    world.setNightLighting(Number.NaN);
+    expect(world.nightLightingSnapshot.strength).toBe(0);
+    let windowMesh: THREE.InstancedMesh | undefined;
+    scene.traverse((object) => {
+      if (!windowMesh && object instanceof THREE.InstancedMesh && object.name.startsWith("city-windows:")) {
+        windowMesh = object;
+      }
+    });
+    expect(windowMesh).toBeDefined();
+    const disposeWindowMesh = vi.spyOn(windowMesh!, "dispose");
     world.dispose();
+    expect(disposeWindowMesh).toHaveBeenCalledOnce();
   });
 
   it("keeps the opening and pickups accessible and removes harvested collision", { timeout: 20_000 }, () => {

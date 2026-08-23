@@ -9,9 +9,11 @@ import {
   MAX_CITIZENS_PER_CHUNK,
   MAX_RESIDENT_CITIZENS,
   crowdDensityForCount,
+  citizenActivityMultiplier,
   expectedSettlementCitizens,
   generateCitizenChunk,
   sampleCitizenPose,
+  scheduledVisibleCitizenCount,
   visibleCitizenCount,
 } from "../../lib/game/citizens/citizenRecipes";
 import {
@@ -213,6 +215,31 @@ describe("ambient citizen recipes", () => {
     expect(crowdDensityForCount(500)).toBe("ACTIVE");
     expect(crowdDensityForCount(1_500)).toBe("BUSY");
     expect(crowdDensityForCount(4_000)).toBe("SURGE");
+  });
+
+  it("follows a smooth tier-aware daily activity schedule", () => {
+    for (const activityClass of ["megacity", "city", "town", "village", "road"] as const) {
+      const midnight = citizenActivityMultiplier(0, activityClass);
+      const threeAm = citizenActivityMultiplier(3 * 60, activityClass);
+      const noon = citizenActivityMultiplier(12 * 60, activityClass);
+      expect(noon).toBe(1);
+      expect(threeAm).toBeGreaterThan(0);
+      expect(threeAm).toBeLessThan(midnight);
+      expect(citizenActivityMultiplier(24 * 60, activityClass)).toBeCloseTo(midnight);
+      expect(citizenActivityMultiplier(-60, activityClass)).toBeCloseTo(
+        citizenActivityMultiplier(23 * 60, activityClass),
+      );
+      expect(Number.isFinite(citizenActivityMultiplier(Number.NaN, activityClass))).toBe(true);
+    }
+
+    expect(citizenActivityMultiplier(3 * 60, "megacity")).toBeGreaterThan(
+      citizenActivityMultiplier(3 * 60, "village"),
+    );
+    const noon = scheduledVisibleCitizenCount(200, "cinematic", 12 * 60, "megacity");
+    const threeAm = scheduledVisibleCitizenCount(200, "cinematic", 3 * 60, "megacity");
+    expect(noon).toBeGreaterThan(threeAm * 4);
+    expect(scheduledVisibleCitizenCount(1, "cinematic", 3 * 60, "road")).toBe(0);
+    expect(scheduledVisibleCitizenCount(0, "cinematic", 12 * 60, "city")).toBe(0);
   });
 
   it("never exposes interaction, inventory, dialogue, or collision fields", () => {

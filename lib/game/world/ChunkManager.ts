@@ -66,6 +66,18 @@ interface ChunkRuntime {
   root: THREE.Group;
   colliders: PlanarCollider[];
   targets: WorldTarget[];
+  nightLighting: ChunkNightLighting;
+}
+
+interface SettlementAreaLight {
+  light: THREE.PointLight;
+  baseIntensity: number;
+}
+
+interface ChunkNightLighting {
+  windowMeshes: THREE.InstancedMesh[];
+  areaLights: SettlementAreaLight[];
+  windowCount: number;
 }
 
 const SETTLEMENT_BUILDINGS = {
@@ -98,6 +110,7 @@ export class ChunkManager {
   private colliderCache: PlanarCollider[] = [];
   private readonly collisionIndex = new PlanarCollisionIndex(16);
   private targetCache: WorldTarget[] = [];
+  private nightLightingStrength = 0;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -138,6 +151,37 @@ export class ChunkManager {
         }
       });
     }
+  }
+
+  setNightLighting(night: number) {
+    const safeNight = Number.isFinite(night)
+      ? THREE.MathUtils.clamp(night, 0, 1)
+      : 0;
+    const strength = THREE.MathUtils.smoothstep(safeNight, 0.16, 0.92);
+    if (Math.abs(strength - this.nightLightingStrength) < 0.002) return;
+    this.nightLightingStrength = strength;
+    for (const chunk of this.loaded.values()) {
+      this.applyNightLighting(chunk.nightLighting);
+    }
+  }
+
+  get nightLightingSnapshot() {
+    const windowMeshes = [...this.loaded.values()].flatMap(
+      (chunk) => chunk.nightLighting.windowMeshes,
+    );
+    const areaLights = [...this.loaded.values()].flatMap(
+      (chunk) => chunk.nightLighting.areaLights,
+    );
+    return {
+      strength: this.nightLightingStrength,
+      windows: [...this.loaded.values()].reduce(
+        (sum, chunk) => sum + chunk.nightLighting.windowCount,
+        0,
+      ),
+      visibleWindowMeshes: windowMeshes.filter((mesh) => mesh.visible).length,
+      areaLights: areaLights.length,
+      activeAreaLights: areaLights.filter(({ light }) => light.intensity > 0).length,
+    };
   }
 
   markScanned(beaconId: BeaconId) {
@@ -208,6 +252,11 @@ export class ChunkManager {
     const root = new THREE.Group();
     root.name = `chunk:${key}`;
     const climate = sampleClimate(center.x, center.z);
+    const nightLighting: ChunkNightLighting = {
+      windowMeshes: [],
+      areaLights: [],
+      windowCount: 0,
+    };
 
     const terrainGeometry = new THREE.PlaneGeometry(
       CHUNK_SIZE,
@@ -240,7 +289,14 @@ export class ChunkManager {
     const targets: WorldTarget[] = [];
     this.addWater(root, center.x, center.z);
     this.addRoads(root, center.x, center.z, key);
-    this.addSettlementBuildings(root, center.x, center.z, key, colliders);
+    this.addSettlementBuildings(
+      root,
+      center.x,
+      center.z,
+      key,
+      colliders,
+      nightLighting,
+    );
     this.addRockField(root, center.x, center.z, key, climate.biome.rockDensity, colliders);
     this.addForest(root, center.x, center.z, key, climate.biome.treeDensity, colliders);
     this.addRuinSlabs(root, center.x, center.z, key, colliders);
@@ -273,7 +329,17 @@ export class ChunkManager {
     }
 
     this.scene.add(root);
-    this.loaded.set(key, { key, chunkX, chunkZ, root, colliders, targets });
+    const runtime = {
+      key,
+      chunkX,
+      chunkZ,
+      root,
+      colliders,
+      targets,
+      nightLighting,
+    };
+    this.loaded.set(key, runtime);
+    this.applyNightLighting(nightLighting);
   }
 
   private findSolidPlacement(
@@ -449,6 +515,7 @@ export class ChunkManager {
     centerZ: number,
     key: string,
     colliders: PlanarCollider[],
+    nightLighting: ChunkNightLighting,
   ) {
     const nearby = settlementsNear(centerX, centerZ, CHUNK_SIZE * 0.72);
     for (const settlement of nearby) {
@@ -470,7 +537,56 @@ export class ChunkManager {
       const quaternion = new THREE.Quaternion();
       const position = new THREE.Vector3();
       const scale = new THREE.Vector3();
+      const maxWindowBands =
+        settlement.tier === "megacity"
+          ? 5
+          : settlement.tier === "city"
+            ? 4
+            : settlement.tier === "town"
+              ? 2
+              : 1;
+      const windowGeometry = new THREE.PlaneGeometry(1, 1);
+      const windowMaterial = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        vertexColors: true,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        toneMapped: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1,
+      });
+      const windows = new THREE.InstancedMesh(
+        windowGeometry,
+        windowMaterial,
+        count * maxWindowBands * 4,
+      );
+      windows.name = `city-windows:${settlement.id}:${key}`;
+      windows.castShadow = false;
+      windows.receiveShadow = false;
+      windows.userData.shadow = false;
+      windows.visible = false;
+      windows.renderOrder = 3;
+      const windowRandom = seededRandom(
+        `${WORLD_SEED}:chunk:${key}:settlement:${settlement.id}:windows:v1`,
+      );
+      const windowMatrix = new THREE.Matrix4();
+      const windowQuaternion = new THREE.Quaternion();
+      const windowPosition = new THREE.Vector3();
+      const windowScale = new THREE.Vector3();
+      const windowColor = new THREE.Color();
+      const windowPalette = [0xffc36f, 0xffdfa0, 0xa9cccf, 0xe8b87c] as const;
+      const occupiedChance =
+        settlement.tier === "megacity"
+          ? 0.72
+          : settlement.tier === "city"
+            ? 0.64
+            : settlement.tier === "town"
+              ? 0.54
+              : 0.42;
       let renderedCount = 0;
+      let renderedWindows = 0;
 
       for (let index = 0; index < count; index += 1) {
         const width = randomRange(random, 4.5, settlement.tier === "megacity" ? 14 : 9);
@@ -490,7 +606,8 @@ export class ChunkManager {
         const radial = settlementInfluence(settlement, x, z);
         const height = randomRange(random, 3.5, Math.max(5, spec.height * (0.18 + radial * 0.82)));
         const rotation = Math.round(random() * 3) * Math.PI * 0.5;
-        position.set(x, sampleTerrainHeight(x, z) + height / 2, z);
+        const groundY = sampleTerrainHeight(x, z);
+        position.set(x, groundY + height / 2, z);
         quaternion.setFromEuler(new THREE.Euler(0, rotation, 0));
         scale.set(width, height, depth);
         matrix.compose(position, quaternion, scale);
@@ -504,13 +621,71 @@ export class ChunkManager {
           halfDepth: depth * 0.5,
           rotation,
         });
+
+        const bandCount = Math.min(
+          maxWindowBands,
+          Math.max(1, Math.floor(height / 7)),
+        );
+        const stripHeight = THREE.MathUtils.clamp(height * 0.035, 0.22, 0.52);
+        for (let band = 0; band < bandCount; band += 1) {
+          const windowY = groundY + (height * (band + 1)) / (bandCount + 1);
+          for (let face = 0; face < 4; face += 1) {
+            if (windowRandom() > occupiedChance) continue;
+            const faceRotation = rotation + face * Math.PI * 0.5;
+            const usesDepth = face % 2 === 0;
+            const offset = (usesDepth ? depth : width) * 0.5 + 0.025;
+            const facadeWidth = usesDepth ? width : depth;
+            windowPosition.set(
+              x + Math.sin(faceRotation) * offset,
+              windowY,
+              z + Math.cos(faceRotation) * offset,
+            );
+            windowQuaternion.setFromEuler(new THREE.Euler(0, faceRotation, 0));
+            windowScale.set(
+              facadeWidth * randomRange(windowRandom, 0.42, 0.72),
+              stripHeight,
+              1,
+            );
+            windowMatrix.compose(windowPosition, windowQuaternion, windowScale);
+            windows.setMatrixAt(renderedWindows, windowMatrix);
+            windows.setColorAt(
+              renderedWindows,
+              windowColor.setHex(
+                windowPalette[
+                  Math.floor(windowRandom() * windowPalette.length)
+                ] ?? windowPalette[0],
+              ),
+            );
+            renderedWindows += 1;
+          }
+        }
         renderedCount += 1;
       }
       buildings.count = renderedCount;
       buildings.instanceMatrix.needsUpdate = true;
       buildings.computeBoundingSphere();
       root.add(buildings);
-      this.addSettlementMarker(root, settlement, centerX, centerZ, colliders);
+      if (renderedWindows > 0) {
+        windows.count = renderedWindows;
+        windows.instanceMatrix.needsUpdate = true;
+        if (windows.instanceColor) windows.instanceColor.needsUpdate = true;
+        windows.computeBoundingSphere();
+        root.add(windows);
+        nightLighting.windowMeshes.push(windows);
+        nightLighting.windowCount += renderedWindows;
+      } else {
+        windowGeometry.dispose();
+        windowMaterial.dispose();
+        windows.dispose();
+      }
+      this.addSettlementMarker(
+        root,
+        settlement,
+        centerX,
+        centerZ,
+        colliders,
+        nightLighting,
+      );
     }
   }
 
@@ -520,6 +695,7 @@ export class ChunkManager {
     centerX: number,
     centerZ: number,
     colliders: PlanarCollider[],
+    nightLighting: ChunkNightLighting,
   ) {
     if (Math.abs(settlement.x - centerX) > CHUNK_SIZE / 2) return;
     if (Math.abs(settlement.z - centerZ) > CHUNK_SIZE / 2) return;
@@ -542,6 +718,32 @@ export class ChunkManager {
     );
     marker.castShadow = this.quality === "cinematic";
     root.add(marker);
+    const baseIntensity =
+      settlement.tier === "megacity"
+        ? 900
+        : settlement.tier === "city"
+          ? 460
+          : settlement.tier === "town"
+            ? 190
+            : 80;
+    const range =
+      settlement.tier === "megacity"
+        ? 380
+        : settlement.tier === "city"
+          ? 220
+          : settlement.tier === "town"
+            ? 120
+            : 72;
+    const areaLight = new THREE.PointLight(0xffbd75, 0, range, 1.65);
+    areaLight.name = `settlement-night-light:${settlement.id}`;
+    areaLight.position.set(
+      settlement.x,
+      sampleTerrainHeight(settlement.x, settlement.z) + Math.min(18, height * 0.32),
+      settlement.z,
+    );
+    areaLight.castShadow = false;
+    root.add(areaLight);
+    nightLighting.areaLights.push({ light: areaLight, baseIntensity });
     colliders.push({
       shape: "box",
       id: `landmark:${settlement.id}`,
@@ -551,6 +753,19 @@ export class ChunkManager {
       halfDepth: 4,
       rotation: 0,
     });
+  }
+
+  private applyNightLighting(nightLighting: ChunkNightLighting) {
+    const strength = this.nightLightingStrength;
+    for (const mesh of nightLighting.windowMeshes) {
+      mesh.visible = strength > 0.015;
+      const material = mesh.material as THREE.MeshBasicMaterial;
+      material.opacity = 0.12 + strength * 0.88;
+    }
+    for (const { light, baseIntensity } of nightLighting.areaLights) {
+      light.intensity = baseIntensity * strength;
+      light.visible = strength > 0.015;
+    }
   }
 
   private addRockField(
@@ -1023,6 +1238,7 @@ export class ChunkManager {
     this.scene.remove(chunk.root);
     chunk.root.traverse((object) => {
       if (!(object instanceof THREE.Mesh || object instanceof THREE.InstancedMesh)) return;
+      if (object instanceof THREE.InstancedMesh) object.dispose();
       object.geometry.dispose();
       const materials = Array.isArray(object.material) ? object.material : [object.material];
       for (const material of materials) material.dispose();

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CompassTape, WaypointGuide } from "./NavigationDisplay";
 import DeveloperPanel from "./DeveloperPanel";
+import WorldClock from "./WorldClock";
 import WorldMap from "./WorldMap";
 import {
   BEACONS,
@@ -78,7 +79,8 @@ export default function GameShell() {
           fps: 60,
           chunk: { x: 44, z: -33 },
           loadedChunks: WORLD_RESIDENT_CHUNKS,
-          citizenCount: 486,
+          citizenCount: fixture === "night" ? 88 : 486,
+          citizenActivity: fixture === "night" ? 0.18 : 0.93,
           crowdDensity: "ACTIVE",
           triangles: 48_620,
           geometries: 138,
@@ -88,20 +90,39 @@ export default function GameShell() {
           worldChanges: 4,
           stamina: 0.72,
           biome: { id: "pine_forest", name: "Sable Pine Forest", region: "Sablewood" },
-          environment: {
-            totalMinutes: 1_015,
-            day: 1,
-            hour: 16,
-            minute: 55,
-            phase: "day",
-            weatherId: "rain",
-            weatherLabel: "Canopy drizzle",
-            precipitation: "rain",
-            temperatureC: 11,
-            windKph: 18,
-            windDirection: 238,
-            visibilityMeters: 410,
-          },
+          environment: fixture === "night"
+            ? {
+                totalMinutes: 126,
+                day: 1,
+                hour: 2,
+                minute: 6,
+                phase: "night",
+                weatherId: "fair",
+                weatherLabel: "Canopy clear",
+                precipitation: "none",
+                temperatureC: 7,
+                windKph: 8,
+                windDirection: 238,
+                visibilityMeters: 640,
+                clockState: "running",
+                gameMinutesPerRealSecond: 1,
+              }
+            : {
+                totalMinutes: 1_015,
+                day: 1,
+                hour: 16,
+                minute: 55,
+                phase: "day",
+                weatherId: "rain",
+                weatherLabel: "Canopy drizzle",
+                precipitation: "rain",
+                temperatureC: 11,
+                windKph: 18,
+                windDirection: 238,
+                visibilityMeters: 410,
+                clockState: fixture === "dev" ? "frozen" : "running",
+                gameMinutesPerRealSecond: 1,
+              },
           nearestSettlement: {
             id: "timberfall",
             name: "Timberfall",
@@ -244,6 +265,8 @@ export default function GameShell() {
             </div>
           </header>
 
+          <WorldClock environment={snapshot.environment} />
+
           <div className="entry-main">
             <p className="eyebrow">FIELD DIRECTIVE 01 / GREYWATER TERRITORY</p>
             <h1>
@@ -329,6 +352,8 @@ export default function GameShell() {
             </div>
           </header>
 
+          <WorldClock environment={snapshot.environment} />
+
           <aside className="mission-card" data-testid="mission-card">
             <p className="eyebrow">ACTIVE DIRECTIVE</p>
             <div className="mission-count">
@@ -397,6 +422,7 @@ export default function GameShell() {
               <span>AMBIENT / NON-INTERACTIVE</span>
               <strong>{snapshot.crowdDensity} · {snapshot.citizenCount.toLocaleString()} VISIBLE</strong>
               <small>INSTANCED ROUTES · NO DIALOGUE STATE</small>
+              <small>TIME DEMAND {Math.round(snapshot.citizenActivity * 100)}% · DIURNAL SCHEDULE</small>
             </div>
           </aside>
 

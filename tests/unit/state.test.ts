@@ -10,6 +10,8 @@ describe("survey progression", () => {
       weatherOverride: null,
     });
     expect(INITIAL_SNAPSHOT.devTools.weatherOptions.length).toBeGreaterThan(1);
+    expect(INITIAL_SNAPSHOT.environment.clockState).toBe("paused");
+    expect(INITIAL_SNAPSHOT.environment.gameMinutesPerRealSecond).toBe(1);
   });
   it("adds each discovery exactly once", () => {
     const once = addDiscovery([], "amber-relay");
