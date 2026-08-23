@@ -6,6 +6,7 @@ import {
   type ItemId,
 } from "../gameplay/items";
 import type { EntityDiff } from "../gameplay/interactions";
+import { WORLD_HALF_EXTENT } from "../world/macroWorld";
 
 // Keep the legacy key so version-one saves migrate in place.
 const SAVE_KEY = "stillpoint-frontier:survey:v1";
@@ -20,24 +21,32 @@ export interface StorageAdapter {
 }
 
 export interface FrontierSave {
-  version: 2;
+  version: 3;
   scanned: BeaconId[];
   inventory: InventoryState;
   worldDiffs: Record<string, EntityDiff>;
+  manualWaypoint: SavedMapWaypoint | null;
 }
 
 export interface FrontierSaveInput {
   scanned: readonly BeaconId[];
   inventory: Readonly<InventoryState>;
   worldDiffs: Readonly<Record<string, EntityDiff>>;
+  manualWaypoint: Readonly<SavedMapWaypoint> | null;
+}
+
+export interface SavedMapWaypoint {
+  x: number;
+  z: number;
 }
 
 function emptySave(): FrontierSave {
   return {
-    version: 2,
+    version: 3,
     scanned: [],
     inventory: { ...EMPTY_INVENTORY },
     worldDiffs: {},
+    manualWaypoint: null,
   };
 }
 
@@ -76,6 +85,15 @@ function normalizeWorldDiffs(value: unknown): Record<string, EntityDiff> {
   return worldDiffs;
 }
 
+function normalizeManualWaypoint(value: unknown): SavedMapWaypoint | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const { x, z } = value as { x?: unknown; z?: unknown };
+  if (typeof x !== "number" || typeof z !== "number") return null;
+  if (!Number.isFinite(x) || !Number.isFinite(z)) return null;
+  if (Math.abs(x) > WORLD_HALF_EXTENT || Math.abs(z) > WORLD_HALF_EXTENT) return null;
+  return { x, z };
+}
+
 export class SaveStore {
   constructor(private readonly storage: StorageAdapter | null) {}
 
@@ -89,16 +107,19 @@ export class SaveStore {
         scanned?: unknown;
         inventory?: unknown;
         worldDiffs?: unknown;
+        manualWaypoint?: unknown;
       };
       if (parsed.version === 1) {
         return { ...emptySave(), scanned: normalizeScanned(parsed.scanned) };
       }
-      if (parsed.version !== 2) return emptySave();
+      if (parsed.version !== 2 && parsed.version !== 3) return emptySave();
       return {
-        version: 2,
+        version: 3,
         scanned: normalizeScanned(parsed.scanned),
         inventory: normalizeInventory(parsed.inventory),
         worldDiffs: normalizeWorldDiffs(parsed.worldDiffs),
+        manualWaypoint:
+          parsed.version === 3 ? normalizeManualWaypoint(parsed.manualWaypoint) : null,
       };
     } catch {
       return emptySave();
@@ -109,10 +130,11 @@ export class SaveStore {
     if (!this.storage) return false;
     try {
       const payload: FrontierSave = {
-        version: 2,
+        version: 3,
         scanned: normalizeScanned(input.scanned),
         inventory: normalizeInventory(input.inventory),
         worldDiffs: normalizeWorldDiffs(input.worldDiffs),
+        manualWaypoint: normalizeManualWaypoint(input.manualWaypoint),
       };
       this.storage.setItem(SAVE_KEY, JSON.stringify(payload));
       return true;

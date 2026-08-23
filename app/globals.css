@@ -421,43 +421,218 @@ button {
 }
 
 .compass {
-  display: grid;
-  grid-template-columns: auto auto;
-  gap: 5px 12px;
-  min-width: 160px;
-  justify-content: center;
+  width: clamp(300px, 32vw, 430px);
   font-family: var(--mono);
   text-align: center;
 }
 
-.compass > span {
+.compass-heading {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  justify-content: center;
+  margin-bottom: 7px;
+}
+
+.compass-heading span {
+  color: var(--paper-muted);
+  font-size: 7px;
+  letter-spacing: 0.14em;
+}
+
+.compass-heading strong {
+  font-size: 12px;
+  letter-spacing: 0.11em;
+}
+
+.compass-heading em {
   color: var(--ember);
   font-size: 11px;
+  font-style: normal;
   font-weight: 700;
 }
 
-.compass > strong {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-}
-
-.compass-rule {
+.compass-window {
   position: relative;
-  grid-column: 1 / -1;
-  width: 160px;
-  height: 10px;
-  border-top: 1px solid rgba(232, 226, 214, 0.42);
-  background: repeating-linear-gradient(90deg, transparent 0 14px, rgba(232, 226, 214, 0.25) 14px 15px);
+  overflow: hidden;
+  width: 100%;
+  height: 38px;
+  border-top: 1px solid rgba(232, 226, 214, 0.34);
+  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
 }
 
-.compass-rule i {
+.compass-mark {
   position: absolute;
-  top: -3px;
-  left: calc(50% - 3px);
-  width: 6px;
-  height: 6px;
+  top: 0;
+  width: 1px;
+  height: 7px;
+  background: rgba(232, 226, 214, 0.34);
+  transform: translateX(-50%);
+}
+
+.compass-mark.is-degree {
+  height: 11px;
+  background: rgba(232, 226, 214, 0.58);
+}
+
+.compass-mark.is-cardinal {
+  height: 15px;
+  background: var(--paper);
+}
+
+.compass-mark b {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  color: rgba(232, 226, 214, 0.62);
+  font: 600 7px/1 var(--mono);
+  letter-spacing: 0.05em;
+  transform: translateX(-50%);
+}
+
+.compass-mark.is-cardinal b {
+  color: var(--paper);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.compass-center {
+  position: absolute;
+  top: -1px;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: linear-gradient(var(--ember) 0 18px, transparent 18px);
+  box-shadow: 0 -1px 0 1px rgba(216, 117, 58, 0.16);
+}
+
+.compass-center::before {
+  position: absolute;
+  top: -1px;
+  left: -3px;
+  width: 7px;
+  height: 7px;
   background: var(--ember);
+  content: "";
   transform: rotate(45deg);
+}
+
+.compass-waypoint {
+  position: absolute;
+  z-index: 2;
+  bottom: 0;
+  display: grid;
+  width: 9px;
+  height: 9px;
+  place-items: center;
+  border: 2px solid var(--signal);
+  color: var(--signal);
+  font: 800 14px/1 var(--mono);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.compass-waypoint.is-offscreen {
+  bottom: 1px;
+  width: 15px;
+  height: 15px;
+  border: 0;
+  transform: translateX(-50%);
+}
+
+.waypoint-guide {
+  position: absolute;
+  top: clamp(106px, 9vw, 136px);
+  left: 50%;
+  display: grid;
+  grid-template-columns: 29px minmax(120px, auto) auto;
+  gap: 10px;
+  align-items: center;
+  min-width: 270px;
+  padding: 8px 10px;
+  border: 1px solid rgba(153, 194, 163, 0.4);
+  background: linear-gradient(90deg, rgba(13, 15, 14, 0.82), rgba(13, 15, 14, 0.56));
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.03);
+  font-family: var(--mono);
+  transform: translateX(-50%);
+}
+
+.waypoint-guide > i {
+  display: grid;
+  width: 27px;
+  height: 27px;
+  place-items: center;
+  border: 1px solid var(--signal);
+  color: var(--signal);
+  font-style: normal;
+}
+
+.waypoint-guide > div,
+.waypoint-guide > p {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+}
+
+.waypoint-guide span {
+  color: var(--paper-muted);
+  font: 7px/1 var(--mono);
+  letter-spacing: 0.12em;
+}
+
+.waypoint-guide > div strong {
+  overflow: hidden;
+  max-width: 190px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.waypoint-guide > p {
+  justify-items: end;
+  padding-left: 11px;
+  border-left: 1px solid var(--line);
+}
+
+.waypoint-guide > p strong {
+  color: var(--signal);
+  font-size: 10px;
+  letter-spacing: 0.07em;
+}
+
+.waypoint-guide.is-reached {
+  border-color: rgba(216, 117, 58, 0.62);
+}
+
+.waypoint-guide.is-reached > i,
+.waypoint-guide.is-reached > p strong {
+  border-color: var(--ember);
+  color: var(--ember);
+}
+
+.world-waypoint {
+  position: absolute;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  color: var(--signal);
+  font: 700 7px/1 var(--mono);
+  letter-spacing: 0.08em;
+  text-shadow: 0 1px 4px #000;
+  transform: translate(-50%, -50%);
+}
+
+.world-waypoint i {
+  width: 18px;
+  height: 18px;
+  border: 2px solid currentColor;
+  box-shadow: 0 0 0 5px rgba(153, 194, 163, 0.12);
+  transform: rotate(45deg);
+}
+
+.world-waypoint.is-reached {
+  color: var(--ember);
 }
 
 .system-readout {
@@ -987,6 +1162,11 @@ kbd {
   border-bottom: 1px solid var(--line);
 }
 
+.map-header-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .map-panel h2 {
   margin: 7px 0 0;
   font: 600 17px/1 var(--mono);
@@ -1022,6 +1202,18 @@ kbd {
     radial-gradient(ellipse at 30% 45%, transparent 0 18%, rgba(216, 117, 58, 0.12) 18.2% 18.5%, transparent 18.8% 30%, rgba(232, 226, 214, 0.08) 30.2% 30.5%, transparent 30.8%),
     #161916;
   background-size: 8% 8%, 8% 8%, 100% 100%, 100% 100%;
+  cursor: crosshair;
+  pointer-events: auto;
+}
+
+.map-plot > * {
+  pointer-events: none;
+}
+
+.map-plot:focus-visible {
+  border-color: rgba(153, 194, 163, 0.72);
+  outline: 1px solid rgba(153, 194, 163, 0.28);
+  outline-offset: 3px;
 }
 
 .map-plot::before,
@@ -1062,6 +1254,13 @@ kbd {
   stroke-width: 0.42;
 }
 
+.map-waypoint-line {
+  stroke: rgba(153, 194, 163, 0.68);
+  stroke-dasharray: 2 1.4;
+  stroke-width: 0.45;
+  vector-effect: non-scaling-stroke;
+}
+
 .map-plot::before {
   top: 50%;
   right: 0;
@@ -1077,12 +1276,25 @@ kbd {
 }
 
 .map-player,
-.map-beacon {
+.map-beacon,
+.map-waypoint {
   position: absolute;
   z-index: 2;
   font: 700 8px/1 var(--mono);
   letter-spacing: 0.08em;
   transform: translate(-50%, -50%);
+}
+
+.map-instruction {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  z-index: 6;
+  padding: 6px 8px;
+  background: rgba(13, 15, 14, 0.72);
+  color: rgba(232, 226, 214, 0.56);
+  font: 600 7px/1 var(--mono);
+  letter-spacing: 0.1em;
 }
 
 .map-player {
@@ -1111,6 +1323,36 @@ kbd {
 
 .map-beacon.is-scanned {
   color: var(--signal);
+}
+
+.map-waypoint {
+  z-index: 6;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  color: var(--signal);
+}
+
+.map-waypoint i {
+  width: 18px;
+  height: 18px;
+  border: 2px solid currentColor;
+  box-shadow: 0 0 0 5px rgba(153, 194, 163, 0.13);
+  transform: rotate(45deg);
+}
+
+.map-waypoint b {
+  padding: 4px 5px;
+  background: rgba(13, 15, 14, 0.86);
+  font: 800 7px/1 var(--mono);
+  letter-spacing: 0.1em;
+}
+
+.map-waypoint.is-quest,
+.map-waypoint.is-script,
+.map-waypoint.is-system,
+.map-waypoint.is-reached {
+  color: var(--ember);
 }
 
 .map-settlement {
@@ -1173,8 +1415,57 @@ kbd {
 
 .map-body aside {
   align-self: stretch;
+  overflow: auto;
   padding: 18px;
   border-left: 1px solid var(--line);
+}
+
+.map-navigation {
+  margin-bottom: 22px;
+  padding: 14px;
+  border: 1px solid rgba(153, 194, 163, 0.3);
+  background: rgba(153, 194, 163, 0.04);
+}
+
+.map-navigation > span {
+  color: var(--signal);
+  font: 700 7px/1 var(--mono);
+  letter-spacing: 0.13em;
+}
+
+.map-navigation > strong {
+  display: block;
+  margin: 9px 0 15px;
+  font: 700 12px/1.2 var(--mono);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.map-navigation dl {
+  gap: 9px;
+}
+
+.map-navigation button {
+  width: 100%;
+  margin-top: 13px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--paper-muted);
+  cursor: pointer;
+  font: 700 7px/1 var(--mono);
+  letter-spacing: 0.11em;
+}
+
+.map-navigation button:hover,
+.map-navigation button:focus-visible {
+  border-color: var(--signal);
+  color: var(--signal);
+  outline: none;
+}
+
+.map-world-state {
+  opacity: 0.82;
 }
 
 .map-body aside > p {
@@ -1338,6 +1629,11 @@ kbd {
 
   .compass {
     justify-self: end;
+    width: min(390px, 48vw);
+  }
+
+  .waypoint-guide {
+    top: 112px;
   }
 
   .mission-card {
@@ -1389,6 +1685,28 @@ kbd {
 
   .entry-main h1 {
     font-size: clamp(48px, 18vw, 76px);
+  }
+
+  .hud-brand {
+    display: none;
+  }
+
+  .hud-topbar {
+    display: block;
+  }
+
+  .compass {
+    width: 100%;
+  }
+
+  .waypoint-guide {
+    top: 108px;
+    width: calc(100vw - 48px);
+    min-width: 0;
+  }
+
+  .waypoint-guide > div strong {
+    max-width: 36vw;
   }
 
   .entry-footer {
@@ -1448,6 +1766,12 @@ kbd {
 
   .map-panel h2 {
     font-size: 12px;
+  }
+
+  .map-instruction {
+    right: 8px;
+    bottom: 8px;
+    font-size: 6px;
   }
 }
 

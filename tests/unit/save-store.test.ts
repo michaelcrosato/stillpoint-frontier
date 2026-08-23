@@ -19,6 +19,7 @@ const saveInput = {
     "resource:rock:v1:0:0:0": { hits: 3, removed: true },
     "resource:tree:v1:0:0:0": { hits: 1, removed: false },
   },
+  manualWaypoint: { x: 12_400, z: -8_200 },
 };
 
 describe("versioned frontier saves", () => {
@@ -27,10 +28,11 @@ describe("versioned frontier saves", () => {
     const store = new SaveStore(storage);
     expect(store.save(saveInput)).toBe(true);
     expect(store.load()).toEqual({
-      version: 2,
+      version: 3,
       scanned: ["amber-relay", "meridian-vault"],
       inventory: { ...EMPTY_INVENTORY, stone: 7, wood: 3 },
       worldDiffs: saveInput.worldDiffs,
+      manualWaypoint: saveInput.manualWaypoint,
     });
   });
 
@@ -41,10 +43,11 @@ describe("versioned frontier saves", () => {
       scanned: ["hollow-array", "invented", "hollow-array", 7],
     });
     expect(new SaveStore(storage).load()).toEqual({
-      version: 2,
+      version: 3,
       scanned: ["hollow-array"],
       inventory: EMPTY_INVENTORY,
       worldDiffs: {},
+      manualWaypoint: null,
     });
   });
 
@@ -63,6 +66,25 @@ describe("versioned frontier saves", () => {
     const result = new SaveStore(storage).load();
     expect(result.inventory).toEqual({ ...EMPTY_INVENTORY, stone: 4 });
     expect(result.worldDiffs).toEqual({ "valid:entity": { hits: 2, removed: false } });
+    expect(result.manualWaypoint).toBeNull();
+  });
+
+  it("migrates version-two world state and validates version-three waypoints", () => {
+    const storage = new MemoryStorage();
+    storage.value = JSON.stringify({
+      version: 3,
+      scanned: [],
+      inventory: {},
+      worldDiffs: {},
+      manualWaypoint: { x: 2_500, z: -7_500 },
+    });
+    expect(new SaveStore(storage).load().manualWaypoint).toEqual({ x: 2_500, z: -7_500 });
+
+    storage.value = JSON.stringify({
+      version: 3,
+      manualWaypoint: { x: 9_000_000, z: Number.NaN },
+    });
+    expect(new SaveStore(storage).load().manualWaypoint).toBeNull();
   });
 
   it.each(["not json", JSON.stringify({ version: 99, scanned: ["amber-relay"] })])(
@@ -71,17 +93,18 @@ describe("versioned frontier saves", () => {
       const storage = new MemoryStorage();
       storage.value = value;
       expect(new SaveStore(storage).load()).toEqual({
-        version: 2,
+        version: 3,
         scanned: [],
         inventory: EMPTY_INVENTORY,
         worldDiffs: {},
+        manualWaypoint: null,
       });
     },
   );
 
   it("runs without browser storage in deterministic tests", () => {
     const store = new SaveStore(null);
-    expect(store.load().version).toBe(2);
+    expect(store.load().version).toBe(3);
     expect(store.save(saveInput)).toBe(false);
   });
 

@@ -81,6 +81,52 @@ test("starts the survey, streams distant chunks, and opens the map", async ({ pa
   await attachScreenshot(page, testInfo, "distant-world-map");
 });
 
+test("sets, replaces, guides, and clears a map waypoint", async ({ page }, testInfo) => {
+  await openDeterministicWorld(page);
+  await page.getByTestId("enter-frontier").click();
+  await page.getByRole("button", { name: /map/i }).click();
+  const plot = page.getByTestId("map-plot");
+  const bounds = await plot.boundingBox();
+  expect(bounds).not.toBeNull();
+  if (!bounds) return;
+
+  await page.mouse.click(bounds.x + bounds.width * 0.75, bounds.y + bounds.height * 0.25);
+  await expect(page.getByTestId("map-waypoint")).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().navigation?.target.position.x))
+    .toBeCloseTo(24_000, -1);
+  await expect
+    .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().navigation?.target.position.z))
+    .toBeCloseTo(-24_000, -1);
+
+  await page.mouse.click(bounds.x + bounds.width * 0.25, bounds.y + bounds.height * 0.75);
+  await expect
+    .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().navigation?.target.position.x))
+    .toBeCloseTo(-24_000, -1);
+  await expect
+    .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().navigation?.target.position.z))
+    .toBeCloseTo(24_000, -1);
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.navigationTargets().filter(
+    (target) => target.id === "player:map",
+  ).length)).toBe(1);
+
+  await attachScreenshot(page, testInfo, "map-waypoint-set");
+  await page.getByRole("button", { name: /close/i }).click();
+  await expect(page.getByTestId("waypoint-guide")).toContainText(/map waypoint/i);
+  await expect(page.getByTestId("waypoint-compass-marker")).toBeVisible();
+
+  await page.evaluate(() => window.__STILLPOINT_TEST__?.setHeading(359));
+  await expect(page.getByTestId("compass")).toContainText("359°");
+  await page.evaluate(() => window.__STILLPOINT_TEST__?.setHeading(1));
+  await expect(page.getByTestId("compass")).toContainText("001°");
+  await expect(page.getByTestId("compass-tape")).toContainText("N");
+
+  await page.getByRole("button", { name: /map/i }).click();
+  await page.getByTestId("clear-waypoint").click();
+  await expect(page.getByTestId("map-waypoint")).toBeHidden();
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().navigation)).toBeNull();
+});
+
 test("streams proportional ambient citizens without making them interaction targets", async ({ page }) => {
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
@@ -137,6 +183,7 @@ test("restores a saved survey after reload", async ({ page }) => {
   await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
   await page.getByTestId("enter-frontier").click();
   await page.evaluate(() => window.__STILLPOINT_TEST__?.discover("amber-relay"));
+  await page.evaluate(() => window.__STILLPOINT_TEST__?.setWaypoint(1_250, -3_400));
   await expect(page.getByTestId("mission-card")).toContainText("RECOVERED");
 
   await page.reload({ waitUntil: "load" });
@@ -146,6 +193,8 @@ test("restores a saved survey after reload", async ({ page }) => {
   expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().scanned)).toEqual([
     "amber-relay",
   ]);
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().navigation?.target.position))
+    .toEqual({ x: 1_250, z: -3_400 });
 });
 
 test("supports sprint, crouch, and a complete jump arc", async ({ page }) => {

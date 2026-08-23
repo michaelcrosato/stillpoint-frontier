@@ -10,8 +10,8 @@ still produce reviewable evidence.
 - `npm run test:coverage` — coverage report with enforced thresholds.
 - `npm test` — unit tests, production build, and rendered-worker HTML contract.
 - `npm run test:e2e` — browser boot, WebGL pixel, streaming, movement, gathering,
-  persistence, interaction, proportional citizen streaming, resource budgets, and
-  context-loss tests.
+  persistence, interaction, map waypoint guidance, proportional citizen streaming,
+  resource budgets, and context-loss tests.
 - `npm run test:visual` — captures deterministic entry/world screenshots as Playwright artifacts.
 - `npm run test:visual:update` — writes or reviews golden snapshots when
   `VISUAL_BASELINES=1` is set in a pinned browser environment.
@@ -26,13 +26,20 @@ DPR, locale, timezone, seed, and quality profile pinned before accepting golden 
 `?test=1` enables a narrow `window.__STILLPOINT_TEST__` bridge. It fixes the world seed,
 keeps the framebuffer readable for nonblank-pixel inspection, bypasses pointer-lock for
 automation, and exposes snapshot, teleport, fixed views, deterministic target descriptors,
-discrete interactions, discovery, and WebGL context-loss operations. Normal gameplay does
-not depend on the bridge.
+discrete interactions, discovery, waypoint commands, fixed headings, and WebGL context-loss
+operations. Normal gameplay does not depend on the bridge.
 
 Macro-world tests enforce the 9,216 km² area, biome coverage, settlement hierarchy,
 economic metadata, bounds, road connectivity, and river continuity. Gathering tests prove
 that partial work persists, final hits grant loot exactly once, and removed objects cannot
 duplicate inventory. Locomotion property tests constrain stamina and landing math.
+
+Navigation tests cover north-zero clockwise bearings, yaw sign, 359°/000° wraparound,
+five-degree compass windows, arbitrary map/world coordinate round trips, non-square map
+clicks, target validation, player/quest target replacement, stale clears, one-shot arrival,
+auto-clearing scripted targets, manual-waypoint save migration, and render-frame store
+notifications. Browser coverage sets and replaces a pin through actual map coordinates,
+checks the HUD guide and compass marker, and restores the manual waypoint after reload.
 
 Citizen property tests sample random atlas chunks and enforce deterministic IDs, provenance,
 road/settlement route bounds, hierarchy-scaled density, quality caps, finite time sampling,

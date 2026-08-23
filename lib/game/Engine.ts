@@ -11,12 +11,20 @@ import { SystemPipeline } from "./core/SystemPipeline";
 import { FeatureRegistry } from "./core/FeatureRegistry";
 import { createEnvironment, type EnvironmentRuntime } from "./environment";
 import { InputManager } from "./input/InputManager";
+import {
+  MANUAL_WAYPOINT_ID,
+  NavigationService,
+  type NavigationTargetInput,
+} from "./navigation/NavigationService";
+import { clamp, headingFromYaw, unwrappedHeadingFromYaw } from "./navigation/math";
+import type { GamePresentation, WaypointScreenProjection } from "./navigation/presentation";
 import { SaveStore } from "./persistence/SaveStore";
 import { applyGather, type EntityDiff } from "./gameplay/interactions";
 import { EMPTY_INVENTORY, type InventoryState } from "./gameplay/items";
 import { InteractionSystem } from "./systems/InteractionSystem";
 import { CitizenCrowdSystem } from "./systems/CitizenCrowdSystem";
 import { PlayerControllerSystem } from "./systems/PlayerControllerSystem";
+import { NavigationSystem } from "./systems/NavigationSystem";
 import type { GameRuntimeContext } from "./systems/runtime";
 import { WorldStreamingSystem } from "./systems/WorldStreamingSystem";
 import {
@@ -26,7 +34,7 @@ import {
   addDiscovery,
 } from "./state";
 import { ChunkManager, type WorldTarget } from "./world/ChunkManager";
-import { nearestSettlement, sampleClimate } from "./world/macroWorld";
+import { WORLD_HALF_EXTENT, nearestSettlement, sampleClimate } from "./world/macroWorld";
 import { sampleTerrainHeight, worldToChunk } from "./world/terrain";
 
 const FIXED_STEP = 1 / 60;
@@ -51,6 +59,10 @@ export interface GameTestBridge {
   };
   faceTarget(id: string): void;
   interactTarget(id: string): void;
+  setWaypoint(x: number, z: number): void;
+  clearWaypoint(): void;
+  setHeading(heading: number): void;
+  navigationTargets(): ReturnType<NavigationService["targetsSnapshot"]>;
 }
 
 declare global {
@@ -64,6 +76,7 @@ interface EngineOptions {
   testMode?: boolean;
   storageEnabled?: boolean;
   onSnapshot: (snapshot: GameSnapshot) => void;
+  onPresentation?: (presentation: GamePresentation) => void;
 }
 
 export class Engine {
@@ -74,11 +87,16 @@ export class Engine {
   private readonly input: InputManager;
   private readonly world: ChunkManager;
   private readonly citizens: CitizenEngine;
+  private readonly navigation = new NavigationService();
   private readonly environment: EnvironmentRuntime;
   private readonly pipeline = new SystemPipeline<GameRuntimeContext>();
   private readonly onSnapshot: (snapshot: GameSnapshot) => void;
+  private readonly onPresentation: (presentation: GamePresentation) => void;
   private readonly testMode: boolean;
   private readonly saveStore: SaveStore;
+  private readonly projectionPoint = new THREE.Vector3();
+  private readonly projectionDirection = new THREE.Vector3();
+  private readonly cameraDirection = new THREE.Vector3();
   private readonly player = {
     position: new THREE.Vector3(0, 0, 8),
     yaw: -0.565,
@@ -117,6 +135,7 @@ export class Engine {
     this.canvas = options.canvas;
     this.testMode = options.testMode ?? false;
     this.onSnapshot = options.onSnapshot;
+    this.onPresentation = options.onPresentation ?? (() => undefined);
     let browserStorage: Storage | null = null;
     const storageEnabled = options.storageEnabled ?? !this.testMode;
     if (storageEnabled) {
@@ -131,6 +150,7 @@ export class Engine {
     this.scanned = saved.scanned;
     this.inventory = saved.inventory;
     this.worldDiffs = saved.worldDiffs;
+    if (saved.manualWaypoint) this.navigation.setManualWaypoint(saved.manualWaypoint);
 
     this.renderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
@@ -166,6 +186,7 @@ export class Engine {
       camera: this.camera,
       world: this.world,
       citizens: this.citizens,
+      navigation: this.navigation,
       player: this.player,
       started: false,
       paused: false,
@@ -179,6 +200,12 @@ export class Engine {
     };
 
     new FeatureRegistry(this.pipeline)
+      .use({
+        id: "navigation-core",
+        install: (registry) => {
+          registry.system(new NavigationSystem());
+        },
+      })
       .use({
         id: "frontier-survey",
         install: (registry) => {
@@ -290,6 +317,64 @@ export class Engine {
     this.emitSnapshot(true);
   }
 
+  setManualWaypoint(x: number, z: number) {
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return null;
+    const target = this.navigation.setManualWaypoint({
+      x: clamp(x, -WORLD_HALF_EXTENT, WORLD_HALF_EXTENT),
+      z: clamp(z, -WORLD_HALF_EXTENT, WORLD_HALF_EXTENT),
+    });
+    if (!target) return null;
+    this.persist();
+    this.emitPresentation();
+    this.emitSnapshot(true);
+    return target;
+  }
+
+  clearManualWaypoint() {
+    const removed = this.navigation.removeTarget(MANUAL_WAYPOINT_ID);
+    if (!removed) return false;
+    this.persist();
+    this.emitPresentation();
+    this.emitSnapshot(true);
+    return true;
+  }
+
+  setNavigationTarget(target: NavigationTargetInput, activate = true) {
+    const registered = this.navigation.setTarget(target, activate);
+    if (!registered) return null;
+    this.emitPresentation();
+    this.emitSnapshot(true);
+    return registered;
+  }
+
+  activateNavigationTarget(id: string) {
+    const activated = this.navigation.activateTarget(id);
+    if (activated) {
+      this.emitPresentation();
+      this.emitSnapshot(true);
+    }
+    return activated;
+  }
+
+  clearActiveNavigationTarget(expectedId?: string) {
+    const cleared = this.navigation.clearActive(expectedId);
+    if (cleared) {
+      this.emitPresentation();
+      this.emitSnapshot(true);
+    }
+    return cleared;
+  }
+
+  removeNavigationTarget(id: string) {
+    const removed = this.navigation.removeTarget(id);
+    if (removed) {
+      if (id === MANUAL_WAYPOINT_ID) this.persist();
+      this.emitPresentation();
+      this.emitSnapshot(true);
+    }
+    return removed;
+  }
+
   clearDiscoveryNotice() {
     this.lastDiscovery = null;
     this.emitSnapshot(true);
@@ -301,10 +386,12 @@ export class Engine {
   }
 
   private persist() {
+    const manualWaypoint = this.navigation.getTarget(MANUAL_WAYPOINT_ID)?.position ?? null;
     this.saveStore.save({
       scanned: this.scanned,
       inventory: this.inventory,
       worldDiffs: this.worldDiffs,
+      manualWaypoint,
     });
   }
 
@@ -318,6 +405,7 @@ export class Engine {
     this.canvas.removeEventListener("webglcontextrestored", this.handleContextRestored);
     this.input.dispose();
     this.pipeline.dispose();
+    this.navigation.dispose();
     this.citizens.dispose();
     this.world.dispose();
     this.environment.dispose();
@@ -348,6 +436,7 @@ export class Engine {
       this.citizens.present(
         this.started && !this.paused && !this.mapOpen ? this.accumulator : 0,
       );
+      this.emitPresentation();
       this.renderer.render(this.scene, this.camera);
       this.trackPerformance(timestamp);
       this.emitSnapshot(timestamp - this.lastSnapshotTime > 140);
@@ -369,7 +458,7 @@ export class Engine {
     if (!force) return;
     this.lastSnapshotTime = performance.now();
     const chunk = worldToChunk(this.player.position.x, this.player.position.z);
-    const heading = ((THREE.MathUtils.radToDeg(this.player.yaw) % 360) + 360) % 360;
+    const heading = headingFromYaw(this.player.yaw);
     const climate = sampleClimate(this.player.position.x, this.player.position.z);
     const nearest = nearestSettlement(this.player.position.x, this.player.position.z);
     const nearbyTarget = this.runtime.nearbyTarget;
@@ -385,6 +474,7 @@ export class Engine {
         z: this.player.position.z,
       },
       heading,
+      navigation: this.navigation.getGuidance(this.player.position, heading),
       fps: this.fps,
       chunk,
       loadedChunks: this.world.loadedCount,
@@ -432,6 +522,49 @@ export class Engine {
       lastGather: this.lastGather,
     };
     this.onSnapshot(this.snapshot);
+  }
+
+  private projectWaypoint(): WaypointScreenProjection | null {
+    const target = this.navigation.getActiveTarget();
+    if (!target) return null;
+    const distance = Math.hypot(
+      target.position.x - this.player.position.x,
+      target.position.z - this.player.position.z,
+    );
+    if (distance > this.camera.far * 0.92) return null;
+
+    this.camera.updateMatrixWorld();
+    this.projectionPoint.set(
+      target.position.x,
+      sampleTerrainHeight(target.position.x, target.position.z) + 2.4,
+      target.position.z,
+    );
+    this.projectionDirection.copy(this.projectionPoint).sub(this.camera.position).normalize();
+    this.camera.getWorldDirection(this.cameraDirection);
+    const inFront = this.projectionDirection.dot(this.cameraDirection) > 0;
+    this.projectionPoint.project(this.camera);
+    const visible =
+      inFront &&
+      this.projectionPoint.z >= -1 &&
+      this.projectionPoint.z <= 1 &&
+      Math.abs(this.projectionPoint.x) <= 0.86 &&
+      Math.abs(this.projectionPoint.y) <= 0.74;
+    return {
+      visible,
+      xPercent: clamp(50 + this.projectionPoint.x * 50, 7, 93),
+      yPercent: clamp(50 - this.projectionPoint.y * 50, 12, 88),
+    };
+  }
+
+  private emitPresentation() {
+    const unwrappedHeading = unwrappedHeadingFromYaw(this.player.yaw);
+    const heading = headingFromYaw(this.player.yaw);
+    this.onPresentation({
+      heading,
+      unwrappedHeading,
+      navigation: this.navigation.getGuidance(this.player.position, heading),
+      waypointScreen: this.projectWaypoint(),
+    });
   }
 
   private toggleMap() {
@@ -505,6 +638,8 @@ export class Engine {
         this.camera.position.set(x, this.player.position.y + PLAYER_HEIGHT, z);
         this.world.update(x, z);
         this.citizens.update(x, z, 0, true);
+        this.navigation.update(this.player.position);
+        this.emitPresentation();
         this.emitSnapshot(true);
       },
       faceBeacon: (beaconId) => {
@@ -515,6 +650,7 @@ export class Engine {
         this.player.yaw = Math.atan2(-deltaX, -deltaZ);
         this.player.pitch = -0.08;
         this.camera.rotation.set(this.player.pitch, this.player.yaw, 0, "YXZ");
+        this.emitPresentation();
         this.emitSnapshot(true);
       },
       discover: (beaconId) => this.discover(beaconId),
@@ -542,12 +678,26 @@ export class Engine {
         this.player.yaw = Math.atan2(-deltaX, -deltaZ);
         this.player.pitch = -0.04;
         this.camera.rotation.set(this.player.pitch, this.player.yaw, 0, "YXZ");
+        this.emitPresentation();
         this.emitSnapshot(true);
       },
       interactTarget: (id) => {
         const target = this.world.targets.find((candidate) => candidate.id === id);
         if (target) this.performInteraction(target);
       },
+      setWaypoint: (x, z) => {
+        this.setManualWaypoint(x, z);
+      },
+      clearWaypoint: () => {
+        this.clearManualWaypoint();
+      },
+      setHeading: (heading) => {
+        this.player.yaw = (-heading * Math.PI) / 180;
+        this.camera.rotation.set(this.player.pitch, this.player.yaw, 0, "YXZ");
+        this.emitPresentation();
+        this.emitSnapshot(true);
+      },
+      navigationTargets: () => this.navigation.targetsSnapshot(),
     };
   }
 }

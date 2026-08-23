@@ -1,5 +1,6 @@
 import { BEACONS, type BeaconId, type QualityLevel } from "./config";
 import { EMPTY_INVENTORY, type InventoryState, type ItemId } from "./gameplay/items";
+import type { NavigationGuidance } from "./navigation/NavigationService";
 
 export interface NearbyTargetSnapshot {
   id: string;
@@ -28,6 +29,7 @@ export interface GameSnapshot {
   contextStatus: "ready" | "lost";
   position: { x: number; y: number; z: number };
   heading: number;
+  navigation: NavigationGuidance | null;
   fps: number;
   chunk: { x: number; z: number };
   loadedChunks: number;
@@ -68,6 +70,7 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
   contextStatus: "ready",
   position: { x: 0, y: 0, z: 0 },
   heading: 0,
+  navigation: null,
   fps: 60,
   chunk: { x: 0, z: 0 },
   loadedChunks: 0,

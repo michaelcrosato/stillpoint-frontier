@@ -1,34 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { CompassTape, WaypointGuide } from "./NavigationDisplay";
+import WorldMap from "./WorldMap";
 import { BEACONS, GAME_TITLE, WORLD_SEED, type BeaconId } from "../lib/game/config";
 import { Engine } from "../lib/game/Engine";
 import { ITEM_DEFINITIONS, type ItemId } from "../lib/game/gameplay/items";
+import { clamp } from "../lib/game/navigation/math";
+import { GamePresentationStore } from "../lib/game/navigation/presentation";
 import { INITIAL_SNAPSHOT, nextUnscannedBeacon, type GameSnapshot } from "../lib/game/state";
-import {
-  ROAD_CORRIDORS,
-  SETTLEMENTS,
-  WORLD_AREA_KM2,
-  WORLD_HALF_EXTENT,
-  riverCenterX,
-} from "../lib/game/world/macroWorld";
-
-const CARDINALS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
-
-function cardinalForHeading(heading: number) {
-  return CARDINALS[Math.round(heading / 45) % CARDINALS.length];
-}
 
 function beaconById(id: BeaconId | null) {
   return BEACONS.find((beacon) => beacon.id === id) ?? null;
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
-
-function mapPercent(value: number) {
-  return 50 + (value / (WORLD_HALF_EXTENT * 2)) * 100;
 }
 
 function formatDistance(meters: number) {
@@ -38,6 +21,7 @@ function formatDistance(meters: number) {
 export default function GameShell() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
+  const [presentationStore] = useState(() => new GamePresentationStore());
   const [snapshot, setSnapshot] = useState<GameSnapshot>(INITIAL_SNAPSHOT);
   const [visualFixture, setVisualFixture] = useState(false);
   const [engineError, setEngineError] = useState<string | null>(null);
@@ -51,6 +35,20 @@ export default function GameShell() {
     if (fixture) {
       queueMicrotask(() => {
         if (!active) return;
+        const navigation = {
+          target: {
+            id: "player:map",
+            label: "Sablewood crossing",
+            position: { x: 8_300, z: -7_200 },
+            source: { kind: "player" as const },
+            arrivalRadius: 12,
+            clearOnArrival: false,
+          },
+          distance: 6_500,
+          bearing: 58,
+          relativeBearing: 16,
+          reached: false,
+        };
         setVisualFixture(true);
         setSnapshot({
           ...INITIAL_SNAPSHOT,
@@ -59,6 +57,7 @@ export default function GameShell() {
           mapOpen: fixture === "map",
           position: { x: 4_240, y: 8.4, z: -3_180 },
           heading: 42,
+          navigation,
           fps: 60,
           chunk: { x: 44, z: -33 },
           loadedChunks: 25,
@@ -92,6 +91,12 @@ export default function GameShell() {
           },
           nearbyDistance: 4.2,
         });
+        presentationStore.publish({
+          heading: 42,
+          unwrappedHeading: 42,
+          navigation,
+          waypointScreen: { visible: true, xPercent: 64, yPercent: 41 },
+        });
       });
       return () => {
         active = false;
@@ -108,6 +113,9 @@ export default function GameShell() {
         storageEnabled,
         onSnapshot: (nextSnapshot) => {
           if (active) setSnapshot(nextSnapshot);
+        },
+        onPresentation: (presentation) => {
+          if (active) presentationStore.publish(presentation);
         },
       });
       engineRef.current = engine;
@@ -130,7 +138,7 @@ export default function GameShell() {
       engineRef.current?.dispose();
       engineRef.current = null;
     };
-  }, []);
+  }, [presentationStore]);
 
   const nextBeacon = useMemo(
     () => nextUnscannedBeacon(snapshot.scanned),
@@ -143,11 +151,6 @@ export default function GameShell() {
     ? ITEM_DEFINITIONS[snapshot.lastGather.item]
     : null;
   const surveyComplete = snapshot.scanned.length === BEACONS.length;
-  const riverMapPoints = Array.from({ length: 33 }, (_, index) => {
-    const z = -WORLD_HALF_EXTENT + (index / 32) * WORLD_HALF_EXTENT * 2;
-    return `${mapPercent(riverCenterX(z)).toFixed(2)},${mapPercent(z).toFixed(2)}`;
-  }).join(" ");
-
   return (
     <main className="game-shell" data-testid="game-shell">
       <canvas
@@ -256,13 +259,7 @@ export default function GameShell() {
               </div>
             </div>
 
-            <div className="compass" data-testid="compass">
-              <span>{cardinalForHeading(snapshot.heading)}</span>
-              <strong>{String(Math.round(snapshot.heading)).padStart(3, "0")}°</strong>
-              <div className="compass-rule" aria-hidden="true">
-                <i />
-              </div>
-            </div>
+            <CompassTape store={presentationStore} />
 
             <div className="system-readout">
               <div>
@@ -350,6 +347,8 @@ export default function GameShell() {
             <span />
             <i />
           </div>
+
+          <WaypointGuide store={presentationStore} />
 
           {nearbyTarget &&
             !(nearbyTarget.beaconId && snapshot.scanned.includes(nearbyTarget.beaconId)) && (
@@ -439,86 +438,12 @@ export default function GameShell() {
       )}
 
       {snapshot.started && snapshot.mapOpen && (
-        <section className="map-panel" data-testid="map-panel">
-          <header>
-            <div>
-              <p className="eyebrow">FIELD CARTOGRAPHY</p>
-              <h2>GREYWATER TERRITORY / 96 × 96 KM</h2>
-            </div>
-            <button type="button" onClick={() => engineRef.current?.setMapOpen(false)}>
-              CLOSE <kbd>M</kbd>
-            </button>
-          </header>
-          <div className="map-body">
-            <div className="map-plot">
-              <svg className="map-geography" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-                <polyline className="map-river" points={riverMapPoints} />
-                {ROAD_CORRIDORS.map((corridor) => {
-                  return (
-                    <line
-                      key={corridor.id}
-                      className={`map-road is-${corridor.class}`}
-                      x1={mapPercent(corridor.from.x)}
-                      y1={mapPercent(corridor.from.z)}
-                      x2={mapPercent(corridor.to.x)}
-                      y2={mapPercent(corridor.to.z)}
-                    />
-                  );
-                })}
-              </svg>
-              <span
-                className="map-player"
-                style={{
-                  left: `${clamp(mapPercent(snapshot.position.x), 2, 98)}%`,
-                  top: `${clamp(mapPercent(snapshot.position.z), 2, 98)}%`,
-                }}
-              >
-                YOU
-              </span>
-              {BEACONS.map((beacon) => (
-                <span
-                  key={beacon.id}
-                  className={`map-beacon ${snapshot.scanned.includes(beacon.id) ? "is-scanned" : ""}`}
-                  style={{
-                    left: `${mapPercent(beacon.x)}%`,
-                    top: `${mapPercent(beacon.z)}%`,
-                  }}
-                >
-                  <i />
-                  {beacon.code}
-                </span>
-              ))}
-              {SETTLEMENTS.map((settlement) => (
-                <span
-                  key={settlement.id}
-                  className={`map-settlement is-${settlement.tier}`}
-                  style={{ left: `${mapPercent(settlement.x)}%`, top: `${mapPercent(settlement.z)}%` }}
-                  title={`${settlement.name}: ${settlement.economy}`}
-                >
-                  <i />
-                  <b>{settlement.name}</b>
-                </span>
-              ))}
-            </div>
-            <aside>
-              <p>WORLD STATE</p>
-              <dl>
-                <div><dt>SEED</dt><dd>{WORLD_SEED}</dd></div>
-                <div><dt>AUTHORED AREA</dt><dd>{WORLD_AREA_KM2.toLocaleString()} KM²</dd></div>
-                <div><dt>SETTLEMENTS</dt><dd>{SETTLEMENTS.length}</dd></div>
-                <div><dt>ACTIVE GRID</dt><dd>{snapshot.chunk.x}:{snapshot.chunk.z}</dd></div>
-                <div><dt>RESIDENT</dt><dd>{snapshot.loadedChunks} CHUNKS</dd></div>
-                <div><dt>AMBIENT CITIZENS</dt><dd>{snapshot.citizenCount.toLocaleString()} / {snapshot.crowdDensity}</dd></div>
-                <div><dt>RECORDS</dt><dd>{snapshot.scanned.length} / {BEACONS.length}</dd></div>
-                <div><dt>WORLD CHANGES</dt><dd>{snapshot.worldChanges}</dd></div>
-              </dl>
-              <small>
-                <strong>{snapshot.nearestSettlement.name}</strong> — {snapshot.nearestSettlement.reason}
-                <br /><br />Its economy: {snapshot.nearestSettlement.economy}.
-              </small>
-            </aside>
-          </div>
-        </section>
+        <WorldMap
+          snapshot={snapshot}
+          onClose={() => engineRef.current?.setMapOpen(false)}
+          onSetWaypoint={(x, z) => engineRef.current?.setManualWaypoint(x, z)}
+          onClearWaypoint={() => engineRef.current?.clearManualWaypoint()}
+        />
       )}
 
       {snapshot.contextStatus === "lost" && (

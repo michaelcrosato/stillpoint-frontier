@@ -22,6 +22,10 @@ along authored procedural lanes.
   low-poly figure and one instanced draw per populated chunk keep Vesper Crown's thousands
   of visible citizens within budget. Citizens never enter target, collider, dialogue, or
   persistence systems.
+- `NavigationService` is an engine-level destination registry shared by player map pins,
+  quest objectives, scripted routes, and system alerts. It owns activation, finite target
+  validation, one-shot arrival events, and source metadata; `NavigationSystem` evaluates
+  arrival after movement without coupling quest logic to the HUD.
 - `world/roads` is the shared path layer for rendered roads, urban street grids, building
   clearance, and pedestrian lanes. The Old Relay Spur makes the opening survey site a
   credible quiet work stop without promoting it to a settlement.
@@ -32,7 +36,10 @@ along authored procedural lanes.
 - Pure modules (`terrain`, `random`, `collision`, `locomotion`, `interactions`, and `state`) contain simulation rules that
   are testable without React, a browser, or a GPU.
 - `GameShell` translates serializable engine snapshots into the HUD, map, pause, discovery,
-  and error interfaces. The renderer never reaches into React state.
+  and error interfaces. A separate tiny presentation store publishes heading, bearing,
+  distance, and near-target screen projection once per rendered frame, so the scrolling
+  compass remains smooth without repainting the entire shell at 60+ Hz. The renderer never
+  reaches into React state.
 
 ## Adding a feature
 
@@ -54,8 +61,17 @@ completion order, or frame time to determine persistent world content.
 Persistent resource IDs include the feature, recipe version, chunk coordinate, and local
 index. Pickups, trees, and rock outcrops are reduced through a pure idempotent interaction
 function. Only a sparse `{hits, removed}` world delta is saved; generated chunks remain
-derivable. Inventory and its matching entity delta are written in the same version-two
-save operation, while version-one relay saves migrate in place.
+derivable. Inventory and its matching entity delta are written in the same save operation.
+The version-three envelope also retains the player's manual map waypoint; version-one relay
+and version-two world saves migrate in place. Quest destinations remain owned by quest state
+and can re-register with the navigation service after loading.
+
+The atlas uses `+X = east`, `-Z = north`, and north-zero clockwise bearings. Map clicks are
+converted through tested bidirectional atlas helpers. The compass builds a local unwrapped
+five-degree tick window around camera yaw, which preserves continuous motion through the
+359°/000° seam. Waypoint guidance always provides distance, absolute bearing, relative
+bearing, map placement, and an arrival latch; nearby in-view targets also receive a
+projected world marker.
 
 Movement treats player position as feet rather than camera position. The controller owns
 gravity, grounded state, jump velocity, crouch eye height, sprint state, stamina, and a
