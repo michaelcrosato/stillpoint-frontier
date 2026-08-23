@@ -71,8 +71,10 @@ The initial target is an RTX 3060-class machine at 1440p/60:
 - Atlas territory: 9,216 km²; world size does not alter the 25-chunk resident budget.
 - Roads, settlement blocks, forest, rocks, water, ruins, and citizens use static or instanced
   meshes; no gameplay object requires an animation clip.
-- Citizen matrices update at 20 Hz in cinematic mode and 12 Hz in performance mode. Hard
-  resident targets are 5,000 and 2,200 visible citizens respectively, with no citizen shadows.
+- Citizen matrices present once per rendered frame with fixed-step interpolation, so they
+  remain smooth on 60 Hz and high-refresh displays. Performance mode reduces population
+  density rather than motion cadence. Hard resident targets remain 5,000 and 2,200 visible
+  citizens respectively, with no citizen shadows.
 - One shadow-casting directional light; 2K shadow map in cinematic mode.
 - Pixel ratio capped at 1.75; performance mode forces DPR 1 and disables shadows.
 - Renderer diagnostics expose FPS, active chunks, and triangles to both the HUD and tests.

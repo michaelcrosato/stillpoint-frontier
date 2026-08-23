@@ -345,6 +345,9 @@ export class Engine {
       if (steps === 5) this.accumulator = 0;
 
       this.environment.updateAround(this.player.position);
+      this.citizens.present(
+        this.started && !this.paused && !this.mapOpen ? this.accumulator : 0,
+      );
       this.renderer.render(this.scene, this.camera);
       this.trackPerformance(timestamp);
       this.emitSnapshot(timestamp - this.lastSnapshotTime > 140);

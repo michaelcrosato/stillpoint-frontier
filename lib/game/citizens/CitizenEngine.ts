@@ -68,7 +68,6 @@ export class CitizenEngine {
   private readonly loaded = new Map<string, CitizenChunkRuntime>();
   private activeChunkKey = "";
   private elapsedSeconds = 0;
-  private updateAccumulator = 0;
   private disposed = false;
 
   constructor(
@@ -77,14 +76,21 @@ export class CitizenEngine {
   ) {}
 
   update(playerX: number, playerZ: number, deltaSeconds: number, paused: boolean) {
-    const streamed = this.updateStreaming(playerX, playerZ);
+    this.updateStreaming(playerX, playerZ);
     const safeDelta = Number.isFinite(deltaSeconds) ? Math.max(0, deltaSeconds) : 0;
     if (!paused) this.elapsedSeconds += safeDelta;
-    this.updateAccumulator += safeDelta;
-    const interval = 1 / this.updateHz;
-    if (!streamed && this.updateAccumulator < interval) return;
-    this.updateAccumulator %= interval;
-    this.updateMatrices();
+  }
+
+  /**
+   * Present citizen transforms once per rendered frame. The fixed-step clock
+   * remains deterministic; the accumulator interpolates between simulation
+   * ticks so crowds stay smooth on 60 Hz and high-refresh displays.
+   */
+  present(interpolationSeconds = 0) {
+    const safeInterpolation = Number.isFinite(interpolationSeconds)
+      ? Math.min(0.1, Math.max(0, interpolationSeconds))
+      : 0;
+    this.updateMatrices(this.elapsedSeconds + safeInterpolation);
   }
 
   updateStreaming(playerX: number, playerZ: number) {
@@ -104,14 +110,14 @@ export class CitizenEngine {
       this.unloadChunk(chunk);
       this.loaded.delete(key);
     }
-    this.updateMatrices();
+    this.updateMatrices(this.elapsedSeconds);
     return true;
   }
 
   setQuality(quality: QualityLevel) {
     if (this.quality === quality) return;
     this.quality = quality;
-    this.updateMatrices();
+    this.updateMatrices(this.elapsedSeconds);
   }
 
   get visibleCount() {
@@ -131,7 +137,7 @@ export class CitizenEngine {
   }
 
   get updateHz() {
-    return this.quality === "cinematic" ? 20 : 12;
+    return 60;
   }
 
   get loadedCount() {
@@ -170,6 +176,7 @@ export class CitizenEngine {
       mesh = new THREE.InstancedMesh(this.geometry, this.material, recipes.length);
       mesh.name = `ambient-citizens:${key}`;
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.frustumCulled = false;
       mesh.castShadow = false;
       mesh.receiveShadow = false;
       mesh.userData.shadow = false;
@@ -189,7 +196,7 @@ export class CitizenEngine {
     chunk.mesh.dispose();
   }
 
-  private updateMatrices() {
+  private updateMatrices(presentationTime: number) {
     const matrix = new THREE.Matrix4();
     const quaternion = new THREE.Quaternion();
     const position = new THREE.Vector3();
@@ -202,7 +209,7 @@ export class CitizenEngine {
       mesh.count = visible;
       for (let index = 0; index < visible; index += 1) {
         const recipe = chunk.recipes[index];
-        const pose = sampleCitizenPose(recipe, this.elapsedSeconds);
+        const pose = sampleCitizenPose(recipe, presentationTime);
         position.set(pose.x, pose.y, pose.z);
         quaternion.setFromAxisAngle(up, pose.yaw);
         scale.set(recipe.width, recipe.height / MODEL_HEIGHT, recipe.depth);
@@ -210,7 +217,6 @@ export class CitizenEngine {
         mesh.setMatrixAt(index, matrix);
       }
       mesh.instanceMatrix.needsUpdate = true;
-      mesh.computeBoundingSphere();
     }
   }
 }

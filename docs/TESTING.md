@@ -39,6 +39,8 @@ road/settlement route bounds, hierarchy-scaled density, quality caps, finite tim
 empty wilderness, and the absence of interaction fields. Browser coverage teleports between
 Vesper Crown, Dustmere, and wilderness; it verifies population ratios, stable reload IDs,
 non-interactivity, and a dedicated megacity crowd screenshot candidate.
+The WebGL-free citizen-engine regression test also proves that sub-tick presentation changes
+instance transforms, preventing a return to visibly throttled crowd motion.
 
 Each Playwright test retains traces, failure screenshots, and video on failure. Visual
 tests attach full-page candidate screenshots even when golden comparison is not enabled.
