@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import fc from "fast-check";
-import { CHUNK_LOAD_RADIUS, CHUNK_SIZE } from "../../lib/game/config";
+import {
+  CHUNK_SIZE,
+  CITIZEN_CHUNK_LOAD_RADIUS,
+  CITIZEN_RESIDENT_CHUNKS,
+} from "../../lib/game/config";
 import {
   MAX_CITIZENS_PER_CHUNK,
   MAX_RESIDENT_CITIZENS,
@@ -28,7 +32,7 @@ import { chunkCenter, chunksAround, worldToChunk } from "../../lib/game/world/te
 
 function residentRecipes(x: number, z: number) {
   const center = worldToChunk(x, z);
-  return chunksAround(center, CHUNK_LOAD_RADIUS).flatMap((chunk) =>
+  return chunksAround(center, CITIZEN_CHUNK_LOAD_RADIUS).flatMap((chunk) =>
     generateCitizenChunk(chunk.x, chunk.z),
   );
 }
@@ -42,7 +46,7 @@ function settlement(id: string) {
 describe("ambient citizen recipes", () => {
   it("is deterministic, load-order independent, and globally ID-stable", () => {
     const center = worldToChunk(settlement("vesper-crown").x, settlement("vesper-crown").z);
-    const coordinates = chunksAround(center, CHUNK_LOAD_RADIUS);
+    const coordinates = chunksAround(center, CITIZEN_CHUNK_LOAD_RADIUS);
     const forward = coordinates.flatMap((chunk) => generateCitizenChunk(chunk.x, chunk.z));
     const reverse = [...coordinates]
       .reverse()
@@ -196,10 +200,10 @@ describe("ambient citizen recipes", () => {
   });
 
   it("enforces quality caps and density bands", () => {
-    expect(visibleCitizenCount(MAX_CITIZENS_PER_CHUNK, "cinematic") * 25).toBeLessThanOrEqual(
+    expect(visibleCitizenCount(MAX_CITIZENS_PER_CHUNK, "cinematic") * CITIZEN_RESIDENT_CHUNKS).toBeLessThanOrEqual(
       MAX_RESIDENT_CITIZENS.cinematic,
     );
-    expect(visibleCitizenCount(MAX_CITIZENS_PER_CHUNK, "performance") * 25).toBeLessThanOrEqual(
+    expect(visibleCitizenCount(MAX_CITIZENS_PER_CHUNK, "performance") * CITIZEN_RESIDENT_CHUNKS).toBeLessThanOrEqual(
       MAX_RESIDENT_CITIZENS.performance,
     );
     expect(visibleCitizenCount(1, "performance")).toBe(1);

@@ -795,6 +795,13 @@ button {
   letter-spacing: 0.08em;
 }
 
+.region-card .environment-readout strong {
+  color: var(--signal);
+  font-size: 8px;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+
 .radar-heading {
   display: flex;
   justify-content: space-between;
@@ -1165,6 +1172,15 @@ kbd {
 .map-header-actions {
   display: flex;
   gap: 8px;
+  align-items: center;
+}
+
+.map-playtest-badge {
+  padding: 8px 10px;
+  border: 1px solid rgba(216, 117, 58, 0.42);
+  color: var(--ember);
+  font: 700 7px/1 var(--mono);
+  letter-spacing: 0.11em;
 }
 
 .map-panel h2 {
@@ -1208,6 +1224,10 @@ kbd {
 
 .map-plot > * {
   pointer-events: none;
+}
+
+.map-plot > .map-fast-travel-marker {
+  pointer-events: auto;
 }
 
 .map-plot:focus-visible {
@@ -1314,6 +1334,26 @@ kbd {
   color: var(--ember);
 }
 
+.map-fast-travel-marker {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.map-fast-travel-marker:hover,
+.map-fast-travel-marker:focus-visible {
+  z-index: 8;
+  color: var(--signal);
+  filter: drop-shadow(0 0 5px rgba(153, 194, 163, 0.55));
+  outline: none;
+}
+
+.map-fast-travel-marker.is-current {
+  color: var(--signal);
+}
+
 .map-beacon i {
   width: 14px;
   height: 14px;
@@ -1418,6 +1458,125 @@ kbd {
   overflow: auto;
   padding: 18px;
   border-left: 1px solid var(--line);
+}
+
+.fast-travel-index {
+  margin: 0 0 24px;
+  padding: 13px;
+  border: 1px solid rgba(216, 117, 58, 0.3);
+  background: rgba(216, 117, 58, 0.035);
+}
+
+.fast-travel-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.fast-travel-heading > div {
+  display: grid;
+  gap: 4px;
+}
+
+.fast-travel-heading strong,
+.fast-travel-heading span,
+.fast-travel-heading > b {
+  font-family: var(--mono);
+  line-height: 1;
+  letter-spacing: 0.11em;
+}
+
+.fast-travel-heading strong {
+  color: var(--ember);
+  font-size: 8px;
+}
+
+.fast-travel-heading span {
+  color: var(--paper-muted);
+  font-size: 6px;
+}
+
+.fast-travel-heading > b {
+  color: var(--paper-muted);
+  font-size: 13px;
+}
+
+.fast-travel-status {
+  display: block;
+  margin-bottom: 9px;
+  padding: 7px;
+  border: 1px solid rgba(153, 194, 163, 0.3);
+  color: var(--signal);
+  font: 700 6px/1.2 var(--mono);
+  letter-spacing: 0.08em;
+}
+
+.fast-travel-list {
+  display: grid;
+  max-height: 240px;
+  overflow: auto;
+  border-top: 1px solid var(--line);
+}
+
+.fast-travel-list button {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 8px 3px;
+  border: 0;
+  border-bottom: 1px solid rgba(232, 226, 214, 0.1);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.fast-travel-list button > span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.fast-travel-list button strong {
+  overflow: hidden;
+  font: 700 8px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.map-body aside .fast-travel-list button small {
+  display: block;
+  overflow: hidden;
+  margin: 0;
+  color: var(--paper-muted);
+  font: 6px/1.1 var(--mono);
+  letter-spacing: 0.05em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fast-travel-list button > b {
+  flex: 0 0 auto;
+  color: var(--paper-muted);
+  font: 700 6px/1 var(--mono);
+}
+
+.fast-travel-list button:hover,
+.fast-travel-list button:focus-visible,
+.fast-travel-list button.is-current {
+  color: var(--signal);
+  outline: none;
+}
+
+.fast-travel-list button:hover > b,
+.fast-travel-list button:focus-visible > b,
+.fast-travel-list button.is-current > b {
+  color: var(--signal);
 }
 
 .map-navigation {
@@ -1766,6 +1925,10 @@ kbd {
 
   .map-panel h2 {
     font-size: 12px;
+  }
+
+  .map-playtest-badge {
+    display: none;
   }
 
   .map-instruction {

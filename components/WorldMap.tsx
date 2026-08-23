@@ -17,12 +17,14 @@ import {
   WORLD_HALF_EXTENT,
   riverCenterX,
 } from "../lib/game/world/macroWorld";
+import { FAST_TRAVEL_LOCATIONS } from "../lib/game/world/fastTravel";
 
 interface WorldMapProps {
   snapshot: GameSnapshot;
   onClose(): void;
   onSetWaypoint(x: number, z: number): void;
   onClearWaypoint(): void;
+  onFastTravel(locationId: string): void;
 }
 
 function mapPercent(value: number) {
@@ -39,6 +41,7 @@ export default function WorldMap({
   onClose,
   onSetWaypoint,
   onClearWaypoint,
+  onFastTravel,
 }: WorldMapProps) {
   const navigation = snapshot.navigation;
   const canClear = navigation?.target.source.kind === "player";
@@ -88,6 +91,12 @@ export default function WorldMap({
     );
   };
 
+  const handleFastTravel = (event: MouseEvent<HTMLElement>, locationId: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onFastTravel(locationId);
+  };
+
   return (
     <section className="map-panel" data-testid="map-panel">
       <header>
@@ -96,6 +105,7 @@ export default function WorldMap({
           <h2>GREYWATER TERRITORY / 96 × 96 KM</h2>
         </div>
         <div className="map-header-actions">
+          <span className="map-playtest-badge">PLAYTEST / ALL DESTINATIONS OPEN</span>
           {canClear && (
             <button type="button" data-testid="clear-waypoint" onClick={onClearWaypoint}>
               CLEAR MARK
@@ -143,7 +153,9 @@ export default function WorldMap({
               />
             )}
           </svg>
-          <span className="map-instruction">CLICK OR ARROWS TO SET / REPLACE WAYPOINT</span>
+          <span className="map-instruction">
+            CLICK GROUND: WAYPOINT · SELECT LOCATION: FAST TRAVEL
+          </span>
           <span
             className="map-player"
             style={{
@@ -167,25 +179,33 @@ export default function WorldMap({
             </span>
           )}
           {BEACONS.map((beacon) => (
-            <span
+            <button
+              type="button"
               key={beacon.id}
-              className={`map-beacon ${snapshot.scanned.includes(beacon.id) ? "is-scanned" : ""}`}
+              className={`map-beacon map-fast-travel-marker ${snapshot.scanned.includes(beacon.id) ? "is-scanned" : ""} ${snapshot.lastFastTravel?.id === `relay:${beacon.id}` ? "is-current" : ""}`}
               style={{ left: `${mapPercent(beacon.x)}%`, top: `${mapPercent(beacon.z)}%` }}
+              data-testid={`fast-travel-marker-relay:${beacon.id}`}
+              aria-label={`Fast travel to ${beacon.name}`}
+              onClick={(event) => handleFastTravel(event, `relay:${beacon.id}`)}
             >
               <i />
               {beacon.code}
-            </span>
+            </button>
           ))}
           {SETTLEMENTS.map((settlement) => (
-            <span
+            <button
+              type="button"
               key={settlement.id}
-              className={`map-settlement is-${settlement.tier}`}
+              className={`map-settlement map-fast-travel-marker is-${settlement.tier} ${snapshot.lastFastTravel?.id === `settlement:${settlement.id}` ? "is-current" : ""}`}
               style={{ left: `${mapPercent(settlement.x)}%`, top: `${mapPercent(settlement.z)}%` }}
               title={`${settlement.name}: ${settlement.economy}`}
+              data-testid={`fast-travel-marker-settlement:${settlement.id}`}
+              aria-label={`Fast travel to ${settlement.name}`}
+              onClick={(event) => handleFastTravel(event, `settlement:${settlement.id}`)}
             >
               <i />
               <b>{settlement.name}</b>
-            </span>
+            </button>
           ))}
         </div>
         <aside>
@@ -205,17 +225,62 @@ export default function WorldMap({
               )}
             </div>
           )}
+          <section className="fast-travel-index" aria-label="Playtest fast travel destinations">
+            <div className="fast-travel-heading">
+              <div>
+                <strong>FAST TRAVEL</strong>
+                <span>TEMPORARY PLAYTEST TOOL</span>
+              </div>
+              <b>{FAST_TRAVEL_LOCATIONS.length}</b>
+            </div>
+            {snapshot.lastFastTravel && (
+              <output className="fast-travel-status" aria-live="polite">
+                ARRIVAL READY / {snapshot.lastFastTravel.name}
+              </output>
+            )}
+            <div className="fast-travel-list">
+              {FAST_TRAVEL_LOCATIONS.map((location) => {
+                const distance = Math.hypot(
+                  location.x - snapshot.position.x,
+                  location.z - snapshot.position.z,
+                );
+                const current = snapshot.lastFastTravel?.id === location.id;
+                return (
+                  <button
+                    type="button"
+                    key={location.id}
+                    className={current ? "is-current" : ""}
+                    data-testid={`fast-travel-list-${location.id}`}
+                    onClick={(event) => handleFastTravel(event, location.id)}
+                  >
+                    <span>
+                      <strong>{location.name}</strong>
+                      <small>{location.kind.toUpperCase()} · {location.detail}</small>
+                    </span>
+                    <b>{current ? "HERE" : formatNavigationDistance(distance)}</b>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
           <dl className="map-world-state">
             <div><dt>SEED</dt><dd>{WORLD_SEED}</dd></div>
             <div><dt>AUTHORED AREA</dt><dd>{WORLD_AREA_KM2.toLocaleString()} KM²</dd></div>
             <div><dt>SETTLEMENTS</dt><dd>{SETTLEMENTS.length}</dd></div>
             <div><dt>ACTIVE GRID</dt><dd>{snapshot.chunk.x}:{snapshot.chunk.z}</dd></div>
             <div><dt>RESIDENT</dt><dd>{snapshot.loadedChunks} CHUNKS</dd></div>
+            <div><dt>DRAW HORIZON</dt><dd>{(snapshot.drawDistanceMeters / 1_000).toFixed(2)} KM</dd></div>
+            <div><dt>LOCAL TIME</dt><dd>{String(snapshot.environment.hour).padStart(2, "0")}:{String(snapshot.environment.minute).padStart(2, "0")}</dd></div>
+            <div><dt>WEATHER</dt><dd>{snapshot.environment.weatherLabel.toUpperCase()}</dd></div>
             <div><dt>AMBIENT CITIZENS</dt><dd>{snapshot.citizenCount.toLocaleString()} / {snapshot.crowdDensity}</dd></div>
             <div><dt>RECORDS</dt><dd>{snapshot.scanned.length} / {BEACONS.length}</dd></div>
             <div><dt>WORLD CHANGES</dt><dd>{snapshot.worldChanges}</dd></div>
           </dl>
           <small>
+            All authored settlements and relays are unlocked for fast travel during
+            playtesting. This temporary access layer is isolated from future discovery
+            and quest unlock rules.
+            <br /><br />
             {!navigation && (
               <>
                 Click anywhere on the territory to place a persistent waypoint. The same

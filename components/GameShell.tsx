@@ -3,7 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CompassTape, WaypointGuide } from "./NavigationDisplay";
 import WorldMap from "./WorldMap";
-import { BEACONS, GAME_TITLE, WORLD_SEED, type BeaconId } from "../lib/game/config";
+import {
+  BEACONS,
+  GAME_TITLE,
+  WORLD_RESIDENT_CHUNKS,
+  WORLD_SEED,
+  type BeaconId,
+} from "../lib/game/config";
 import { Engine } from "../lib/game/Engine";
 import { ITEM_DEFINITIONS, type ItemId } from "../lib/game/gameplay/items";
 import { clamp } from "../lib/game/navigation/math";
@@ -60,7 +66,7 @@ export default function GameShell() {
           navigation,
           fps: 60,
           chunk: { x: 44, z: -33 },
-          loadedChunks: 25,
+          loadedChunks: WORLD_RESIDENT_CHUNKS,
           citizenCount: 486,
           crowdDensity: "ACTIVE",
           triangles: 48_620,
@@ -71,6 +77,20 @@ export default function GameShell() {
           worldChanges: 4,
           stamina: 0.72,
           biome: { id: "pine_forest", name: "Sable Pine Forest", region: "Sablewood" },
+          environment: {
+            totalMinutes: 1_015,
+            day: 1,
+            hour: 16,
+            minute: 55,
+            phase: "day",
+            weatherId: "rain",
+            weatherLabel: "Canopy drizzle",
+            precipitation: "rain",
+            temperatureC: 11,
+            windKph: 18,
+            windDirection: 238,
+            visibilityMeters: 410,
+          },
           nearestSettlement: {
             id: "timberfall",
             name: "Timberfall",
@@ -331,6 +351,15 @@ export default function GameShell() {
           <aside className="region-card" data-testid="region-card">
             <p>{snapshot.biome.region}</p>
             <h2>{snapshot.biome.name}</h2>
+            <div className="environment-readout" data-testid="environment-readout">
+              <span>DAY {snapshot.environment.day} · {snapshot.environment.phase.toUpperCase()}</span>
+              <strong>
+                {String(snapshot.environment.hour).padStart(2, "0")}:{String(snapshot.environment.minute).padStart(2, "0")} · {snapshot.environment.weatherLabel}
+              </strong>
+              <small>
+                {Math.round(snapshot.environment.temperatureC)}°C · WIND {Math.round(snapshot.environment.windKph)} KM/H · VIS {formatDistance(snapshot.environment.visibilityMeters)}
+              </small>
+            </div>
             <div>
               <span>NEAREST {snapshot.nearestSettlement.tier.toUpperCase()}</span>
               <strong>{snapshot.nearestSettlement.name}</strong>
@@ -443,6 +472,7 @@ export default function GameShell() {
           onClose={() => engineRef.current?.setMapOpen(false)}
           onSetWaypoint={(x, z) => engineRef.current?.setManualWaypoint(x, z)}
           onClearWaypoint={() => engineRef.current?.clearManualWaypoint()}
+          onFastTravel={(locationId) => engineRef.current?.fastTravel(locationId)}
         />
       )}
 

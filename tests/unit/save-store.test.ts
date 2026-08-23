@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { EMPTY_INVENTORY } from "../../lib/game/gameplay/items";
+import { WORLD_START_MINUTES } from "../../lib/game/environment/model";
 import { SaveStore, type StorageAdapter } from "../../lib/game/persistence/SaveStore";
 
 class MemoryStorage implements StorageAdapter {
@@ -20,6 +21,7 @@ const saveInput = {
     "resource:tree:v1:0:0:0": { hits: 1, removed: false },
   },
   manualWaypoint: { x: 12_400, z: -8_200 },
+  worldMinutes: 2_345.5,
 };
 
 describe("versioned frontier saves", () => {
@@ -28,11 +30,12 @@ describe("versioned frontier saves", () => {
     const store = new SaveStore(storage);
     expect(store.save(saveInput)).toBe(true);
     expect(store.load()).toEqual({
-      version: 3,
+      version: 4,
       scanned: ["amber-relay", "meridian-vault"],
       inventory: { ...EMPTY_INVENTORY, stone: 7, wood: 3 },
       worldDiffs: saveInput.worldDiffs,
       manualWaypoint: saveInput.manualWaypoint,
+      worldMinutes: saveInput.worldMinutes,
     });
   });
 
@@ -43,11 +46,12 @@ describe("versioned frontier saves", () => {
       scanned: ["hollow-array", "invented", "hollow-array", 7],
     });
     expect(new SaveStore(storage).load()).toEqual({
-      version: 3,
+      version: 4,
       scanned: ["hollow-array"],
       inventory: EMPTY_INVENTORY,
       worldDiffs: {},
       manualWaypoint: null,
+      worldMinutes: WORLD_START_MINUTES,
     });
   });
 
@@ -67,6 +71,7 @@ describe("versioned frontier saves", () => {
     expect(result.inventory).toEqual({ ...EMPTY_INVENTORY, stone: 4 });
     expect(result.worldDiffs).toEqual({ "valid:entity": { hits: 2, removed: false } });
     expect(result.manualWaypoint).toBeNull();
+    expect(result.worldMinutes).toBe(WORLD_START_MINUTES);
   });
 
   it("migrates version-two world state and validates version-three waypoints", () => {
@@ -79,6 +84,7 @@ describe("versioned frontier saves", () => {
       manualWaypoint: { x: 2_500, z: -7_500 },
     });
     expect(new SaveStore(storage).load().manualWaypoint).toEqual({ x: 2_500, z: -7_500 });
+    expect(new SaveStore(storage).load().worldMinutes).toBe(WORLD_START_MINUTES);
 
     storage.value = JSON.stringify({
       version: 3,
@@ -87,24 +93,44 @@ describe("versioned frontier saves", () => {
     expect(new SaveStore(storage).load().manualWaypoint).toBeNull();
   });
 
+  it("validates the version-four world clock independently", () => {
+    const storage = new MemoryStorage();
+    storage.value = JSON.stringify({
+      version: 4,
+      scanned: [],
+      inventory: {},
+      worldDiffs: {},
+      manualWaypoint: null,
+      worldMinutes: 8_765.25,
+    });
+    expect(new SaveStore(storage).load().worldMinutes).toBe(8_765.25);
+
+    storage.value = JSON.stringify({ version: 4, worldMinutes: -1 });
+    expect(new SaveStore(storage).load().worldMinutes).toBe(WORLD_START_MINUTES);
+
+    expect(new SaveStore(storage).save({ ...saveInput, worldMinutes: 99_000_000 })).toBe(true);
+    expect(new SaveStore(storage).load().worldMinutes).toBe(10_000_000);
+  });
+
   it.each(["not json", JSON.stringify({ version: 99, scanned: ["amber-relay"] })])(
     "recovers safely from invalid data: %s",
     (value) => {
       const storage = new MemoryStorage();
       storage.value = value;
       expect(new SaveStore(storage).load()).toEqual({
-        version: 3,
+        version: 4,
         scanned: [],
         inventory: EMPTY_INVENTORY,
         worldDiffs: {},
         manualWaypoint: null,
+        worldMinutes: WORLD_START_MINUTES,
       });
     },
   );
 
   it("runs without browser storage in deterministic tests", () => {
     const store = new SaveStore(null);
-    expect(store.load().version).toBe(3);
+    expect(store.load().version).toBe(4);
     expect(store.save(saveInput)).toBe(false);
   });
 

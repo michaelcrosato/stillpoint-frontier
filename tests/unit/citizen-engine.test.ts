@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
+import { CITIZEN_RESIDENT_CHUNKS } from "../../lib/game/config";
 import { CitizenEngine } from "../../lib/game/citizens/CitizenEngine";
 
 describe("citizen presentation", () => {
@@ -7,6 +8,7 @@ describe("citizen presentation", () => {
     const scene = new THREE.Scene();
     const citizens = new CitizenEngine(scene, "cinematic");
     citizens.updateStreaming(0, 8);
+    expect(citizens.loadedCount).toBe(CITIZEN_RESIDENT_CHUNKS);
     const mesh = scene.children.find(
       (child): child is THREE.InstancedMesh => child instanceof THREE.InstancedMesh,
     );

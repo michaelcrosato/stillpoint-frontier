@@ -1,4 +1,14 @@
-import { BEACONS, type BeaconId, type QualityLevel } from "./config";
+import {
+  BEACONS,
+  CAMERA_DRAW_DISTANCE,
+  type BeaconId,
+  type QualityLevel,
+} from "./config";
+import type {
+  DayPhase,
+  PrecipitationKind,
+  WeatherId,
+} from "./environment/model";
 import { EMPTY_INVENTORY, type InventoryState, type ItemId } from "./gameplay/items";
 import type { NavigationGuidance } from "./navigation/NavigationService";
 
@@ -21,6 +31,27 @@ export interface LastGatherSnapshot {
   remainingHits: number;
 }
 
+export interface EnvironmentSnapshot {
+  totalMinutes: number;
+  day: number;
+  hour: number;
+  minute: number;
+  phase: DayPhase;
+  weatherId: WeatherId;
+  weatherLabel: string;
+  precipitation: PrecipitationKind;
+  temperatureC: number;
+  windKph: number;
+  windDirection: number;
+  visibilityMeters: number;
+}
+
+export interface FastTravelSnapshot {
+  id: string;
+  name: string;
+  kind: "megacity" | "city" | "town" | "village" | "relay";
+}
+
 export interface GameSnapshot {
   ready: boolean;
   started: boolean;
@@ -33,6 +64,7 @@ export interface GameSnapshot {
   fps: number;
   chunk: { x: number; z: number };
   loadedChunks: number;
+  drawDistanceMeters: number;
   citizenCount: number;
   crowdDensity: "WILDERNESS" | "QUIET" | "LOCAL" | "ACTIVE" | "BUSY" | "SURGE";
   triangles: number;
@@ -47,6 +79,7 @@ export interface GameSnapshot {
   sprinting: boolean;
   stamina: number;
   biome: { id: string; name: string; region: string };
+  environment: EnvironmentSnapshot;
   nearestSettlement: {
     id: string;
     name: string;
@@ -60,6 +93,7 @@ export interface GameSnapshot {
   nearbyDistance: number | null;
   lastDiscovery: BeaconId | null;
   lastGather: LastGatherSnapshot | null;
+  lastFastTravel: FastTravelSnapshot | null;
 }
 
 export const INITIAL_SNAPSHOT: GameSnapshot = {
@@ -74,6 +108,7 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
   fps: 60,
   chunk: { x: 0, z: 0 },
   loadedChunks: 0,
+  drawDistanceMeters: CAMERA_DRAW_DISTANCE,
   citizenCount: 0,
   crowdDensity: "WILDERNESS",
   triangles: 0,
@@ -88,6 +123,20 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
   sprinting: false,
   stamina: 1,
   biome: { id: "grey_meadow", name: "Grey Meadow", region: "Red Basin Marches" },
+  environment: {
+    totalMinutes: 450,
+    day: 1,
+    hour: 7,
+    minute: 30,
+    phase: "day",
+    weatherId: "fair",
+    weatherLabel: "Meadow fair",
+    precipitation: "none",
+    temperatureC: 16,
+    windKph: 12,
+    windDirection: 0,
+    visibilityMeters: 638,
+  },
   nearestSettlement: {
     id: "dustmere",
     name: "Dustmere",
@@ -101,6 +150,7 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
   nearbyDistance: null,
   lastDiscovery: null,
   lastGather: null,
+  lastFastTravel: null,
 };
 
 export function addDiscovery(

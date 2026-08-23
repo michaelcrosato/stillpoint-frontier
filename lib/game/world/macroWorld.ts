@@ -1,8 +1,9 @@
 import { hashString } from "../core/random";
 
 /**
- * The authored atlas is 96 km square. Only a 5x5 ring of 96 m chunks is ever
- * resident, so the scale changes geography and travel time, not GPU load.
+ * The authored atlas is 96 km square. Only a 9x9 visual ring of 96 m chunks is
+ * resident, while gameplay and citizen simulation stay inside 5x5 rings. The
+ * atlas scale changes geography and travel time without loading the full map.
  */
 export const WORLD_MODEL_SCALE = 7.5;
 export const WORLD_HALF_EXTENT = 6_400 * WORLD_MODEL_SCALE;

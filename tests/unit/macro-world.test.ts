@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CHUNK_LOAD_RADIUS, CHUNK_SIZE } from "../../lib/game/config";
+import { CHUNK_SIZE, WORLD_CHUNK_LOAD_RADIUS } from "../../lib/game/config";
 import {
   BIOMES,
   ROAD_LINKS,
@@ -15,7 +15,7 @@ import { sampleTerrainHeight } from "../../lib/game/world/terrain";
 
 describe("authored macro world", () => {
   it("is at least one hundred resident footprints in area", () => {
-    const residentWidth = CHUNK_SIZE * (CHUNK_LOAD_RADIUS * 2 + 1);
+    const residentWidth = CHUNK_SIZE * (WORLD_CHUNK_LOAD_RADIUS * 2 + 1);
     const residentAreaKm2 = (residentWidth * residentWidth) / 1_000_000;
     expect(WORLD_AREA_KM2 / residentAreaKm2).toBeGreaterThanOrEqual(100);
     expect(WORLD_AREA_KM2).toBe(9_216);

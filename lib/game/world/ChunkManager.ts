@@ -1,9 +1,10 @@
 import * as THREE from "three";
 import {
   BEACONS,
-  CHUNK_LOAD_RADIUS,
   CHUNK_SEGMENTS,
   CHUNK_SIZE,
+  GAMEPLAY_CHUNK_RADIUS,
+  WORLD_CHUNK_LOAD_RADIUS,
   WORLD_SEED,
   type BeaconId,
   type QualityLevel,
@@ -57,6 +58,8 @@ export interface WorldTarget {
 
 interface ChunkRuntime {
   key: string;
+  chunkX: number;
+  chunkZ: number;
   root: THREE.Group;
   colliders: CircleCollider[];
   targets: WorldTarget[];
@@ -79,6 +82,8 @@ function targetDiff(
 export class ChunkManager {
   private loaded = new Map<string, ChunkRuntime>();
   private activeChunkKey = "";
+  private activeChunkX = 0;
+  private activeChunkZ = 0;
   private scanned = new Set<BeaconId>();
   private colliderCache: CircleCollider[] = [];
   private targetCache: WorldTarget[] = [];
@@ -94,9 +99,11 @@ export class ChunkManager {
     const nextActiveKey = chunkKey(center.x, center.z);
     if (nextActiveKey === this.activeChunkKey && this.loaded.size > 0) return false;
     this.activeChunkKey = nextActiveKey;
+    this.activeChunkX = center.x;
+    this.activeChunkZ = center.z;
 
     const desired = new Set<string>();
-    for (const coordinate of chunksAround(center, CHUNK_LOAD_RADIUS)) {
+    for (const coordinate of chunksAround(center, WORLD_CHUNK_LOAD_RADIUS)) {
       const key = chunkKey(coordinate.x, coordinate.z);
       desired.add(key);
       if (!this.loaded.has(key)) this.loadChunk(coordinate.x, coordinate.z);
@@ -164,8 +171,13 @@ export class ChunkManager {
   }
 
   private refreshCaches() {
-    this.colliderCache = [...this.loaded.values()].flatMap((chunk) => chunk.colliders);
-    this.targetCache = [...this.loaded.values()].flatMap((chunk) =>
+    const simulationChunks = [...this.loaded.values()].filter(
+      (chunk) =>
+        Math.abs(chunk.chunkX - this.activeChunkX) <= GAMEPLAY_CHUNK_RADIUS &&
+        Math.abs(chunk.chunkZ - this.activeChunkZ) <= GAMEPLAY_CHUNK_RADIUS,
+    );
+    this.colliderCache = simulationChunks.flatMap((chunk) => chunk.colliders);
+    this.targetCache = simulationChunks.flatMap((chunk) =>
       chunk.targets.filter((target) => !this.worldDiffs[target.id]?.removed),
     );
   }
@@ -235,7 +247,7 @@ export class ChunkManager {
     }
 
     this.scene.add(root);
-    this.loaded.set(key, { key, root, colliders, targets });
+    this.loaded.set(key, { key, chunkX, chunkZ, root, colliders, targets });
   }
 
   private addWater(root: THREE.Group, centerX: number, centerZ: number) {

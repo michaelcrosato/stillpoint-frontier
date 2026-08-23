@@ -38,7 +38,7 @@ describe("world coordinates", () => {
     );
   });
 
-  it("returns a stable 5 by 5 resident set", () => {
+  it("returns a stable square neighborhood for any requested radius", () => {
     const chunks = chunksAround({ x: -7, z: 12 }, 2);
     expect(chunks).toHaveLength(25);
     expect(new Set(chunks.map((chunk) => chunkKey(chunk.x, chunk.z))).size).toBe(25);

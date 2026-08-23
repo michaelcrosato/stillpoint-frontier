@@ -1,4 +1,9 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import {
+  CAMERA_DRAW_DISTANCE,
+  CITIZEN_RESIDENT_CHUNKS,
+  WORLD_RESIDENT_CHUNKS,
+} from "../../lib/game/config";
 import { getSettlement } from "../../lib/game/world/macroWorld";
 
 async function openDeterministicWorld(page: Page) {
@@ -54,7 +59,8 @@ test("boots WebGL2 without a blank frame", async ({ page }, testInfo) => {
 
   await openDeterministicWorld(page);
   const state = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
-  expect(state?.loadedChunks).toBe(25);
+  expect(state?.loadedChunks).toBe(WORLD_RESIDENT_CHUNKS);
+  expect(state?.drawDistanceMeters).toBe(CAMERA_DRAW_DISTANCE);
   expect(state?.triangles).toBeGreaterThan(1_000);
   const pixels = await canvasVisualStats(page);
   expect(pixels.webgl2).toBe(true);
@@ -74,7 +80,9 @@ test("starts the survey, streams distant chunks, and opens the map", async ({ pa
     .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().chunk))
     .toEqual({ x: 13, z: -9 });
   const streamedState = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
-  expect(streamedState?.loadedChunks).toBe(25);
+  expect(streamedState?.loadedChunks).toBe(WORLD_RESIDENT_CHUNKS);
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.citizens().chunks))
+    .toBe(CITIZEN_RESIDENT_CHUNKS);
 
   await page.getByRole("button", { name: /map/i }).click();
   await expect(page.getByTestId("map-panel")).toBeVisible();
@@ -125,6 +133,50 @@ test("sets, replaces, guides, and clears a map waypoint", async ({ page }, testI
   await page.getByTestId("clear-waypoint").click();
   await expect(page.getByTestId("map-waypoint")).toBeHidden();
   expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().navigation)).toBeNull();
+});
+
+test("fast travels from the map with all playtest destinations unlocked", async ({ page }) => {
+  await openDeterministicWorld(page);
+  await page.getByTestId("enter-frontier").click();
+  await page.getByRole("button", { name: /map/i }).click();
+  const mega = getSettlement("vesper-crown");
+  expect(mega).not.toBeNull();
+  if (!mega) return;
+
+  await page.getByTestId("fast-travel-list-settlement:vesper-crown").click();
+  await expect(page.getByTestId("map-panel")).toBeVisible();
+  await expect(page.getByText(/arrival ready \/ vesper crown/i)).toBeVisible();
+  const state = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
+  expect(state?.lastFastTravel).toMatchObject({
+    id: "settlement:vesper-crown",
+    name: "Vesper Crown",
+  });
+  expect(Math.hypot(
+    (state?.position.x ?? 0) - mega.x,
+    (state?.position.z ?? 0) - mega.z,
+  )).toBeLessThan(150);
+  expect(state?.loadedChunks).toBe(WORLD_RESIDENT_CHUNKS);
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.citizens().chunks))
+    .toBe(CITIZEN_RESIDENT_CHUNKS);
+});
+
+test("exposes a deterministic day-night clock and weather readout", async ({ page }) => {
+  await openDeterministicWorld(page);
+  await page.getByTestId("enter-frontier").click();
+  await page.evaluate(() => window.__STILLPOINT_TEST__?.setWorldMinutes(0));
+  await expect(page.getByTestId("environment-readout")).toContainText("NIGHT");
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().environment.phase))
+    .toBe("night");
+
+  await page.evaluate(() => window.__STILLPOINT_TEST__?.setWorldMinutes(12 * 60));
+  await expect(page.getByTestId("environment-readout")).toContainText("12:00");
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().environment.phase))
+    .toBe("day");
+  const environment = await page.evaluate(
+    () => window.__STILLPOINT_TEST__?.snapshot().environment,
+  );
+  expect(environment?.weatherLabel.length).toBeGreaterThan(3);
+  expect(environment?.visibilityMeters).toBeGreaterThan(100);
 });
 
 test("streams proportional ambient citizens without making them interaction targets", async ({ page }) => {
@@ -286,7 +338,7 @@ test("keeps GPU resource counts bounded through repeated chunk churn", async ({ 
   }
 
   const settled = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
-  expect(settled?.loadedChunks).toBe(25);
+  expect(settled?.loadedChunks).toBe(WORLD_RESIDENT_CHUNKS);
   expect(settled?.geometries).toBeLessThanOrEqual((baseline?.geometries ?? 0) + 3);
   expect(settled?.textures).toBeLessThanOrEqual(baseline?.textures ?? 0);
 });

@@ -1,8 +1,10 @@
 import * as THREE from "three";
 import {
   BEACONS,
+  CAMERA_DRAW_DISTANCE,
   MAX_PIXEL_RATIO,
   PLAYER_HEIGHT,
+  WAYPOINT_WORLD_MARKER_DISTANCE,
   type BeaconId,
   type QualityLevel,
 } from "./config";
@@ -23,6 +25,7 @@ import { applyGather, type EntityDiff } from "./gameplay/interactions";
 import { EMPTY_INVENTORY, type InventoryState } from "./gameplay/items";
 import { InteractionSystem } from "./systems/InteractionSystem";
 import { CitizenCrowdSystem } from "./systems/CitizenCrowdSystem";
+import { EnvironmentSystem } from "./systems/EnvironmentSystem";
 import { PlayerControllerSystem } from "./systems/PlayerControllerSystem";
 import { NavigationSystem } from "./systems/NavigationSystem";
 import type { GameRuntimeContext } from "./systems/runtime";
@@ -34,6 +37,10 @@ import {
   addDiscovery,
 } from "./state";
 import { ChunkManager, type WorldTarget } from "./world/ChunkManager";
+import {
+  getFastTravelLocation,
+  resolveFastTravelArrival,
+} from "./world/fastTravel";
 import { WORLD_HALF_EXTENT, nearestSettlement, sampleClimate } from "./world/macroWorld";
 import { sampleTerrainHeight, worldToChunk } from "./world/terrain";
 
@@ -61,6 +68,9 @@ export interface GameTestBridge {
   interactTarget(id: string): void;
   setWaypoint(x: number, z: number): void;
   clearWaypoint(): void;
+  fastTravel(locationId: string): void;
+  setWorldMinutes(minutes: number): void;
+  advanceWorldMinutes(minutes: number): void;
   setHeading(heading: number): void;
   navigationTargets(): ReturnType<NavigationService["targetsSnapshot"]>;
 }
@@ -82,7 +92,12 @@ interface EngineOptions {
 export class Engine {
   private readonly canvas: HTMLCanvasElement;
   private readonly scene = new THREE.Scene();
-  private readonly camera = new THREE.PerspectiveCamera(67, 1, 0.08, 920);
+  private readonly camera = new THREE.PerspectiveCamera(
+    67,
+    1,
+    0.08,
+    CAMERA_DRAW_DISTANCE,
+  );
   private readonly renderer: THREE.WebGLRenderer;
   private readonly input: InputManager;
   private readonly world: ChunkManager;
@@ -128,6 +143,8 @@ export class Engine {
   private worldDiffs: Record<string, EntityDiff> = {};
   private lastDiscovery: BeaconId | null = null;
   private lastGather: LastGatherSnapshot | null = null;
+  private lastFastTravel: GameSnapshot["lastFastTravel"] = null;
+  private lastClockPersistTime = 0;
   private snapshot = { ...INITIAL_SNAPSHOT };
   private disposed = false;
 
@@ -169,7 +186,12 @@ export class Engine {
     this.input = new InputManager(this.canvas, this.handlePointerLockChange);
     this.world = new ChunkManager(this.scene, this.quality, this.worldDiffs);
     this.citizens = new CitizenEngine(this.scene, this.quality);
-    this.environment = createEnvironment(this.scene, this.quality);
+    this.environment = createEnvironment(
+      this.scene,
+      this.renderer,
+      this.quality,
+      saved.worldMinutes,
+    );
     this.player.position.y = sampleTerrainHeight(
       this.player.position.x,
       this.player.position.z,
@@ -201,6 +223,12 @@ export class Engine {
 
     new FeatureRegistry(this.pipeline)
       .use({
+        id: "world-atmosphere",
+        install: (registry) => {
+          registry.system(new EnvironmentSystem(this.environment));
+        },
+      })
+      .use({
         id: "navigation-core",
         install: (registry) => {
           registry.system(new NavigationSystem());
@@ -227,6 +255,8 @@ export class Engine {
     this.resize();
     this.world.update(this.player.position.x, this.player.position.z);
     this.citizens.updateStreaming(this.player.position.x, this.player.position.z);
+    this.environment.sync(this.player.position, true);
+    this.environment.present(this.player.position, 0);
     for (const beaconId of this.scanned) this.world.markScanned(beaconId);
     window.addEventListener("resize", this.resize);
     document.addEventListener("visibilitychange", this.handleVisibilityChange);
@@ -252,6 +282,7 @@ export class Engine {
     this.started = true;
     this.mapOpen = false;
     this.paused = !this.testMode;
+    this.lastClockPersistTime = performance.now();
     if (!this.testMode) this.input.requestPointerLock();
     this.emitSnapshot(true);
   }
@@ -339,6 +370,38 @@ export class Engine {
     return true;
   }
 
+  fastTravel(locationId: string) {
+    const location = getFastTravelLocation(locationId);
+    if (!location) return null;
+
+    // Prime the destination ring first, then use its deterministic colliders to
+    // choose an arrival that does not overlap a landmark or procedural prop.
+    const preliminary = resolveFastTravelArrival(location);
+    this.world.update(preliminary.x, preliminary.z);
+    const arrival = resolveFastTravelArrival(location, this.world.colliders);
+    this.relocatePlayer(arrival.x, arrival.z, arrival.y, location.x, location.z);
+    this.lastFastTravel = {
+      id: location.id,
+      name: location.name,
+      kind: location.kind,
+    };
+    this.emitSnapshot(true);
+    return { location, arrival };
+  }
+
+  setWorldMinutes(minutes: number) {
+    this.environment.setWorldMinutes(minutes);
+    this.environment.sync(this.player.position, true);
+    this.environment.present(this.player.position, 0);
+    this.persist();
+    this.emitSnapshot(true);
+  }
+
+  advanceWorldMinutes(minutes: number) {
+    if (!Number.isFinite(minutes)) return;
+    this.setWorldMinutes(this.environment.getSample().totalMinutes + minutes);
+  }
+
   setNavigationTarget(target: NavigationTargetInput, activate = true) {
     const registered = this.navigation.setTarget(target, activate);
     if (!registered) return null;
@@ -385,6 +448,35 @@ export class Engine {
     this.emitSnapshot(true);
   }
 
+  private relocatePlayer(
+    x: number,
+    z: number,
+    y = sampleTerrainHeight(x, z),
+    faceX?: number,
+    faceZ?: number,
+  ) {
+    this.player.position.set(x, y, z);
+    this.player.verticalVelocity = 0;
+    this.player.grounded = true;
+    this.player.crouching = false;
+    this.player.sprinting = false;
+    this.player.staminaRecoveryDelay = 0;
+    if (faceX !== undefined && faceZ !== undefined) {
+      this.player.yaw = Math.atan2(-(faceX - x), -(faceZ - z));
+      this.player.pitch = -0.035;
+    }
+    this.camera.position.set(x, y + PLAYER_HEIGHT, z);
+    this.camera.rotation.set(this.player.pitch, this.player.yaw, 0, "YXZ");
+    this.runtime.nearbyTarget = null;
+    this.runtime.nearbyDistance = null;
+    this.world.update(x, z);
+    this.citizens.update(x, z, 0, true);
+    this.navigation.update(this.player.position);
+    this.environment.sync(this.player.position, true);
+    this.environment.present(this.player.position, 0);
+    this.emitPresentation();
+  }
+
   private persist() {
     const manualWaypoint = this.navigation.getTarget(MANUAL_WAYPOINT_ID)?.position ?? null;
     this.saveStore.save({
@@ -392,11 +484,13 @@ export class Engine {
       inventory: this.inventory,
       worldDiffs: this.worldDiffs,
       manualWaypoint,
+      worldMinutes: this.environment.getSample().totalMinutes,
     });
   }
 
   dispose() {
     if (this.disposed) return;
+    if (this.started) this.persist();
     this.disposed = true;
     cancelAnimationFrame(this.animationFrame);
     window.removeEventListener("resize", this.resize);
@@ -432,13 +526,21 @@ export class Engine {
       }
       if (steps === 5) this.accumulator = 0;
 
-      this.environment.updateAround(this.player.position);
+      this.environment.present(this.player.position, delta);
       this.citizens.present(
         this.started && !this.paused && !this.mapOpen ? this.accumulator : 0,
       );
       this.emitPresentation();
       this.renderer.render(this.scene, this.camera);
       this.trackPerformance(timestamp);
+      if (
+        this.started &&
+        !this.testMode &&
+        timestamp - this.lastClockPersistTime >= 30_000
+      ) {
+        this.persist();
+        this.lastClockPersistTime = timestamp;
+      }
       this.emitSnapshot(timestamp - this.lastSnapshotTime > 140);
     }
     this.animationFrame = requestAnimationFrame(this.frame);
@@ -461,6 +563,7 @@ export class Engine {
     const heading = headingFromYaw(this.player.yaw);
     const climate = sampleClimate(this.player.position.x, this.player.position.z);
     const nearest = nearestSettlement(this.player.position.x, this.player.position.z);
+    const atmosphere = this.environment.getSample();
     const nearbyTarget = this.runtime.nearbyTarget;
     this.snapshot = {
       ready: this.ready,
@@ -478,6 +581,7 @@ export class Engine {
       fps: this.fps,
       chunk,
       loadedChunks: this.world.loadedCount,
+      drawDistanceMeters: CAMERA_DRAW_DISTANCE,
       citizenCount: this.citizens.visibleCount,
       crowdDensity: this.citizens.density,
       triangles: this.renderer.info.render.triangles,
@@ -495,6 +599,20 @@ export class Engine {
         id: climate.biome.id,
         name: climate.biome.name,
         region: climate.biome.region,
+      },
+      environment: {
+        totalMinutes: atmosphere.totalMinutes,
+        day: atmosphere.day,
+        hour: atmosphere.hour,
+        minute: atmosphere.minute,
+        phase: atmosphere.phase,
+        weatherId: atmosphere.weatherId,
+        weatherLabel: atmosphere.weatherLabel,
+        precipitation: atmosphere.precipitation,
+        temperatureC: atmosphere.temperatureC,
+        windKph: atmosphere.windKph,
+        windDirection: atmosphere.windDirection,
+        visibilityMeters: atmosphere.visibilityMeters,
       },
       nearestSettlement: {
         id: nearest.settlement.id,
@@ -520,6 +638,7 @@ export class Engine {
       nearbyDistance: this.runtime.nearbyDistance,
       lastDiscovery: this.lastDiscovery,
       lastGather: this.lastGather,
+      lastFastTravel: this.lastFastTravel,
     };
     this.onSnapshot(this.snapshot);
   }
@@ -531,7 +650,7 @@ export class Engine {
       target.position.x - this.player.position.x,
       target.position.z - this.player.position.z,
     );
-    if (distance > this.camera.far * 0.92) return null;
+    if (distance > WAYPOINT_WORLD_MARKER_DISTANCE) return null;
 
     this.camera.updateMatrixWorld();
     this.projectionPoint.set(
@@ -608,6 +727,7 @@ export class Engine {
     if (document.hidden && this.started) {
       this.paused = true;
       if (this.input.isLocked()) document.exitPointerLock?.();
+      this.persist();
       this.emitSnapshot(true);
     }
   };
@@ -631,15 +751,7 @@ export class Engine {
       isReady: () => this.ready,
       snapshot: () => structuredClone(this.snapshot),
       teleport: (x, z) => {
-        this.player.position.set(x, sampleTerrainHeight(x, z), z);
-        this.player.verticalVelocity = 0;
-        this.player.grounded = true;
-        this.player.crouching = false;
-        this.camera.position.set(x, this.player.position.y + PLAYER_HEIGHT, z);
-        this.world.update(x, z);
-        this.citizens.update(x, z, 0, true);
-        this.navigation.update(this.player.position);
-        this.emitPresentation();
+        this.relocatePlayer(x, z);
         this.emitSnapshot(true);
       },
       faceBeacon: (beaconId) => {
@@ -690,6 +802,15 @@ export class Engine {
       },
       clearWaypoint: () => {
         this.clearManualWaypoint();
+      },
+      fastTravel: (locationId) => {
+        this.fastTravel(locationId);
+      },
+      setWorldMinutes: (minutes) => {
+        this.setWorldMinutes(minutes);
+      },
+      advanceWorldMinutes: (minutes) => {
+        this.advanceWorldMinutes(minutes);
       },
       setHeading: (heading) => {
         this.player.yaw = (-heading * Math.PI) / 180;

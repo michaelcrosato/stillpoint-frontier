@@ -14,10 +14,11 @@ along authored procedural lanes.
   more ordered systems without editing the engine kernel.
 - `SystemPipeline` executes systems in stable phase order. The current feature contributes
   player control, chunk streaming, and interaction systems.
-- `ChunkManager` maintains a 5×5 resident ring, creates deterministic chunk content from
-  the world seed and integer chunk coordinates, and owns every render/collision resource
-  that must be disposed when a chunk leaves the ring.
-- `CitizenEngine` independently streams the same resident ring. Its pure recipes place
+- `ChunkManager` maintains a 9×9 visual ring, creates deterministic chunk content from
+  the world seed and integer chunk coordinates, and owns every render resource that must
+  be disposed when a chunk leaves the ring. Collider and target caches remain limited to
+  the inner 5×5 gameplay ring so the doubled horizon does not inflate fixed-step work.
+- `CitizenEngine` independently streams a 5×5 resident ring. Its pure recipes place
   proportional crowds only on settlement sidewalks or road shoulders, while one shared
   low-poly figure and one instanced draw per populated chunk keep Vesper Crown's thousands
   of visible citizens within budget. Citizens never enter target, collider, dialogue, or
@@ -26,6 +27,13 @@ along authored procedural lanes.
   quest objectives, scripted routes, and system alerts. It owns activation, finite target
   validation, one-shot arrival events, and source metadata; `NavigationSystem` evaluates
   arrival after movement without coupling quest logic to the HUD.
+- `EnvironmentSystem` advances a persisted accelerated clock through the fixed-step
+  pipeline. `environment/model` derives daylight and biome weather from world minutes,
+  climate, and seed; the Three runtime presents one key light, shader sky, fog, static
+  stars, and a single GPU precipitation field without wall-clock dependence.
+- `world/fastTravel` is a temporary playtest adapter over the immutable settlement and
+  relay catalog. It resolves deterministic dry arrival offsets against the active collider
+  cache, leaving future discovery rules free to filter the catalog independently.
 - `world/roads` is the shared path layer for rendered roads, urban street grids, building
   clearance, and pedestrian lanes. The Old Relay Spur makes the opening survey site a
   credible quiet work stop without promoting it to a settlement.
@@ -62,8 +70,9 @@ Persistent resource IDs include the feature, recipe version, chunk coordinate, a
 index. Pickups, trees, and rock outcrops are reduced through a pure idempotent interaction
 function. Only a sparse `{hits, removed}` world delta is saved; generated chunks remain
 derivable. Inventory and its matching entity delta are written in the same save operation.
-The version-three envelope also retains the player's manual map waypoint; version-one relay
-and version-two world saves migrate in place. Quest destinations remain owned by quest state
+The version-four envelope retains the player's manual map waypoint and total world minutes;
+version-one relay, version-two world, and version-three waypoint saves migrate in place.
+Weather remains derived rather than stored. Quest destinations remain owned by quest state
 and can re-register with the navigation service after loading.
 
 The atlas uses `+X = east`, `-Z = north`, and north-zero clockwise bearings. Map clicks are
@@ -83,17 +92,20 @@ vehicles without coupling those ideas to React or world generation.
 The initial target is an RTX 3060-class machine at 1440p/60:
 
 - Fixed simulation: 60 Hz, with large frame deltas clamped and spiral-of-death protection.
-- Resident terrain: 25 chunks; decorative props are instanced per chunk.
-- Atlas territory: 9,216 km²; world size does not alter the 25-chunk resident budget.
+- Resident terrain: 81 chunks in a 9×9 visual ring; decorative props are instanced per chunk.
+- Gameplay queries and ambient citizens: independent 25-chunk inner rings.
+- Atlas territory: 9,216 km²; the full map is never resident.
 - Roads, settlement blocks, forest, rocks, water, ruins, and citizens use static or instanced
   meshes; no gameplay object requires an animation clip.
 - Citizen matrices present once per rendered frame with fixed-step interpolation, so they
   remain smooth on 60 Hz and high-refresh displays. Performance mode reduces population
   density rather than motion cadence. Hard resident targets remain 5,000 and 2,200 visible
   citizens respectively, with no citizen shadows.
-- One shadow-casting directional light; 2K shadow map in cinematic mode.
+- One shadow-casting directional sun/moon key; 2K shadow map in cinematic mode. Dynamic
+  weather changes palette, fog, exposure, and one shader-driven precipitation field.
 - Pixel ratio capped at 1.75; performance mode forces DPR 1 and disables shadows.
-- Renderer diagnostics expose FPS, active chunks, and triangles to both the HUD and tests.
+- Renderer diagnostics expose FPS, active chunks, draw horizon, and triangles to the HUD
+  and tests. The camera cutoff is 1,840 m, while fog conceals the finite terrain edge.
 - Every unloaded chunk explicitly disposes geometries and materials.
 
 The next production hardening modules are worker-based chunk recipes, floating-origin

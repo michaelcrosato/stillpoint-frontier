@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { CHUNK_LOAD_RADIUS, type QualityLevel } from "../config";
+import { CITIZEN_CHUNK_LOAD_RADIUS, type QualityLevel } from "../config";
 import {
   crowdDensityForCount,
   generateCitizenChunk,
@@ -100,7 +100,7 @@ export class CitizenEngine {
     if (nextActiveKey === this.activeChunkKey && this.loaded.size > 0) return false;
     this.activeChunkKey = nextActiveKey;
     const desired = new Set<string>();
-    for (const coordinate of chunksAround(center, CHUNK_LOAD_RADIUS)) {
+    for (const coordinate of chunksAround(center, CITIZEN_CHUNK_LOAD_RADIUS)) {
       const key = chunkKey(coordinate.x, coordinate.z);
       desired.add(key);
       if (!this.loaded.has(key)) this.loadChunk(coordinate.x, coordinate.z);

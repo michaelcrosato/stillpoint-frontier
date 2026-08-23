@@ -6,6 +6,7 @@ import {
   type ItemId,
 } from "../gameplay/items";
 import type { EntityDiff } from "../gameplay/interactions";
+import { WORLD_START_MINUTES } from "../environment/model";
 import { WORLD_HALF_EXTENT } from "../world/macroWorld";
 
 // Keep the legacy key so version-one saves migrate in place.
@@ -14,6 +15,7 @@ const VALID_BEACONS = new Set<string>(BEACONS.map((beacon) => beacon.id));
 const VALID_ITEMS = new Set<string>(Object.keys(ITEM_DEFINITIONS));
 const ENTITY_ID = /^[a-z0-9][a-z0-9:._-]{0,119}$/i;
 const MAX_WORLD_DIFFS = 10_000;
+const MAX_WORLD_MINUTES = 10_000_000;
 
 export interface StorageAdapter {
   getItem(key: string): string | null;
@@ -21,11 +23,12 @@ export interface StorageAdapter {
 }
 
 export interface FrontierSave {
-  version: 3;
+  version: 4;
   scanned: BeaconId[];
   inventory: InventoryState;
   worldDiffs: Record<string, EntityDiff>;
   manualWaypoint: SavedMapWaypoint | null;
+  worldMinutes: number;
 }
 
 export interface FrontierSaveInput {
@@ -33,6 +36,7 @@ export interface FrontierSaveInput {
   inventory: Readonly<InventoryState>;
   worldDiffs: Readonly<Record<string, EntityDiff>>;
   manualWaypoint: Readonly<SavedMapWaypoint> | null;
+  worldMinutes: number;
 }
 
 export interface SavedMapWaypoint {
@@ -42,11 +46,12 @@ export interface SavedMapWaypoint {
 
 function emptySave(): FrontierSave {
   return {
-    version: 3,
+    version: 4,
     scanned: [],
     inventory: { ...EMPTY_INVENTORY },
     worldDiffs: {},
     manualWaypoint: null,
+    worldMinutes: WORLD_START_MINUTES,
   };
 }
 
@@ -94,6 +99,13 @@ function normalizeManualWaypoint(value: unknown): SavedMapWaypoint | null {
   return { x, z };
 }
 
+function normalizeWorldMinutes(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return WORLD_START_MINUTES;
+  }
+  return Math.min(value, MAX_WORLD_MINUTES);
+}
+
 export class SaveStore {
   constructor(private readonly storage: StorageAdapter | null) {}
 
@@ -108,18 +120,27 @@ export class SaveStore {
         inventory?: unknown;
         worldDiffs?: unknown;
         manualWaypoint?: unknown;
+        worldMinutes?: unknown;
       };
       if (parsed.version === 1) {
         return { ...emptySave(), scanned: normalizeScanned(parsed.scanned) };
       }
-      if (parsed.version !== 2 && parsed.version !== 3) return emptySave();
+      if (parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4) {
+        return emptySave();
+      }
       return {
-        version: 3,
+        version: 4,
         scanned: normalizeScanned(parsed.scanned),
         inventory: normalizeInventory(parsed.inventory),
         worldDiffs: normalizeWorldDiffs(parsed.worldDiffs),
         manualWaypoint:
-          parsed.version === 3 ? normalizeManualWaypoint(parsed.manualWaypoint) : null,
+          parsed.version === 3 || parsed.version === 4
+            ? normalizeManualWaypoint(parsed.manualWaypoint)
+            : null,
+        worldMinutes:
+          parsed.version === 4
+            ? normalizeWorldMinutes(parsed.worldMinutes)
+            : WORLD_START_MINUTES,
       };
     } catch {
       return emptySave();
@@ -130,11 +151,12 @@ export class SaveStore {
     if (!this.storage) return false;
     try {
       const payload: FrontierSave = {
-        version: 3,
+        version: 4,
         scanned: normalizeScanned(input.scanned),
         inventory: normalizeInventory(input.inventory),
         worldDiffs: normalizeWorldDiffs(input.worldDiffs),
         manualWaypoint: normalizeManualWaypoint(input.manualWaypoint),
+        worldMinutes: normalizeWorldMinutes(input.worldMinutes),
       };
       this.storage.setItem(SAVE_KEY, JSON.stringify(payload));
       return true;

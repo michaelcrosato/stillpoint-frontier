@@ -9,9 +9,9 @@ still produce reviewable evidence.
 - `npm run test:unit` — deterministic unit and property tests.
 - `npm run test:coverage` — coverage report with enforced thresholds.
 - `npm test` — unit tests, production build, and rendered-worker HTML contract.
-- `npm run test:e2e` — browser boot, WebGL pixel, streaming, movement, gathering,
-  persistence, interaction, map waypoint guidance, proportional citizen streaming,
-  resource budgets, and context-loss tests.
+- `npm run test:e2e` — browser boot, WebGL pixel, split world/citizen streaming, movement,
+  gathering, persistence, interaction, map waypoint guidance, temporary fast travel,
+  day/night controls, proportional citizens, resource budgets, and context-loss tests.
 - `npm run test:visual` — captures deterministic entry/world screenshots as Playwright artifacts.
 - `npm run test:visual:update` — writes or reviews golden snapshots when
   `VISUAL_BASELINES=1` is set in a pinned browser environment.
@@ -26,8 +26,9 @@ DPR, locale, timezone, seed, and quality profile pinned before accepting golden 
 `?test=1` enables a narrow `window.__STILLPOINT_TEST__` bridge. It fixes the world seed,
 keeps the framebuffer readable for nonblank-pixel inspection, bypasses pointer-lock for
 automation, and exposes snapshot, teleport, fixed views, deterministic target descriptors,
-discrete interactions, discovery, waypoint commands, fixed headings, and WebGL context-loss
-operations. Normal gameplay does not depend on the bridge.
+discrete interactions, discovery, waypoint and fast-travel commands, deterministic world-time
+controls, fixed headings, and WebGL context-loss operations. Normal gameplay does not depend
+on the bridge.
 
 Macro-world tests enforce the 9,216 km² area, biome coverage, settlement hierarchy,
 economic metadata, bounds, road connectivity, and river continuity. Gathering tests prove
@@ -40,6 +41,12 @@ clicks, target validation, player/quest target replacement, stale clears, one-sh
 auto-clearing scripted targets, manual-waypoint save migration, and render-frame store
 notifications. Browser coverage sets and replaces a pin through actual map coordinates,
 checks the HUD guide and compass marker, and restores the manual waypoint after reload.
+
+Atmosphere tests cover all day phases, day rollover, noon/night light ordering, seeded
+random-access weather, legal weather menus for all seven biomes, impossible climate
+combinations, continuous epoch transitions, temperature response, and corrupt-clock recovery.
+Fast-travel tests prove every authored key location is indexed, IDs and arrivals are stable,
+arrival points avoid rendered water and colliders, and atlas-edge fallbacks remain bounded.
 
 Citizen property tests sample random atlas chunks and enforce deterministic IDs, provenance,
 road/settlement route bounds, hierarchy-scaled density, quality caps, finite time sampling,
@@ -57,3 +64,8 @@ Absolute GPU timing should run on a pinned RTX 3060/3070 self-hosted lane after 
 warmup. Ordinary headless CI should gate deterministic state, draw-call/triangle/chunk
 budgets, resource plateaus, and screenshot stability rather than treating software-renderer
 FPS as representative hardware performance.
+
+The 9×9 visual world ring must remain 81 chunks while the citizen ring remains 25. Browser
+tests lock that separation so a future draw-distance change cannot accidentally triple the
+per-frame citizen matrix budget. Fast-travel churn is also covered by the resource plateau
+test because relocation replaces the complete visual ring in one operation.

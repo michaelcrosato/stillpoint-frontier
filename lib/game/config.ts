@@ -3,7 +3,16 @@ export const WORLD_SEED = "STILL-0317";
 
 export const CHUNK_SIZE = 96;
 export const CHUNK_SEGMENTS = 18;
-export const CHUNK_LOAD_RADIUS = 2;
+/** 9x9 visual ring: exactly twice the previous worst-direction terrain horizon. */
+export const WORLD_CHUNK_LOAD_RADIUS = 4;
+/** Keep colliders, targets, and resource queries inside the original 5x5 budget. */
+export const GAMEPLAY_CHUNK_RADIUS = 2;
+/** Ambient citizens remain independent from the expanded visual horizon. */
+export const CITIZEN_CHUNK_LOAD_RADIUS = 2;
+export const WORLD_RESIDENT_CHUNKS = (WORLD_CHUNK_LOAD_RADIUS * 2 + 1) ** 2;
+export const CITIZEN_RESIDENT_CHUNKS = (CITIZEN_CHUNK_LOAD_RADIUS * 2 + 1) ** 2;
+export const CAMERA_DRAW_DISTANCE = 1_840;
+export const WAYPOINT_WORLD_MARKER_DISTANCE = 846;
 export const PLAYER_HEIGHT = 1.72;
 export const CROUCH_HEIGHT = 1.08;
 export const PLAYER_RADIUS = 0.42;
