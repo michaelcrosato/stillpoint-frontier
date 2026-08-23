@@ -197,7 +197,8 @@ test("lights cities and sharply reduces ambient population at 03:00", async ({ p
   const noonCrowd = await page.evaluate(() => window.__STILLPOINT_TEST__?.citizens());
   const dayLights = await page.evaluate(() => window.__STILLPOINT_TEST__?.nightLighting());
   expect(dayLights?.windows).toBeGreaterThan(100);
-  expect(dayLights?.visibleWindowMeshes).toBe(0);
+  expect(dayLights?.visibleWindowMeshes).toBeGreaterThan(0);
+  expect(dayLights?.litWindowMeshes).toBe(0);
   expect(dayLights?.activeAreaLights).toBe(0);
 
   await page.evaluate(() => window.__STILLPOINT_TEST__?.setWorldMinutes(3 * 60));
@@ -207,9 +208,54 @@ test("lights cities and sharply reduces ambient population at 03:00", async ({ p
   expect(nightCrowd?.visible ?? 0).toBeGreaterThan(0);
   expect(nightLights?.strength).toBeGreaterThan(0.95);
   expect(nightLights?.visibleWindowMeshes).toBeGreaterThan(0);
+  expect(nightLights?.litWindowMeshes).toBe(nightLights?.visibleWindowMeshes);
   expect(nightLights?.activeAreaLights).toBeGreaterThan(0);
   await expect(page.getByTestId("crowd-readout")).toContainText("TIME DEMAND");
   await expect(page.getByTestId("world-clock")).toContainText("03:00");
+});
+
+test("enters procedural buildings and traverses floors, roofs, and basements", async ({ page }) => {
+  await openDeterministicWorld(page);
+  await page.getByTestId("enter-frontier").click();
+  const mega = getSettlement("vesper-crown");
+  expect(mega).not.toBeNull();
+  if (!mega) return;
+  await page.evaluate(([x, z]) => window.__STILLPOINT_TEST__?.teleport(x, z), [mega.x, mega.z]);
+  const buildings = await page.evaluate(() => window.__STILLPOINT_TEST__?.buildings() ?? []);
+  const rooftop = buildings.find((building) => building.roofAccess && building.floorCount >= 3);
+  const basement = buildings.find((building) => building.basement);
+  expect(rooftop).toBeDefined();
+  expect(basement).toBeDefined();
+  if (!rooftop || !basement) return;
+
+  await page.evaluate((building) => {
+    window.__STILLPOINT_TEST__?.teleport3D(
+      building.x,
+      building.groundY,
+      building.z,
+    );
+  }, rooftop);
+  await expect(page.getByTestId("interior-readout")).toContainText("F01");
+  for (let index = 0; index < rooftop.floorCount; index += 1) {
+    await page.evaluate((id) => window.__STILLPOINT_TEST__?.interactTarget(`${id}:stairs:up`), rooftop.id);
+  }
+  await expect(page.getByTestId("interior-readout")).toContainText("ROOF");
+  expect((await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().position.y)) ?? 0)
+    .toBeGreaterThan(rooftop.groundY + rooftop.floorHeight * 2);
+  await page.evaluate((id) => window.__STILLPOINT_TEST__?.interactTarget(`${id}:stairs:down`), rooftop.id);
+  await expect(page.getByTestId("interior-readout")).toContainText(`F${String(rooftop.floorCount).padStart(2, "0")}`);
+
+  await page.evaluate((building) => {
+    window.__STILLPOINT_TEST__?.teleport3D(
+      building.x,
+      building.groundY,
+      building.z,
+    );
+  }, basement);
+  await page.evaluate((id) => window.__STILLPOINT_TEST__?.interactTarget(`${id}:stairs:down`), basement.id);
+  await expect(page.getByTestId("interior-readout")).toContainText("B1");
+  expect((await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().position.y)) ?? 0)
+    .toBeLessThan(basement.groundY);
 });
 
 test("keeps developer time and weather overrides out of the normal save", async ({ page }) => {
@@ -548,6 +594,52 @@ test("megacity day and night activity are visually reviewable @visual", async ({
     await expect(page).toHaveScreenshot("vesper-crown-0300.png");
   } else {
     await attachScreenshot(page, testInfo, "vesper-crown-0300-candidate");
+  }
+});
+
+test("building interiors, rooftops, and basements are visually reviewable @visual", async ({ page }, testInfo) => {
+  await openDeterministicWorld(page);
+  await page.getByTestId("enter-frontier").click();
+  const mega = getSettlement("vesper-crown");
+  expect(mega).not.toBeNull();
+  if (!mega) return;
+  await page.evaluate(([x, z]) => window.__STILLPOINT_TEST__?.teleport(x, z), [mega.x, mega.z]);
+  const buildings = await page.evaluate(() => window.__STILLPOINT_TEST__?.buildings() ?? []);
+  const rooftop = buildings.find((building) => building.roofAccess && building.floorCount >= 3);
+  const basement = buildings.find((building) => building.basement);
+  expect(rooftop).toBeDefined();
+  expect(basement).toBeDefined();
+  if (!rooftop || !basement) return;
+
+  await page.evaluate((building) => {
+    window.__STILLPOINT_TEST__?.teleport3D(building.x, building.groundY, building.z);
+  }, rooftop);
+  await page.waitForTimeout(100);
+  if (process.env.VISUAL_BASELINES === "1") {
+    await expect(page).toHaveScreenshot("building-ground-floor.png");
+  } else {
+    await attachScreenshot(page, testInfo, "building-ground-floor-candidate");
+  }
+
+  for (let index = 0; index < rooftop.floorCount; index += 1) {
+    await page.evaluate((id) => window.__STILLPOINT_TEST__?.interactTarget(`${id}:stairs:up`), rooftop.id);
+  }
+  await page.waitForTimeout(100);
+  if (process.env.VISUAL_BASELINES === "1") {
+    await expect(page).toHaveScreenshot("building-rooftop.png");
+  } else {
+    await attachScreenshot(page, testInfo, "building-rooftop-candidate");
+  }
+
+  await page.evaluate((building) => {
+    window.__STILLPOINT_TEST__?.teleport3D(building.x, building.groundY, building.z);
+  }, basement);
+  await page.evaluate((id) => window.__STILLPOINT_TEST__?.interactTarget(`${id}:stairs:down`), basement.id);
+  await page.waitForTimeout(100);
+  if (process.env.VISUAL_BASELINES === "1") {
+    await expect(page).toHaveScreenshot("building-basement.png");
+  } else {
+    await attachScreenshot(page, testInfo, "building-basement-candidate");
   }
 });
 

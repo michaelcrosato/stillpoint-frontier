@@ -49,6 +49,10 @@ import {
 } from "./state";
 import { ChunkManager, type WorldTarget } from "./world/ChunkManager";
 import {
+  buildingGroundSupportY,
+  resolveBuildingTraversal,
+} from "./world/buildings";
+import {
   getFastTravelLocation,
   resolveFastTravelArrival,
 } from "./world/fastTravel";
@@ -62,11 +66,28 @@ export interface GameTestBridge {
   isReady(): boolean;
   snapshot(): GameSnapshot;
   teleport(x: number, z: number): void;
+  teleport3D(x: number, y: number, z: number): void;
   faceBeacon(beaconId: BeaconId): void;
   discover(beaconId: BeaconId): void;
   loseContext(): void;
   restoreContext(): void;
-  targets(): Array<{ id: string; kind: string; x: number; z: number }>;
+  targets(): Array<{ id: string; kind: string; action: string; x: number; y: number; z: number }>;
+  buildings(): Array<{
+    id: string;
+    name: string;
+    x: number;
+    z: number;
+    rotation: number;
+    width: number;
+    depth: number;
+    floorHeight: number;
+    floorCount: number;
+    groundY: number;
+    basement: boolean;
+    roofAccess: boolean;
+    doorWidth: number;
+    doorHeight: number;
+  }>;
   citizens(): {
     visible: number;
     generated: number;
@@ -80,6 +101,7 @@ export interface GameTestBridge {
     strength: number;
     windows: number;
     visibleWindowMeshes: number;
+    litWindowMeshes: number;
     areaLights: number;
     activeAreaLights: number;
   };
@@ -350,6 +372,28 @@ export class Engine {
   }
 
   performInteraction(target: WorldTarget) {
+    if (target.action === "traverse") {
+      if (!target.traversal) return;
+      const destination = resolveBuildingTraversal(
+        target.traversal,
+        this.player.position.y,
+      );
+      if (!destination) return;
+      this.player.position.set(destination.x, destination.destination.y, destination.z);
+      this.player.verticalVelocity = 0;
+      this.player.grounded = true;
+      this.player.sprinting = false;
+      this.runtime.nearbyTarget = null;
+      this.runtime.nearbyDistance = null;
+      this.camera.position.set(
+        this.player.position.x,
+        this.player.position.y + PLAYER_HEIGHT,
+        this.player.position.z,
+      );
+      this.emitPresentation();
+      this.emitSnapshot(true);
+      return;
+    }
     if (target.action === "scan" && target.beaconId) {
       this.discover(target.beaconId);
       return;
@@ -616,7 +660,15 @@ export class Engine {
       }
       if (steps === 5) this.accumulator = 0;
 
-      this.environment.present(this.player.position, delta);
+      this.environment.present(
+        this.player.position,
+        delta,
+        this.world.isPlayerSheltered(
+          this.player.position.x,
+          this.player.position.z,
+          this.player.position.y,
+        ),
+      );
       this.citizens.present(
         this.started &&
           !this.paused &&
@@ -740,6 +792,11 @@ export class Engine {
         economy: nearest.settlement.economy,
         reason: nearest.settlement.reason,
       },
+      interior: this.world.getInteriorStatus(
+        this.player.position.x,
+        this.player.position.z,
+        this.player.position.y,
+      ),
       nearbyTarget: nearbyTarget
         ? {
             id: nearbyTarget.id,
@@ -889,6 +946,15 @@ export class Engine {
         this.relocatePlayer(x, z);
         this.emitSnapshot(true);
       },
+      teleport3D: (x, y, z) => {
+        this.relocatePlayer(x, z);
+        this.player.position.y = y;
+        this.player.verticalVelocity = 0;
+        this.player.grounded = true;
+        this.camera.position.set(x, y + PLAYER_HEIGHT, z);
+        this.emitPresentation();
+        this.emitSnapshot(true);
+      },
       faceBeacon: (beaconId) => {
         const beacon = BEACONS.find((candidate) => candidate.id === beaconId);
         if (!beacon) return;
@@ -913,8 +979,27 @@ export class Engine {
         this.world.targets.map((target) => ({
           id: target.id,
           kind: target.kind,
+          action: target.action,
           x: target.position.x,
+          y: target.position.y,
           z: target.position.z,
+        })),
+      buildings: () =>
+        this.world.buildings.map((building) => ({
+          id: building.id,
+          name: building.displayName,
+          x: building.x,
+          z: building.z,
+          rotation: building.rotation,
+          width: building.width,
+          depth: building.depth,
+          floorHeight: building.floorHeight,
+          floorCount: building.floorCount,
+          groundY: buildingGroundSupportY(building),
+          basement: building.hasBasement,
+          roofAccess: building.roofAccess,
+          doorWidth: building.doorWidth,
+          doorHeight: building.doorHeight,
         })),
       citizens: () => this.citizens.debugSnapshot(),
       nightLighting: () => this.world.nightLightingSnapshot,

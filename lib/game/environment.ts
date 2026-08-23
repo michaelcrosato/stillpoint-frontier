@@ -36,7 +36,7 @@ export interface EnvironmentRuntime {
   sun: THREE.DirectionalLight;
   sunTarget: THREE.Object3D;
   tick(position: THREE.Vector3, deltaSeconds: number, running: boolean): void;
-  present(position: THREE.Vector3, deltaSeconds: number): void;
+  present(position: THREE.Vector3, deltaSeconds: number, sheltered?: boolean): void;
   sync(position: THREE.Vector3, snap?: boolean): void;
   setWorldMinutes(minutes: number): void;
   getPersistentWorldMinutes(): number;
@@ -280,7 +280,7 @@ export function createEnvironment(
   const moonColor = new THREE.Color(0x91a9c8);
   const temporaryColor = new THREE.Color();
 
-  const applyAtmosphere = (position: THREE.Vector3) => {
+  const applyAtmosphere = (position: THREE.Vector3, sheltered: boolean) => {
     topColor.lerpColors(nightTop, dayTop, displaySample.daylight);
     horizonColor.lerpColors(nightHorizon, dayHorizon, displaySample.daylight);
     groundColor.lerpColors(nightGround, dayGround, displaySample.daylight);
@@ -332,7 +332,7 @@ export function createEnvironment(
 
     const isDust = displaySample.dust > displaySample.precipitationRate;
     const effectStrength = Math.max(displaySample.precipitationRate, displaySample.dust);
-    precipitation.points.visible = effectStrength > 0.025;
+    precipitation.points.visible = !sheltered && effectStrength > 0.025;
     precipitation.uniforms.uOpacity.value = effectStrength * (isDust ? 0.34 : 0.72);
     precipitation.uniforms.uSpeed.value = isDust
       ? 1.8
@@ -380,7 +380,7 @@ export function createEnvironment(
       }
       runtime.sync(position);
     },
-    present(position, deltaSeconds) {
+    present(position, deltaSeconds, sheltered = false) {
       const safeDelta = Number.isFinite(deltaSeconds) ? Math.max(0, deltaSeconds) : 0;
       const alpha = 1 - Math.exp(-safeDelta * 2.25);
       for (const field of BLENDED_SAMPLE_FIELDS) {
@@ -390,7 +390,7 @@ export function createEnvironment(
       displaySample.weatherId = targetSample.weatherId;
       displaySample.weatherLabel = targetSample.weatherLabel;
       displaySample.precipitation = targetSample.precipitation;
-      applyAtmosphere(position);
+      applyAtmosphere(position, sheltered);
     },
     sync(position, snap = false) {
       climate = sampleClimate(position.x, position.z);

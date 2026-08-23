@@ -18,8 +18,8 @@ import type { NavigationGuidance } from "./navigation/NavigationService";
 
 export interface NearbyTargetSnapshot {
   id: string;
-  kind: "beacon" | "pickup" | "resource";
-  action: "scan" | "collect" | "harvest";
+  kind: "beacon" | "pickup" | "resource" | "traversal";
+  action: "scan" | "collect" | "harvest" | "traverse";
   name: string;
   item: ItemId | null;
   hits: number;
@@ -56,6 +56,15 @@ export interface FastTravelSnapshot {
   id: string;
   name: string;
   kind: "megacity" | "city" | "town" | "village" | "relay";
+}
+
+export interface InteriorSnapshot {
+  id: string;
+  name: string;
+  level: string;
+  floorCount: number;
+  hasBasement: boolean;
+  roofAccess: boolean;
 }
 
 export interface DeveloperToolsSnapshot {
@@ -105,6 +114,7 @@ export interface GameSnapshot {
     economy: string;
     reason: string;
   };
+  interior: InteriorSnapshot | null;
   nearbyTarget: NearbyTargetSnapshot | null;
   nearbyBeacon: BeaconId | null;
   nearbyDistance: number | null;
@@ -173,6 +183,7 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
     economy: "goats · dry farming · relay salvage",
     reason: "A basin settlement.",
   },
+  interior: null,
   nearbyTarget: null,
   nearbyBeacon: null,
   nearbyDistance: null,

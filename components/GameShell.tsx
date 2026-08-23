@@ -131,6 +131,7 @@ export default function GameShell() {
             economy: "timber · resin · paper · carpentry",
             reason: "A managed-forest town where two logging valleys meet the highland road.",
           },
+          interior: null,
           nearbyTarget: {
             id: "resource:tree:v1:44:-33:0",
             kind: "resource",
@@ -424,6 +425,17 @@ export default function GameShell() {
               <small>INSTANCED ROUTES · NO DIALOGUE STATE</small>
               <small>TIME DEMAND {Math.round(snapshot.citizenActivity * 100)}% · DIURNAL SCHEDULE</small>
             </div>
+            {snapshot.interior && (
+              <div className="interior-readout" data-testid="interior-readout">
+                <span>STRUCTURE / ENTERED</span>
+                <strong>{snapshot.interior.name} · {snapshot.interior.level}</strong>
+                <small>
+                  {snapshot.interior.floorCount} FLOORS
+                  {snapshot.interior.hasBasement ? " · BASEMENT" : ""}
+                  {snapshot.interior.roofAccess ? " · ROOF ACCESS" : ""}
+                </small>
+              </div>
+            )}
           </aside>
 
           <div className="crosshair" aria-hidden="true">
@@ -443,6 +455,10 @@ export default function GameShell() {
                     ? "HARVEST RESOURCE"
                     : nearbyTarget.action === "collect"
                       ? "COLLECT"
+                      : nearbyTarget.action === "traverse"
+                        ? nearbyTarget.id.endsWith(":up")
+                          ? "ASCEND STRUCTURE"
+                          : "DESCEND STRUCTURE"
                       : "RECOVER RECORD"}
                 </span>
                 <strong>
