@@ -5,10 +5,39 @@ import { CitizenEngine } from "../../lib/game/citizens/CitizenEngine";
 import { getSettlement } from "../../lib/game/world/macroWorld";
 
 describe("citizen presentation", () => {
+  it("streams crowd chunks incrementally with safe load budgets", () => {
+    const settlement = getSettlement("vesper-crown");
+    expect(settlement).not.toBeNull();
+    if (!settlement) return;
+    const scene = new THREE.Scene();
+    const citizens = new CitizenEngine(scene, "cinematic");
+
+    citizens.updateStreaming(settlement.x, settlement.z);
+    expect(citizens.streamingSnapshot).toEqual({
+      loaded: 1,
+      pending: CITIZEN_RESIDENT_CHUNKS - 1,
+      desired: CITIZEN_RESIDENT_CHUNKS,
+      ready: false,
+    });
+    citizens.advanceStreaming(Number.NaN);
+    expect(citizens.streamingSnapshot.loaded).toBe(2);
+    citizens.advanceStreaming(Number.POSITIVE_INFINITY);
+    expect(citizens.streamingSnapshot.loaded).toBe(3);
+    citizens.flushStreamingForTests();
+    expect(citizens.streamingSnapshot).toEqual({
+      loaded: CITIZEN_RESIDENT_CHUNKS,
+      pending: 0,
+      desired: CITIZEN_RESIDENT_CHUNKS,
+      ready: true,
+    });
+    citizens.dispose();
+  });
+
   it("interpolates instance transforms between fixed simulation ticks", () => {
     const scene = new THREE.Scene();
     const citizens = new CitizenEngine(scene, "cinematic");
     citizens.updateStreaming(0, 8);
+    citizens.flushStreamingForTests();
     expect(citizens.loadedCount).toBe(CITIZEN_RESIDENT_CHUNKS);
     const mesh = scene.children.find(
       (child): child is THREE.InstancedMesh => child instanceof THREE.InstancedMesh,
@@ -47,6 +76,7 @@ describe("citizen presentation", () => {
     const scene = new THREE.Scene();
     const citizens = new CitizenEngine(scene, "cinematic");
     citizens.updateStreaming(settlement.x, settlement.z);
+    citizens.flushStreamingForTests();
     citizens.setWorldMinutes(12 * 60);
     citizens.present();
     const noon = citizens.debugSnapshot();

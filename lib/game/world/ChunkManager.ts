@@ -64,6 +64,7 @@ import {
   chunksAround,
   sampleTerrainHeight,
   worldToChunk,
+  type ChunkCoordinate,
 } from "./terrain";
 
 export type WorldTargetKind = "beacon" | "pickup" | "resource" | "traversal";
@@ -353,6 +354,8 @@ export class ChunkManager {
   private readonly collisionIndex = new PlanarCollisionIndex(16);
   private targetCache: WorldTarget[] = [];
   private buildingCache: BuildingRecipe[] = [];
+  private desiredChunkKeys = new Set<string>();
+  private pendingChunks: ChunkCoordinate[] = [];
   private nightLightingStrength = 0;
   private sharedBuildingResourcesDisposed = false;
   private readonly sharedBuildingBoxGeometry = markChunkManagerShared(
@@ -390,20 +393,109 @@ export class ChunkManager {
     this.activeChunkX = center.x;
     this.activeChunkZ = center.z;
 
-    const desired = new Set<string>();
-    for (const coordinate of chunksAround(center, WORLD_CHUNK_LOAD_RADIUS)) {
-      const key = chunkKey(coordinate.x, coordinate.z);
-      desired.add(key);
-      if (!this.loaded.has(key)) this.loadChunk(coordinate.x, coordinate.z);
-    }
+    const coordinates = chunksAround(center, WORLD_CHUNK_LOAD_RADIUS).sort(
+      (left, right) => {
+        const leftRing = Math.max(
+          Math.abs(left.x - center.x),
+          Math.abs(left.z - center.z),
+        );
+        const rightRing = Math.max(
+          Math.abs(right.x - center.x),
+          Math.abs(right.z - center.z),
+        );
+        if (leftRing !== rightRing) return leftRing - rightRing;
+        const leftDistance =
+          (left.x - center.x) ** 2 + (left.z - center.z) ** 2;
+        const rightDistance =
+          (right.x - center.x) ** 2 + (right.z - center.z) ** 2;
+        return leftDistance - rightDistance;
+      },
+    );
+    this.desiredChunkKeys = new Set(
+      coordinates.map((coordinate) => chunkKey(coordinate.x, coordinate.z)),
+    );
 
     for (const [key, chunk] of this.loaded) {
-      if (desired.has(key)) continue;
+      if (this.desiredChunkKeys.has(key)) continue;
       this.disposeChunk(chunk);
       this.loaded.delete(key);
     }
+
+    // The player's current chunk is the only synchronous load. It provides
+    // terrain and collision immediately after fast travel; the remaining 80
+    // chunks are amortized across rendered frames instead of freezing one.
+    if (!this.loaded.has(nextActiveKey)) this.loadChunk(center.x, center.z);
+    this.pendingChunks = coordinates.filter(
+      (coordinate) => !this.loaded.has(chunkKey(coordinate.x, coordinate.z)),
+    );
     this.refreshCaches();
     return true;
+  }
+
+  advanceStreaming(maxChunkLoads = 1) {
+    const safeLimit = Number.isFinite(maxChunkLoads)
+      ? Math.max(0, Math.floor(maxChunkLoads))
+      : 1;
+    let loadedCount = 0;
+    let gameplayChanged = false;
+    while (loadedCount < safeLimit && this.pendingChunks.length > 0) {
+      const coordinate = this.pendingChunks.shift();
+      if (!coordinate) break;
+      const key = chunkKey(coordinate.x, coordinate.z);
+      if (!this.desiredChunkKeys.has(key) || this.loaded.has(key)) continue;
+      this.loadChunk(coordinate.x, coordinate.z);
+      loadedCount += 1;
+      if (
+        Math.abs(coordinate.x - this.activeChunkX) <= GAMEPLAY_CHUNK_RADIUS &&
+        Math.abs(coordinate.z - this.activeChunkZ) <= GAMEPLAY_CHUNK_RADIUS
+      ) {
+        gameplayChanged = true;
+      }
+    }
+    if (gameplayChanged) this.refreshCaches();
+    return loadedCount > 0;
+  }
+
+  /**
+   * Loads the small collision neighborhood needed to place a teleported player
+   * safely. Normal world streaming stays incremental; this bounded prime keeps
+   * fast travel from resolving against an incomplete destination.
+   */
+  primeCollisionNeighborhood(playerX: number, playerZ: number, radius = 1) {
+    const center = worldToChunk(playerX, playerZ);
+    const safeRadius = Number.isFinite(radius)
+      ? Math.min(GAMEPLAY_CHUNK_RADIUS, Math.max(0, Math.floor(radius)))
+      : 1;
+    let loadedCount = 0;
+    for (const coordinate of chunksAround(center, safeRadius)) {
+      const key = chunkKey(coordinate.x, coordinate.z);
+      if (!this.desiredChunkKeys.has(key) || this.loaded.has(key)) continue;
+      this.loadChunk(coordinate.x, coordinate.z);
+      loadedCount += 1;
+    }
+    if (loadedCount > 0) {
+      this.pendingChunks = this.pendingChunks.filter(
+        (coordinate) => !this.loaded.has(chunkKey(coordinate.x, coordinate.z)),
+      );
+      this.refreshCaches();
+    }
+    return loadedCount;
+  }
+
+  /** Synchronous full drain for deterministic non-rendering tests only. */
+  flushStreamingForTests() {
+    const pending = this.pendingChunks.length;
+    if (pending > 0) this.advanceStreaming(pending);
+    this.refreshCaches();
+  }
+
+  get streamingSnapshot() {
+    return {
+      loaded: this.loaded.size,
+      pending: this.pendingChunks.length,
+      desired: this.desiredChunkKeys.size,
+      ready: this.pendingChunks.length === 0,
+    };
   }
 
   setQuality(quality: QualityLevel) {
@@ -574,6 +666,8 @@ export class ChunkManager {
   dispose() {
     for (const chunk of this.loaded.values()) this.disposeChunk(chunk);
     this.loaded.clear();
+    this.desiredChunkKeys.clear();
+    this.pendingChunks = [];
     this.refreshCaches();
     this.disposeSharedBuildingResources();
   }
@@ -766,6 +860,10 @@ export class ChunkManager {
       nightLighting,
     };
     this.loaded.set(key, runtime);
+    const detailed =
+      Math.abs(chunkX - this.activeChunkX) <= GAMEPLAY_CHUNK_RADIUS &&
+      Math.abs(chunkZ - this.activeChunkZ) <= GAMEPLAY_CHUNK_RADIUS;
+    for (const object of interiorDetails) object.visible = detailed;
     this.applyNightLighting(nightLighting);
   }
 
@@ -1105,6 +1203,19 @@ export class ChunkManager {
           if (geometry.userData.chunkManagerShared !== true) geometry.dispose();
           if (material.userData.chunkManagerShared !== true) material.dispose();
           return false;
+        }
+        if (mesh.instanceMatrix.count !== rendered) {
+          const usedMatrices = new Float32Array(rendered * 16);
+          usedMatrices.set(
+            (mesh.instanceMatrix.array as Float32Array).subarray(
+              0,
+              rendered * 16,
+            ),
+          );
+          mesh.instanceMatrix = new THREE.InstancedBufferAttribute(
+            usedMatrices,
+            16,
+          );
         }
         mesh.count = rendered;
         mesh.instanceMatrix.needsUpdate = true;

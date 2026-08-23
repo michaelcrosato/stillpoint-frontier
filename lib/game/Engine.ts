@@ -504,11 +504,24 @@ export class Engine {
     const location = getFastTravelLocation(locationId);
     if (!location) return null;
 
-    // Prime the destination ring first, then use its deterministic colliders to
-    // choose an arrival that does not overlap a landmark or procedural prop.
-    const preliminary = resolveFastTravelArrival(location);
-    this.world.update(preliminary.x, preliminary.z);
-    const arrival = resolveFastTravelArrival(location, this.world.colliders);
+    // Prime only a bounded 3x3 collision neighborhood. The rest of the 9x9
+    // destination ring streams over rendered frames, avoiding the old city
+    // teleport freeze while keeping the arrival clear of procedural solids.
+    let arrival = resolveFastTravelArrival(location);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const previousChunk = worldToChunk(arrival.x, arrival.z);
+      this.world.update(arrival.x, arrival.z);
+      this.world.primeCollisionNeighborhood(arrival.x, arrival.z);
+      const resolved = resolveFastTravelArrival(location, this.world.colliders);
+      arrival = resolved;
+      const resolvedChunk = worldToChunk(resolved.x, resolved.z);
+      if (
+        resolvedChunk.x === previousChunk.x &&
+        resolvedChunk.z === previousChunk.z
+      ) {
+        break;
+      }
+    }
     this.relocatePlayer(arrival.x, arrival.z, arrival.y, location.x, location.z);
     this.lastFastTravel = {
       id: location.id,
@@ -659,6 +672,12 @@ export class Engine {
         steps += 1;
       }
       if (steps === 5) this.accumulator = 0;
+
+      // Streaming is presentation-paced rather than fixed-step paced. A slow
+      // frame can run up to five simulation ticks, but it must still create at
+      // most one world chunk and one lightweight crowd chunk before rendering.
+      this.world.advanceStreaming(1);
+      this.citizens.advanceStreaming(1);
 
       this.environment.present(
         this.player.position,

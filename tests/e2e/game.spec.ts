@@ -12,6 +12,21 @@ async function openDeterministicWorld(page: Page) {
   await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
 }
 
+async function waitForResidentStreaming(page: Page) {
+  await expect
+    .poll(
+      () => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().loadedChunks),
+      { timeout: 10_000 },
+    )
+    .toBe(WORLD_RESIDENT_CHUNKS);
+  await expect
+    .poll(
+      () => page.evaluate(() => window.__STILLPOINT_TEST__?.citizens().chunks),
+      { timeout: 10_000 },
+    )
+    .toBe(CITIZEN_RESIDENT_CHUNKS);
+}
+
 async function attachScreenshot(page: Page, testInfo: TestInfo, name: string) {
   const screenshot = await page.screenshot({ animations: "disabled" });
   await testInfo.attach(name, { body: screenshot, contentType: "image/png" });
@@ -58,6 +73,7 @@ test("boots WebGL2 without a blank frame", async ({ page }, testInfo) => {
   page.on("pageerror", (error) => consoleErrors.push(error.message));
 
   await openDeterministicWorld(page);
+  await waitForResidentStreaming(page);
   const state = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
   expect(state?.loadedChunks).toBe(WORLD_RESIDENT_CHUNKS);
   expect(state?.drawDistanceMeters).toBe(CAMERA_DRAW_DISTANCE);
@@ -79,6 +95,7 @@ test("starts the survey, streams distant chunks, and opens the map", async ({ pa
   await expect
     .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().chunk))
     .toEqual({ x: 13, z: -9 });
+  await waitForResidentStreaming(page);
   const streamedState = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
   expect(streamedState?.loadedChunks).toBe(WORLD_RESIDENT_CHUNKS);
   expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.citizens().chunks))
@@ -146,6 +163,7 @@ test("fast travels from the map with all playtest destinations unlocked", async 
   await page.getByTestId("fast-travel-list-settlement:vesper-crown").click();
   await expect(page.getByTestId("map-panel")).toBeVisible();
   await expect(page.getByText(/arrival ready \/ vesper crown/i)).toBeVisible();
+  await waitForResidentStreaming(page);
   const state = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
   expect(state?.lastFastTravel).toMatchObject({
     id: "settlement:vesper-crown",
@@ -192,6 +210,7 @@ test("lights cities and sharply reduces ambient population at 03:00", async ({ p
   expect(mega).not.toBeNull();
   if (!mega) return;
   await page.evaluate(([x, z]) => window.__STILLPOINT_TEST__?.teleport(x, z), [mega.x, mega.z]);
+  await waitForResidentStreaming(page);
 
   await page.evaluate(() => window.__STILLPOINT_TEST__?.setWorldMinutes(12 * 60));
   const noonCrowd = await page.evaluate(() => window.__STILLPOINT_TEST__?.citizens());
@@ -221,6 +240,7 @@ test("enters procedural buildings and traverses floors, roofs, and basements", a
   expect(mega).not.toBeNull();
   if (!mega) return;
   await page.evaluate(([x, z]) => window.__STILLPOINT_TEST__?.teleport(x, z), [mega.x, mega.z]);
+  await waitForResidentStreaming(page);
   const buildings = await page.evaluate(() => window.__STILLPOINT_TEST__?.buildings() ?? []);
   const rooftop = buildings.find((building) => building.roofAccess && building.floorCount >= 3);
   const basement = buildings.find((building) => building.basement);
@@ -339,6 +359,7 @@ test("streams proportional ambient citizens without making them interaction targ
   if (!mega || !village) return;
 
   await page.evaluate(([x, z]) => window.__STILLPOINT_TEST__?.teleport(x, z), [mega.x, mega.z]);
+  await waitForResidentStreaming(page);
   const megacityCrowd = await page.evaluate(() => window.__STILLPOINT_TEST__?.citizens());
   const targets = await page.evaluate(() => window.__STILLPOINT_TEST__?.targets() ?? []);
   expect(megacityCrowd?.visible).toBeGreaterThan(3_000);
@@ -347,14 +368,17 @@ test("streams proportional ambient citizens without making them interaction targ
   await expect(page.getByTestId("crowd-readout")).toContainText("NON-INTERACTIVE");
 
   await page.evaluate(([x, z]) => window.__STILLPOINT_TEST__?.teleport(x, z), [village.x, village.z]);
+  await waitForResidentStreaming(page);
   const villageCrowd = await page.evaluate(() => window.__STILLPOINT_TEST__?.citizens());
   expect(villageCrowd?.visible).toBeGreaterThan(0);
   expect(villageCrowd?.visible).toBeLessThan((megacityCrowd?.visible ?? 0) / 20);
 
   await page.evaluate(() => window.__STILLPOINT_TEST__?.teleport(44_000, -44_000));
+  await waitForResidentStreaming(page);
   expect((await page.evaluate(() => window.__STILLPOINT_TEST__?.citizens().visible)) ?? -1).toBe(0);
 
   await page.evaluate(([x, z]) => window.__STILLPOINT_TEST__?.teleport(x, z), [mega.x, mega.z]);
+  await waitForResidentStreaming(page);
   const returnedCrowd = await page.evaluate(() => window.__STILLPOINT_TEST__?.citizens());
   expect(returnedCrowd?.ids).toEqual(megacityCrowd?.ids);
 });
@@ -438,6 +462,7 @@ test("blocks representative buildings, trees, and rocks without tunneling", asyn
   expect(mega).not.toBeNull();
   if (!mega) return;
   await page.evaluate(([x, z]) => window.__STILLPOINT_TEST__?.teleport(x, z), [mega.x, mega.z]);
+  await waitForResidentStreaming(page);
 
   const colliders = await page.evaluate(() => window.__STILLPOINT_TEST__?.colliders() ?? []);
   const representatives = [
@@ -518,6 +543,7 @@ test("collects and harvests deterministic resources without duplicate loot", asy
 test("keeps GPU resource counts bounded through repeated chunk churn", async ({ page }) => {
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
+  await waitForResidentStreaming(page);
   const baseline = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
 
   for (const [x, z] of [
@@ -532,6 +558,7 @@ test("keeps GPU resource counts bounded through repeated chunk churn", async ({ 
     await page.waitForTimeout(80);
   }
 
+  await waitForResidentStreaming(page);
   const settled = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
   expect(settled?.loadedChunks).toBe(WORLD_RESIDENT_CHUNKS);
   expect(settled?.geometries).toBeLessThanOrEqual((baseline?.geometries ?? 0) + 3);
@@ -550,6 +577,7 @@ test("surfaces graphics context loss and preserves the simulation", async ({ pag
 
 test("entry and fixed world views are visually reviewable @visual", async ({ page }, testInfo) => {
   await openDeterministicWorld(page);
+  await waitForResidentStreaming(page);
   if (process.env.VISUAL_BASELINES === "1") {
     await expect(page).toHaveScreenshot("entry-screen.png");
   } else {
@@ -572,6 +600,7 @@ test("megacity day and night activity are visually reviewable @visual", async ({
   expect(mega).not.toBeNull();
   if (!mega) return;
   await page.evaluate(([x, z]) => window.__STILLPOINT_TEST__?.teleport(x, z), [mega.x, mega.z]);
+  await waitForResidentStreaming(page);
   await page.evaluate(() => window.__STILLPOINT_TEST__?.setWorldMinutes(12 * 60));
   await expect(page.getByTestId("crowd-readout")).toContainText("SURGE");
   await expect(page.getByTestId("crowd-readout")).toContainText("TIME DEMAND 100%");
@@ -604,6 +633,7 @@ test("building interiors, rooftops, and basements are visually reviewable @visua
   expect(mega).not.toBeNull();
   if (!mega) return;
   await page.evaluate(([x, z]) => window.__STILLPOINT_TEST__?.teleport(x, z), [mega.x, mega.z]);
+  await waitForResidentStreaming(page);
   const buildings = await page.evaluate(() => window.__STILLPOINT_TEST__?.buildings() ?? []);
   const rooftop = buildings.find((building) => building.roofAccess && building.floorCount >= 3);
   const basement = buildings.find((building) => building.basement);

@@ -57,6 +57,7 @@ describe("streamed world collider coverage", () => {
     const scene = new THREE.Scene();
     const world = new ChunkManager(scene, "performance");
     world.update(settlement.x, settlement.z);
+    world.flushStreamingForTests();
     const roots = activeChunkRoots(scene, settlement.x, settlement.z);
     const colliders = world.colliders;
     const colliderIds = new Set(colliders.map((collider) => collider.id));
@@ -71,6 +72,8 @@ describe("streamed world collider coverage", () => {
     let buildingDoorInstances = 0;
     let buildingStairInstances = 0;
     let buildingFacadeInstances = 0;
+    let settlementInstanceCapacity = 0;
+    let settlementLiveInstances = 0;
     let treeInstances = 0;
     let rockInstances = 0;
     let ruinInstances = 0;
@@ -97,6 +100,14 @@ describe("streamed world collider coverage", () => {
         ), collider.id).toBe(true);
       }
       root.traverse((object) => {
+        if (
+          object instanceof THREE.InstancedMesh &&
+          (object.name.startsWith("settlement-") ||
+            object.name.startsWith("city-windows:"))
+        ) {
+          settlementInstanceCapacity += object.instanceMatrix.count;
+          settlementLiveInstances += object.count;
+        }
         if (object instanceof THREE.InstancedMesh && object.name.startsWith("settlement-shells:")) {
           buildingShellInstances += object.count;
         }
@@ -159,6 +170,7 @@ describe("streamed world collider coverage", () => {
     expect(buildingFloorInstances).toBeGreaterThan(recipes.length * 2);
     expect(buildingStairInstances).toBeGreaterThan(0);
     expect(buildingFacadeInstances).toBe(recipes.length * 4);
+    expect(settlementInstanceCapacity).toBe(settlementLiveInstances);
     const interiorDetailVisibility = { near: 0, far: 0 };
     scene.traverse((object) => {
       if (!(object instanceof THREE.InstancedMesh)) return;
