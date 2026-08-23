@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { addDiscovery, nextUnscannedBeacon } from "../../lib/game/state";
+import { INITIAL_SNAPSHOT, addDiscovery, nextUnscannedBeacon } from "../../lib/game/state";
 
 describe("survey progression", () => {
+  it("starts with developer tools disabled and the biome simulation in control", () => {
+    expect(INITIAL_SNAPSHOT.devTools).toMatchObject({
+      enabled: false,
+      panelOpen: false,
+      clockPaused: false,
+      weatherOverride: null,
+    });
+    expect(INITIAL_SNAPSHOT.devTools.weatherOptions.length).toBeGreaterThan(1);
+  });
   it("adds each discovery exactly once", () => {
     const once = addDiscovery([], "amber-relay");
     const twice = addDiscovery(once, "amber-relay");

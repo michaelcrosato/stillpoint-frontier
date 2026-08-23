@@ -11,6 +11,15 @@ export class InteractionSystem implements GameSystem<GameRuntimeContext> {
   readonly order = 30;
 
   update(context: GameRuntimeContext) {
+    if (context.input.consumePressed("Backquote")) {
+      context.toggleDeveloperPanel();
+    }
+    if (
+      context.developerPanelOpen &&
+      context.input.consumePressed("Escape")
+    ) {
+      context.toggleDeveloperPanel();
+    }
     if (context.input.consumePressed("KeyM")) context.toggleMap();
     if (context.input.consumePressed("KeyQ")) context.toggleQuality();
     const usePressed = context.input.consumePressed("KeyE");

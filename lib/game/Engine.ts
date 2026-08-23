@@ -13,6 +13,7 @@ import { CitizenEngine } from "./citizens/CitizenEngine";
 import { SystemPipeline } from "./core/SystemPipeline";
 import { FeatureRegistry } from "./core/FeatureRegistry";
 import { createEnvironment, type EnvironmentRuntime } from "./environment";
+import type { WeatherId } from "./environment/model";
 import { InputManager } from "./input/InputManager";
 import {
   MANUAL_WAYPOINT_ID,
@@ -78,6 +79,13 @@ export interface GameTestBridge {
   fastTravel(locationId: string): void;
   setWorldMinutes(minutes: number): void;
   advanceWorldMinutes(minutes: number): void;
+  setDeveloperMode(enabled: boolean): void;
+  setDeveloperPanelOpen(open: boolean): void;
+  setDeveloperTimeOfDay(minutes: number): void;
+  advanceDeveloperMinutes(minutes: number): void;
+  setDeveloperClockPaused(paused: boolean): void;
+  setDeveloperWeather(weatherId: WeatherId | null): boolean;
+  resetDeveloperOverrides(): void;
   setHeading(heading: number): void;
   navigationTargets(): ReturnType<NavigationService["targetsSnapshot"]>;
   colliders(): PlanarCollider[];
@@ -149,6 +157,7 @@ export class Engine {
   private started = false;
   private paused = false;
   private mapOpen = false;
+  private developerPanelOpen = false;
   private contextStatus: "ready" | "lost" = "ready";
   private quality: QualityLevel = "cinematic";
   private scanned: BeaconId[] = [];
@@ -232,6 +241,8 @@ export class Engine {
       performInteraction: (target) => this.performInteraction(target),
       toggleMap: () => this.toggleMap(),
       toggleQuality: () => this.toggleQuality(),
+      toggleDeveloperPanel: () => this.toggleDeveloperPanel(),
+      developerPanelOpen: false,
     };
 
     new FeatureRegistry(this.pipeline)
@@ -294,6 +305,7 @@ export class Engine {
   beginSession() {
     this.started = true;
     this.mapOpen = false;
+    this.developerPanelOpen = false;
     this.paused = !this.testMode;
     this.lastClockPersistTime = performance.now();
     if (!this.testMode) this.input.requestPointerLock();
@@ -303,6 +315,7 @@ export class Engine {
   resume() {
     if (!this.started) return;
     this.mapOpen = false;
+    this.developerPanelOpen = false;
     if (this.testMode) this.paused = false;
     else if (this.input.isLocked()) this.paused = false;
     else {
@@ -357,8 +370,55 @@ export class Engine {
 
   setMapOpen(open: boolean) {
     this.mapOpen = open;
+    if (open) this.developerPanelOpen = false;
+    this.input.reset();
     if (open && !this.testMode && this.input.isLocked()) document.exitPointerLock?.();
     this.emitSnapshot(true);
+  }
+
+  setDeveloperPanelOpen(open: boolean) {
+    if (!this.started) return;
+    this.developerPanelOpen = open;
+    this.input.reset();
+    if (open) {
+      this.mapOpen = false;
+      this.paused = true;
+      if (!this.testMode && this.input.isLocked()) document.exitPointerLock?.();
+      this.emitSnapshot(true);
+      return;
+    }
+    this.resume();
+  }
+
+  setDeveloperMode(enabled: boolean) {
+    this.environment.setDeveloperMode(enabled);
+    this.refreshEnvironment();
+  }
+
+  setDeveloperTimeOfDay(minutes: number) {
+    this.environment.setDeveloperMinuteOfDay(minutes);
+    this.refreshEnvironment();
+  }
+
+  advanceDeveloperMinutes(minutes: number) {
+    this.environment.advanceDeveloperMinutes(minutes);
+    this.refreshEnvironment();
+  }
+
+  setDeveloperClockPaused(paused: boolean) {
+    this.environment.setDeveloperClockPaused(paused);
+    this.refreshEnvironment(false);
+  }
+
+  setDeveloperWeather(weatherId: WeatherId | null) {
+    const accepted = this.environment.setDeveloperWeather(weatherId);
+    this.refreshEnvironment();
+    return accepted;
+  }
+
+  resetDeveloperOverrides() {
+    this.environment.resetDeveloperOverrides();
+    this.refreshEnvironment();
   }
 
   setManualWaypoint(x: number, z: number) {
@@ -412,7 +472,7 @@ export class Engine {
 
   advanceWorldMinutes(minutes: number) {
     if (!Number.isFinite(minutes)) return;
-    this.setWorldMinutes(this.environment.getSample().totalMinutes + minutes);
+    this.setWorldMinutes(this.environment.getPersistentWorldMinutes() + minutes);
   }
 
   setNavigationTarget(target: NavigationTargetInput, activate = true) {
@@ -497,7 +557,7 @@ export class Engine {
       inventory: this.inventory,
       worldDiffs: this.worldDiffs,
       manualWaypoint,
-      worldMinutes: this.environment.getSample().totalMinutes,
+      worldMinutes: this.environment.getPersistentWorldMinutes(),
     });
   }
 
@@ -532,7 +592,9 @@ export class Engine {
       let steps = 0;
       while (this.accumulator >= FIXED_STEP && steps < 5) {
         this.runtime.started = this.started;
-        this.runtime.paused = this.paused || this.mapOpen;
+        this.runtime.paused =
+          this.paused || this.mapOpen || this.developerPanelOpen;
+        this.runtime.developerPanelOpen = this.developerPanelOpen;
         this.pipeline.update(this.runtime, FIXED_STEP);
         this.accumulator -= FIXED_STEP;
         steps += 1;
@@ -541,7 +603,12 @@ export class Engine {
 
       this.environment.present(this.player.position, delta);
       this.citizens.present(
-        this.started && !this.paused && !this.mapOpen ? this.accumulator : 0,
+        this.started &&
+          !this.paused &&
+          !this.mapOpen &&
+          !this.developerPanelOpen
+          ? this.accumulator
+          : 0,
       );
       this.emitPresentation();
       this.renderer.render(this.scene, this.camera);
@@ -577,12 +644,21 @@ export class Engine {
     const climate = sampleClimate(this.player.position.x, this.player.position.z);
     const nearest = nearestSettlement(this.player.position.x, this.player.position.z);
     const atmosphere = this.environment.getSample();
+    const developer = this.environment.getDeveloperState();
     const nearbyTarget = this.runtime.nearbyTarget;
     this.snapshot = {
       ready: this.ready,
       started: this.started,
       paused: this.paused,
       mapOpen: this.mapOpen,
+      devTools: {
+        enabled: developer.enabled,
+        panelOpen: this.developerPanelOpen,
+        clockPaused: developer.clockPaused,
+        persistentWorldMinutes: this.environment.getPersistentWorldMinutes(),
+        weatherOverride: developer.weatherOverride,
+        weatherOptions: this.environment.getDeveloperWeatherOptions(),
+      },
       contextStatus: this.contextStatus,
       position: {
         x: this.player.position.x,
@@ -703,6 +779,16 @@ export class Engine {
     this.setMapOpen(!this.mapOpen);
   }
 
+  private toggleDeveloperPanel() {
+    this.setDeveloperPanelOpen(!this.developerPanelOpen);
+  }
+
+  private refreshEnvironment(snap = true) {
+    this.environment.sync(this.player.position, snap);
+    this.environment.present(this.player.position, 0);
+    this.emitSnapshot(true);
+  }
+
   private toggleQuality() {
     this.quality = this.quality === "cinematic" ? "performance" : "cinematic";
     const cinematic = this.quality === "cinematic";
@@ -732,7 +818,7 @@ export class Engine {
 
   private handlePointerLockChange = (locked: boolean) => {
     if (!this.started || this.testMode) return;
-    this.paused = !locked;
+    this.paused = this.developerPanelOpen || !locked;
     this.emitSnapshot(true);
   };
 
@@ -824,6 +910,25 @@ export class Engine {
       },
       advanceWorldMinutes: (minutes) => {
         this.advanceWorldMinutes(minutes);
+      },
+      setDeveloperMode: (enabled) => {
+        this.setDeveloperMode(enabled);
+      },
+      setDeveloperPanelOpen: (open) => {
+        this.setDeveloperPanelOpen(open);
+      },
+      setDeveloperTimeOfDay: (minutes) => {
+        this.setDeveloperTimeOfDay(minutes);
+      },
+      advanceDeveloperMinutes: (minutes) => {
+        this.advanceDeveloperMinutes(minutes);
+      },
+      setDeveloperClockPaused: (paused) => {
+        this.setDeveloperClockPaused(paused);
+      },
+      setDeveloperWeather: (weatherId) => this.setDeveloperWeather(weatherId),
+      resetDeveloperOverrides: () => {
+        this.resetDeveloperOverrides();
       },
       setHeading: (heading) => {
         this.player.yaw = (-heading * Math.PI) / 180;

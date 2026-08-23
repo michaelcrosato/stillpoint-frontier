@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CompassTape, WaypointGuide } from "./NavigationDisplay";
+import DeveloperPanel from "./DeveloperPanel";
 import WorldMap from "./WorldMap";
 import {
   BEACONS,
@@ -11,6 +12,7 @@ import {
   type BeaconId,
 } from "../lib/game/config";
 import { Engine } from "../lib/game/Engine";
+import { developerWeatherOptions } from "../lib/game/developer/environmentState";
 import { ITEM_DEFINITIONS, type ItemId } from "../lib/game/gameplay/items";
 import { clamp } from "../lib/game/navigation/math";
 import { GamePresentationStore } from "../lib/game/navigation/presentation";
@@ -60,7 +62,16 @@ export default function GameShell() {
           ...INITIAL_SNAPSHOT,
           ready: true,
           started: fixture !== "entry",
+          paused: fixture === "dev",
           mapOpen: fixture === "map",
+          devTools: {
+            enabled: fixture === "dev",
+            panelOpen: fixture === "dev",
+            clockPaused: fixture === "dev",
+            persistentWorldMinutes: 450,
+            weatherOverride: fixture === "dev" ? "rain" : null,
+            weatherOptions: developerWeatherOptions("pine_forest"),
+          },
           position: { x: 4_240, y: 8.4, z: -3_180 },
           heading: 42,
           navigation,
@@ -179,7 +190,14 @@ export default function GameShell() {
         data-testid="game-canvas"
         aria-label="Stillpoint Frontier three-dimensional game world"
         onClick={() => {
-          if (snapshot.started && snapshot.paused) engineRef.current?.resume();
+          if (
+            snapshot.started &&
+            snapshot.paused &&
+            !snapshot.mapOpen &&
+            !snapshot.devTools.panelOpen
+          ) {
+            engineRef.current?.resume();
+          }
         }}
       />
 
@@ -298,6 +316,16 @@ export default function GameShell() {
                 <span>PROFILE</span>
                 <strong>{snapshot.quality === "cinematic" ? "CINE" : "PERF"}</strong>
               </div>
+              <button
+                type="button"
+                className={`dev-launcher ${snapshot.devTools.enabled ? "is-active" : ""}`}
+                aria-pressed={snapshot.devTools.enabled}
+                data-testid="developer-launcher"
+                onClick={() => engineRef.current?.setDeveloperPanelOpen(true)}
+              >
+                <span>DEV</span>
+                <strong>{snapshot.devTools.enabled ? "ON" : "OFF"}</strong>
+              </button>
             </div>
           </header>
 
@@ -444,6 +472,9 @@ export default function GameShell() {
               <button type="button" onClick={() => engineRef.current?.setMapOpen(true)}>
                 <kbd>M</kbd> MAP
               </button>
+              <button type="button" onClick={() => engineRef.current?.setDeveloperPanelOpen(true)}>
+                <kbd>`</kbd> DEV
+              </button>
               <span><kbd>Q</kbd> QUALITY</span>
             </div>
             <div className="coordinates" data-testid="coordinates">
@@ -455,13 +486,21 @@ export default function GameShell() {
         </div>
       )}
 
-      {snapshot.started && snapshot.paused && !snapshot.mapOpen && snapshot.contextStatus === "ready" && (
+      {snapshot.started && snapshot.paused && !snapshot.mapOpen && !snapshot.devTools.panelOpen && snapshot.contextStatus === "ready" && (
         <section className="pause-panel" data-testid="pause-panel">
           <p className="eyebrow">FIELD LINK SUSPENDED</p>
           <h2>The frontier is holding.</h2>
           <p>Resume to recapture the mouse and continue the survey.</p>
           <button type="button" onClick={() => engineRef.current?.resume()}>
             RESUME SURVEY <span>↗</span>
+          </button>
+          <button
+            type="button"
+            className="pause-dev-button"
+            onClick={() => engineRef.current?.setDeveloperPanelOpen(true)}
+          >
+            {snapshot.devTools.enabled ? "OPEN DEV TOOLS" : "OPEN DEV MODE"}
+            <span>DEV-01</span>
           </button>
         </section>
       )}
@@ -473,6 +512,19 @@ export default function GameShell() {
           onSetWaypoint={(x, z) => engineRef.current?.setManualWaypoint(x, z)}
           onClearWaypoint={() => engineRef.current?.clearManualWaypoint()}
           onFastTravel={(locationId) => engineRef.current?.fastTravel(locationId)}
+        />
+      )}
+
+      {snapshot.started && snapshot.devTools.panelOpen && (
+        <DeveloperPanel
+          snapshot={snapshot}
+          onClose={() => engineRef.current?.setDeveloperPanelOpen(false)}
+          onSetEnabled={(enabled) => engineRef.current?.setDeveloperMode(enabled)}
+          onSetTime={(minutes) => engineRef.current?.setDeveloperTimeOfDay(minutes)}
+          onAdvanceTime={(minutes) => engineRef.current?.advanceDeveloperMinutes(minutes)}
+          onSetClockPaused={(paused) => engineRef.current?.setDeveloperClockPaused(paused)}
+          onSetWeather={(weatherId) => engineRef.current?.setDeveloperWeather(weatherId)}
+          onReset={() => engineRef.current?.resetDeveloperOverrides()}
         />
       )}
 

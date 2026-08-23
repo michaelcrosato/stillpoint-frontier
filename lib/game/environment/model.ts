@@ -244,18 +244,64 @@ export function sampleBiomeWeather(
   };
 }
 
+export function sampleForcedBiomeWeather(
+  biomeId: BiomeId,
+  climate: Pick<ClimateSample, "temperature">,
+  totalWorldMinutes: number,
+  weatherId: WeatherId,
+  seed = WORLD_SEED,
+): WeatherSample | null {
+  const definition = BIOME_WEATHER_PROFILES[biomeId].find(
+    (candidate) => candidate.id === weatherId,
+  );
+  if (!definition) return null;
+  const totalMinutes = sanitizeWorldMinutes(totalWorldMinutes);
+  const epoch = Math.floor(totalMinutes / WEATHER_EPOCH_MINUTES);
+  const random = seededRandom(`${seed}:developer-weather:${biomeId}:${weatherId}`);
+  const fogDensity = definition.fogDensity;
+  return {
+    weatherId: definition.id,
+    weatherLabel: definition.label,
+    cloudCover: definition.cloudCover,
+    fogDensity,
+    precipitation: definition.precipitation,
+    precipitationRate: definition.precipitationRate,
+    windKph: definition.windKph,
+    windDirection: random() * 360,
+    temperatureC:
+      -8 + climate.temperature * 36 + definition.temperatureOffset,
+    dust: definition.dust,
+    visibilityMeters: Math.round(
+      Math.min(12_000, Math.max(120, 1.978 / fogDensity)),
+    ),
+    transition: 1,
+    epoch,
+  };
+}
+
 export function sampleEnvironment(
   totalWorldMinutes: number,
   climate: ClimateSample,
   seed = WORLD_SEED,
+  weatherOverride: WeatherId | null = null,
 ): EnvironmentSample {
   const daylight = sampleDaylight(totalWorldMinutes);
-  const weatherSample = sampleBiomeWeather(
-    climate.biome.id,
-    climate,
-    daylight.totalMinutes,
-    seed,
-  );
+  const weatherSample =
+    (weatherOverride
+      ? sampleForcedBiomeWeather(
+          climate.biome.id,
+          climate,
+          daylight.totalMinutes,
+          weatherOverride,
+          seed,
+        )
+      : null) ??
+    sampleBiomeWeather(
+      climate.biome.id,
+      climate,
+      daylight.totalMinutes,
+      seed,
+    );
   return {
     ...daylight,
     ...weatherSample,

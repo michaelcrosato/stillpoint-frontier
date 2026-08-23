@@ -22,6 +22,7 @@ export default defineConfig({
         "lib/game/navigation/NavigationService.ts",
         "lib/game/navigation/presentation.ts",
         "lib/game/environment/model.ts",
+        "lib/game/developer/environmentState.ts",
         "lib/game/world/fastTravel.ts",
         "lib/game/systems/EnvironmentSystem.ts",
         "lib/game/systems/collision.ts",

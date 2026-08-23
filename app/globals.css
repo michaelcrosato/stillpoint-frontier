@@ -647,6 +647,25 @@ button {
   text-align: right;
 }
 
+.system-readout .dev-launcher {
+  display: grid;
+  gap: 3px;
+  min-width: 43px;
+  padding: 0 0 0 14px;
+  border: 0;
+  border-left: 1px solid rgba(232, 226, 214, 0.24);
+  background: transparent;
+  color: var(--paper);
+  cursor: pointer;
+  pointer-events: auto;
+  text-align: right;
+}
+
+.system-readout .dev-launcher.is-active span,
+.system-readout .dev-launcher.is-active strong {
+  color: var(--ember);
+}
+
 .system-readout span {
   color: var(--paper-muted);
   font: 8px/1 var(--mono);
@@ -1076,6 +1095,11 @@ button {
   align-items: center;
 }
 
+.controls-strip button:hover,
+.controls-strip button:focus-visible {
+  color: var(--paper);
+}
+
 .controls-strip button {
   pointer-events: auto;
   border: 0;
@@ -1147,6 +1171,378 @@ kbd {
   cursor: pointer;
   font: 700 10px/1 var(--mono);
   letter-spacing: 0.14em;
+}
+
+.pause-panel .pause-dev-button {
+  margin-top: 8px;
+  border-color: rgba(216, 117, 58, 0.58);
+  background: transparent;
+  color: var(--ember);
+}
+
+.dev-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 14;
+  pointer-events: auto;
+}
+
+.dev-click-shield {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border: 0;
+  background:
+    linear-gradient(90deg, rgba(7, 9, 8, 0.56), rgba(7, 9, 8, 0.16) 42%, rgba(7, 9, 8, 0.64)),
+    rgba(7, 9, 8, 0.3);
+  cursor: default;
+  backdrop-filter: blur(3px);
+}
+
+.dev-panel {
+  position: absolute;
+  top: 22px;
+  right: 22px;
+  bottom: 22px;
+  display: flex;
+  width: min(470px, calc(100vw - 44px));
+  flex-direction: column;
+  overflow: auto;
+  border: 1px solid rgba(232, 226, 214, 0.28);
+  outline: 1px solid rgba(16, 18, 17, 0.9);
+  background:
+    linear-gradient(145deg, rgba(25, 28, 26, 0.98), rgba(12, 14, 13, 0.98)),
+    var(--ink);
+  box-shadow: 0 22px 90px rgba(0, 0, 0, 0.5);
+}
+
+.dev-panel::before {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 3px;
+  height: 100%;
+  background: rgba(232, 226, 214, 0.2);
+  content: "";
+}
+
+.dev-panel.is-enabled::before {
+  background: var(--ember);
+}
+
+.dev-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 27px 28px 22px;
+  border-bottom: 1px solid var(--line);
+}
+
+.dev-panel-header h2 {
+  margin: 8px 0 0;
+  outline: 0;
+  font-size: 31px;
+  letter-spacing: -0.04em;
+}
+
+.dev-close {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  padding: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--paper-muted);
+  cursor: pointer;
+  font: 700 8px/1 var(--mono);
+  letter-spacing: 0.12em;
+}
+
+.dev-close span {
+  font-size: 18px;
+  font-weight: 400;
+}
+
+.dev-session-notice {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 20px 28px 0;
+  padding: 12px;
+  border: 1px solid rgba(153, 194, 163, 0.24);
+  background: rgba(153, 194, 163, 0.05);
+  color: var(--signal);
+}
+
+.dev-session-notice > span {
+  font: 20px/1 var(--mono);
+}
+
+.dev-session-notice p {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  color: var(--paper-muted);
+  font: 9px/1.4 var(--mono);
+}
+
+.dev-session-notice strong {
+  color: var(--signal);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+}
+
+.dev-master {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 13px 28px 0;
+  padding: 14px;
+  border: 1px solid rgba(232, 226, 214, 0.24);
+  background: rgba(255, 255, 255, 0.025);
+  cursor: pointer;
+  text-align: left;
+}
+
+.dev-master > span {
+  display: grid;
+  gap: 5px;
+}
+
+.dev-master small,
+.dev-master strong {
+  font-family: var(--mono);
+  letter-spacing: 0.13em;
+}
+
+.dev-master small {
+  color: var(--paper-muted);
+  font-size: 8px;
+}
+
+.dev-master strong {
+  font-size: 12px;
+}
+
+.dev-master > i {
+  position: relative;
+  width: 38px;
+  height: 20px;
+  border: 1px solid rgba(232, 226, 214, 0.3);
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.dev-master > i b {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  background: rgba(232, 226, 214, 0.5);
+}
+
+.dev-master.is-active {
+  border-color: rgba(216, 117, 58, 0.72);
+  color: var(--ember);
+}
+
+.dev-master.is-active > i {
+  border-color: var(--ember);
+}
+
+.dev-master.is-active > i b {
+  right: 3px;
+  left: auto;
+  background: var(--ember);
+}
+
+.dev-environment {
+  display: grid;
+  gap: 13px;
+  margin: 21px 28px 0;
+  padding: 20px 0 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.dev-environment:disabled {
+  opacity: 0.38;
+}
+
+.dev-environment legend {
+  padding: 0 12px 0 0;
+  color: var(--ember);
+  font: 700 9px/1 var(--mono);
+  letter-spacing: 0.16em;
+}
+
+.dev-control-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.dev-control-heading label {
+  color: var(--paper-muted);
+  font: 700 9px/1 var(--mono);
+  letter-spacing: 0.12em;
+}
+
+.dev-control-heading output {
+  color: var(--paper);
+  font: 700 29px/1 var(--mono);
+  letter-spacing: -0.06em;
+}
+
+.dev-control-heading > span {
+  color: var(--ember);
+  font: 700 8px/1 var(--mono);
+  letter-spacing: 0.14em;
+}
+
+.dev-time-slider {
+  width: 100%;
+  height: 20px;
+  margin: 2px 0 0;
+  accent-color: var(--ember);
+  cursor: ew-resize;
+}
+
+.dev-time-scale {
+  display: flex;
+  justify-content: space-between;
+  margin-top: -9px;
+  color: rgba(232, 226, 214, 0.35);
+  font: 7px/1 var(--mono);
+}
+
+.dev-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.dev-preset-grid button,
+.dev-inline-controls button,
+.dev-reset {
+  border: 1px solid rgba(232, 226, 214, 0.18);
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--paper-muted);
+  cursor: pointer;
+  font: 700 8px/1.2 var(--mono);
+  letter-spacing: 0.08em;
+}
+
+.dev-preset-grid button {
+  display: grid;
+  gap: 5px;
+  padding: 10px 6px;
+}
+
+.dev-preset-grid button span {
+  color: var(--paper);
+}
+
+.dev-preset-grid button small {
+  color: var(--paper-muted);
+  font-size: 7px;
+}
+
+.dev-inline-controls {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr 1fr;
+  gap: 6px;
+}
+
+.dev-inline-controls button {
+  min-height: 35px;
+  padding: 8px 5px;
+}
+
+.dev-inline-controls button.is-active {
+  border-color: rgba(153, 194, 163, 0.55);
+  color: var(--signal);
+}
+
+.dev-weather-control {
+  display: grid;
+  gap: 9px;
+  margin-top: 6px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.dev-weather-control select {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid rgba(232, 226, 214, 0.28);
+  border-radius: 0;
+  background: #161917;
+  color: var(--paper);
+  cursor: pointer;
+  font: 10px/1 var(--mono);
+}
+
+.dev-weather-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.035);
+  font-family: var(--mono);
+}
+
+.dev-weather-status strong {
+  font-size: 10px;
+}
+
+.dev-weather-status span {
+  color: var(--paper-muted);
+  font-size: 7px;
+  letter-spacing: 0.05em;
+}
+
+.dev-panel-footer {
+  display: grid;
+  grid-template-columns: 1fr 1.6fr;
+  gap: 8px;
+  margin-top: auto;
+  padding: 22px 28px 28px;
+}
+
+.dev-reset,
+.dev-resume {
+  min-height: 44px;
+  padding: 12px;
+}
+
+.dev-reset:disabled {
+  cursor: not-allowed;
+  opacity: 0.3;
+}
+
+.dev-resume {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid var(--paper);
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+  font: 700 9px/1 var(--mono);
+  letter-spacing: 0.12em;
+}
+
+.dev-panel button:not(:disabled):hover,
+.dev-panel button:not(:disabled):focus-visible,
+.dev-panel input:focus-visible,
+.dev-panel select:focus-visible,
+.dev-launcher:focus-visible,
+.pause-dev-button:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
 }
 
 .map-panel {
@@ -1935,6 +2331,40 @@ kbd {
     right: 8px;
     bottom: 8px;
     font-size: 6px;
+  }
+
+  .dev-panel {
+    inset: 16px;
+    width: auto;
+  }
+
+  .dev-panel-header {
+    padding: 22px 20px 18px;
+  }
+
+  .dev-panel-header h2 {
+    font-size: 26px;
+  }
+
+  .dev-session-notice,
+  .dev-master,
+  .dev-environment {
+    margin-right: 20px;
+    margin-left: 20px;
+  }
+
+  .dev-preset-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .dev-weather-status {
+    display: grid;
+    gap: 5px;
+  }
+
+  .dev-panel-footer {
+    grid-template-columns: 1fr;
+    padding: 20px;
   }
 }
 

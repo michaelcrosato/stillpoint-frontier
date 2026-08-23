@@ -7,6 +7,7 @@ import {
   sampleBiomeWeather,
   sampleDaylight,
   sampleEnvironment,
+  sampleForcedBiomeWeather,
   sanitizeWorldMinutes,
 } from "../../lib/game/environment/model";
 import {
@@ -89,6 +90,34 @@ describe("deterministic world atmosphere", () => {
       (entry) => entry.precipitation === "snow" || entry.precipitation === "sleet",
     )).toBe(true);
     expect(BIOME_WEATHER_PROFILES.salt_coast.some((entry) => entry.label.includes("squall"))).toBe(true);
+  });
+
+  it("forces only contextual biome weather without changing Auto sampling", () => {
+    const pine = climateForBiome("pine_forest");
+    const automatic = sampleEnvironment(720, pine, "developer-test");
+    const forced = sampleEnvironment(720, pine, "developer-test", "rain");
+    const definition = BIOME_WEATHER_PROFILES.pine_forest.find(
+      (candidate) => candidate.id === "rain",
+    );
+    expect(sampleEnvironment(720, pine, "developer-test", null)).toEqual(automatic);
+    expect(forced).toMatchObject({
+      weatherId: "rain",
+      weatherLabel: definition?.label,
+      precipitation: definition?.precipitation,
+      transition: 1,
+    });
+    expect(forced.windDirection).toBeGreaterThanOrEqual(0);
+    expect(forced.windDirection).toBeLessThan(360);
+    expect(Object.values(forced).filter((value) => typeof value === "number").every(Number.isFinite))
+      .toBe(true);
+  });
+
+  it("rejects impossible forced weather and safely falls back to Auto", () => {
+    const badland = climateForBiome("glass_badlands");
+    expect(sampleForcedBiomeWeather("glass_badlands", badland, 720, "rain"))
+      .toBeNull();
+    expect(sampleEnvironment(720, badland, "developer-test", "rain"))
+      .toEqual(sampleEnvironment(720, badland, "developer-test"));
   });
 
   it("blends continuously across deterministic weather epochs", () => {

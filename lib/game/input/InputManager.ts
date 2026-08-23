@@ -13,7 +13,17 @@ const GAME_KEYS = new Set([
   "Space",
   "ControlLeft",
   "ControlRight",
+  "Backquote",
+  "Escape",
 ]);
+
+function isEditableTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  return (
+    target.isContentEditable ||
+    target.matches("input, select, textarea, button, [role='button']")
+  );
+}
 
 export class InputManager {
   private held = new Set<string>();
@@ -67,6 +77,10 @@ export class InputManager {
     return delta;
   }
 
+  reset() {
+    this.handleBlur();
+  }
+
   dispose() {
     window.removeEventListener("keydown", this.handleKeyDown);
     window.removeEventListener("keyup", this.handleKeyUp);
@@ -81,6 +95,7 @@ export class InputManager {
   }
 
   private handleKeyDown = (event: KeyboardEvent) => {
+    if (isEditableTarget(event.target) && event.code !== "Escape") return;
     if (GAME_KEYS.has(event.code)) event.preventDefault();
     if (!event.repeat) this.pressed.add(event.code);
     this.held.add(event.code);

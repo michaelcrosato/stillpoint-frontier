@@ -9,6 +9,10 @@ import type {
   PrecipitationKind,
   WeatherId,
 } from "./environment/model";
+import {
+  developerWeatherOptions,
+  type DeveloperWeatherOption,
+} from "./developer/environmentState";
 import { EMPTY_INVENTORY, type InventoryState, type ItemId } from "./gameplay/items";
 import type { NavigationGuidance } from "./navigation/NavigationService";
 
@@ -52,11 +56,21 @@ export interface FastTravelSnapshot {
   kind: "megacity" | "city" | "town" | "village" | "relay";
 }
 
+export interface DeveloperToolsSnapshot {
+  enabled: boolean;
+  panelOpen: boolean;
+  clockPaused: boolean;
+  persistentWorldMinutes: number;
+  weatherOverride: WeatherId | null;
+  weatherOptions: DeveloperWeatherOption[];
+}
+
 export interface GameSnapshot {
   ready: boolean;
   started: boolean;
   paused: boolean;
   mapOpen: boolean;
+  devTools: DeveloperToolsSnapshot;
   contextStatus: "ready" | "lost";
   position: { x: number; y: number; z: number };
   heading: number;
@@ -101,6 +115,14 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
   started: false,
   paused: false,
   mapOpen: false,
+  devTools: {
+    enabled: false,
+    panelOpen: false,
+    clockPaused: false,
+    persistentWorldMinutes: 450,
+    weatherOverride: null,
+    weatherOptions: developerWeatherOptions("grey_meadow"),
+  },
   contextStatus: "ready",
   position: { x: 0, y: 0, z: 0 },
   heading: 0,

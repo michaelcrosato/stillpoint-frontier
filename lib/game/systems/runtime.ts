@@ -29,10 +29,12 @@ export interface GameRuntimeContext {
   started: boolean;
   paused: boolean;
   testMode: boolean;
+  developerPanelOpen: boolean;
   nearbyTarget: WorldTarget | null;
   nearbyDistance: number | null;
   discover(beaconId: BeaconId): void;
   performInteraction(target: WorldTarget): void;
   toggleMap(): void;
   toggleQuality(): void;
+  toggleDeveloperPanel(): void;
 }

@@ -7,11 +7,25 @@ import {
 } from "./config";
 import { seededRandom } from "./core/random";
 import {
+  advanceDeveloperMinutes,
+  createDeveloperEnvironmentState,
+  developerWeatherOptions,
+  ensureDeveloperWeatherIsValid,
+  resetDeveloperEnvironment,
+  setDeveloperMinuteOfDay,
+  setDeveloperMode,
+  setDeveloperWeather,
+  tickDeveloperEnvironment,
+  type DeveloperEnvironmentState,
+  type DeveloperWeatherOption,
+} from "./developer/environmentState";
+import {
   GAME_MINUTES_PER_REAL_SECOND,
   WORLD_START_MINUTES,
   sampleEnvironment,
   sanitizeWorldMinutes,
   type EnvironmentSample,
+  type WeatherId,
 } from "./environment/model";
 import { sampleClimate } from "./world/macroWorld";
 
@@ -25,7 +39,16 @@ export interface EnvironmentRuntime {
   present(position: THREE.Vector3, deltaSeconds: number): void;
   sync(position: THREE.Vector3, snap?: boolean): void;
   setWorldMinutes(minutes: number): void;
+  getPersistentWorldMinutes(): number;
   getSample(): EnvironmentSample;
+  setDeveloperMode(enabled: boolean): void;
+  setDeveloperClockPaused(paused: boolean): void;
+  setDeveloperMinuteOfDay(minutes: number): void;
+  advanceDeveloperMinutes(minutes: number): void;
+  setDeveloperWeather(weatherId: WeatherId | null): boolean;
+  resetDeveloperOverrides(): void;
+  getDeveloperState(): DeveloperEnvironmentState;
+  getDeveloperWeatherOptions(): DeveloperWeatherOption[];
   setQuality(quality: QualityLevel): void;
   dispose(): void;
 }
@@ -233,6 +256,7 @@ export function createEnvironment(
   scene.add(precipitation.points);
 
   let worldMinutes = sanitizeWorldMinutes(initialWorldMinutes);
+  let developerState = createDeveloperEnvironmentState(worldMinutes);
   let effectSeconds = 0;
   let climate = sampleClimate(0, 8);
   let targetSample = sampleEnvironment(worldMinutes, climate);
@@ -343,8 +367,16 @@ export function createEnvironment(
     tick(position, deltaSeconds, running) {
       const safeDelta = Number.isFinite(deltaSeconds) ? Math.max(0, deltaSeconds) : 0;
       if (running) {
-        worldMinutes += safeDelta * GAME_MINUTES_PER_REAL_SECOND;
         effectSeconds += safeDelta;
+        if (developerState.enabled) {
+          developerState = tickDeveloperEnvironment(
+            developerState,
+            safeDelta,
+            true,
+          );
+        } else {
+          worldMinutes += safeDelta * GAME_MINUTES_PER_REAL_SECOND;
+        }
       }
       runtime.sync(position);
     },
@@ -362,16 +394,75 @@ export function createEnvironment(
     },
     sync(position, snap = false) {
       climate = sampleClimate(position.x, position.z);
-      targetSample = sampleEnvironment(worldMinutes, climate);
+      developerState = ensureDeveloperWeatherIsValid(
+        developerState,
+        climate.biome.id,
+      );
+      const effectiveMinutes = developerState.enabled
+        ? developerState.worldMinutes
+        : worldMinutes;
+      targetSample = sampleEnvironment(
+        effectiveMinutes,
+        climate,
+        WORLD_SEED,
+        developerState.enabled ? developerState.weatherOverride : null,
+      );
       if (snap) displaySample = { ...targetSample };
     },
     setWorldMinutes(minutes) {
       worldMinutes = sanitizeWorldMinutes(minutes);
-      targetSample = sampleEnvironment(worldMinutes, climate);
+      if (developerState.enabled) {
+        developerState = {
+          ...developerState,
+          worldMinutes,
+        };
+      }
+      targetSample = sampleEnvironment(
+        worldMinutes,
+        climate,
+        WORLD_SEED,
+        developerState.enabled ? developerState.weatherOverride : null,
+      );
       displaySample = { ...targetSample };
+    },
+    getPersistentWorldMinutes() {
+      return worldMinutes;
     },
     getSample() {
       return { ...targetSample };
+    },
+    setDeveloperMode(enabled) {
+      developerState = setDeveloperMode(developerState, enabled, worldMinutes);
+    },
+    setDeveloperClockPaused(paused) {
+      if (!developerState.enabled) return;
+      developerState = { ...developerState, clockPaused: paused };
+    },
+    setDeveloperMinuteOfDay(minutes) {
+      developerState = setDeveloperMinuteOfDay(developerState, minutes);
+    },
+    advanceDeveloperMinutes(minutes) {
+      developerState = advanceDeveloperMinutes(developerState, minutes);
+    },
+    setDeveloperWeather(weatherId) {
+      if (!developerState.enabled) return false;
+      const next = setDeveloperWeather(
+        developerState,
+        weatherId,
+        climate.biome.id,
+      );
+      const accepted = weatherId === null || next.weatherOverride === weatherId;
+      developerState = next;
+      return accepted;
+    },
+    resetDeveloperOverrides() {
+      developerState = resetDeveloperEnvironment(developerState, worldMinutes);
+    },
+    getDeveloperState() {
+      return { ...developerState };
+    },
+    getDeveloperWeatherOptions() {
+      return developerWeatherOptions(climate.biome.id);
     },
     setQuality(nextQuality) {
       sun.castShadow = nextQuality === "cinematic";

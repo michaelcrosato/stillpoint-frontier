@@ -179,6 +179,77 @@ test("exposes a deterministic day-night clock and weather readout", async ({ pag
   expect(environment?.visibilityMeters).toBeGreaterThan(100);
 });
 
+test("keeps developer time and weather overrides out of the normal save", async ({ page }) => {
+  await page.goto("/?test=1&storage=1", { waitUntil: "load" });
+  await page.evaluate(() => window.localStorage.clear());
+  await page.reload({ waitUntil: "load" });
+  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  await page.getByTestId("enter-frontier").click();
+  await page.evaluate(() => window.__STILLPOINT_TEST__?.setWorldMinutes(12 * 60));
+
+  await page.getByTestId("developer-launcher").click();
+  await expect(page.getByTestId("developer-panel")).toBeVisible();
+  await page.getByTestId("developer-mode-toggle").click();
+  await expect
+    .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().devTools.enabled))
+    .toBe(true);
+
+  await page.getByRole("button", { name: /midnight/i }).click();
+  await expect(page.getByTestId("developer-time-output")).toHaveText("00:00");
+  expect(await page.evaluate(
+    () => window.__STILLPOINT_TEST__?.snapshot().devTools.persistentWorldMinutes,
+  )).toBe(12 * 60);
+  expect(await page.evaluate(
+    () => window.__STILLPOINT_TEST__?.snapshot().environment.phase,
+  )).toBe("night");
+
+  await page.getByTestId("developer-weather").selectOption("storm");
+  await expect
+    .poll(() => page.evaluate(
+      () => window.__STILLPOINT_TEST__?.snapshot().devTools.weatherOverride,
+    ))
+    .toBe("storm");
+  expect(await page.evaluate(
+    () => window.__STILLPOINT_TEST__?.snapshot().environment.weatherId,
+  )).toBe("storm");
+
+  await page.getByTestId("developer-clock-toggle").click();
+  expect(await page.evaluate(
+    () => window.__STILLPOINT_TEST__?.snapshot().devTools.clockPaused,
+  )).toBe(false);
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("developer-panel")).toBeHidden();
+
+  await page.reload({ waitUntil: "load" });
+  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  await page.getByTestId("enter-frontier").click();
+  const restored = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
+  expect(restored?.devTools.enabled).toBe(false);
+  expect(restored?.devTools.weatherOverride).toBeNull();
+  expect(restored?.environment.hour).toBe(12);
+  expect(restored?.environment.minute).toBe(0);
+});
+
+test("opens developer tools from the keyboard while paused and protects form input", async ({ page }) => {
+  await openDeterministicWorld(page);
+  await page.getByTestId("enter-frontier").click();
+  const before = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().position);
+
+  await page.keyboard.press("Backquote");
+  await expect(page.getByTestId("developer-panel")).toBeVisible();
+  await page.getByTestId("developer-mode-toggle").click();
+  await page.getByTestId("developer-time").focus();
+  await page.keyboard.press("Space");
+  await page.keyboard.press("ArrowRight");
+  const after = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().position);
+  expect(after).toEqual(before);
+
+  await page.getByTestId("developer-time").press("Escape");
+  await expect(page.getByTestId("developer-panel")).toBeHidden();
+});
+
 test("streams proportional ambient citizens without making them interaction targets", async ({ page }) => {
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
@@ -437,6 +508,11 @@ test("HUD and territory-map fixtures are visually reviewable without a GPU @visu
   await expect(page.getByTestId("map-panel")).toContainText("9,216 KM²");
   await expect(page.getByTestId("map-panel")).toContainText("24");
   await attachScreenshot(page, testInfo, "territory-map-fixture");
+
+  await page.goto("/?visual=dev", { waitUntil: "load" });
+  await expect(page.getByTestId("developer-panel")).toContainText("SESSION-ONLY SANDBOX");
+  await expect(page.getByTestId("developer-panel")).toContainText("Canopy drizzle");
+  await attachScreenshot(page, testInfo, "developer-tools-fixture");
 });
 
 test("explains unavailable graphics acceleration @fallback", async ({ page }, testInfo) => {
