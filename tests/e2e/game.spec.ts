@@ -281,6 +281,51 @@ test("supports sprint, crouch, and a complete jump arc", async ({ page }) => {
     .toBe(true);
 });
 
+test("blocks representative buildings, trees, and rocks without tunneling", async ({ page }) => {
+  await openDeterministicWorld(page);
+  await page.getByTestId("enter-frontier").click();
+  const mega = getSettlement("vesper-crown");
+  expect(mega).not.toBeNull();
+  if (!mega) return;
+  await page.evaluate(([x, z]) => window.__STILLPOINT_TEST__?.teleport(x, z), [mega.x, mega.z]);
+
+  const colliders = await page.evaluate(() => window.__STILLPOINT_TEST__?.colliders() ?? []);
+  const representatives = [
+    colliders.find((collider) => collider.id.startsWith("building:")),
+    colliders.find((collider) => collider.id.startsWith("scenery-tree:")),
+    colliders.find((collider) => collider.id.startsWith("scenery-rock:")),
+  ];
+  expect(representatives.every(Boolean)).toBe(true);
+
+  for (const collider of representatives) {
+    if (!collider) continue;
+    const axis = collider.shape === "box"
+      ? { x: Math.cos(collider.rotation), z: -Math.sin(collider.rotation) }
+      : { x: 1, z: 0 };
+    const extent = collider.shape === "box" ? collider.halfWidth : collider.radius;
+    const distance = extent + 4;
+    const current = {
+      x: collider.x - axis.x * distance,
+      z: collider.z - axis.z * distance,
+    };
+    const desired = {
+      x: collider.x + axis.x * distance,
+      z: collider.z + axis.z * distance,
+    };
+    const probe = await page.evaluate(
+      ({ start, end }) => window.__STILLPOINT_TEST__?.probeCollision(start, end),
+      { start: current, end: desired },
+    );
+    expect(probe?.clear).toBe(true);
+    expect(probe?.candidateCount).toBeGreaterThan(0);
+    expect(probe?.candidateCount).toBeLessThan(colliders.length);
+    expect(Math.hypot(
+      (probe?.position.x ?? desired.x) - desired.x,
+      (probe?.position.z ?? desired.z) - desired.z,
+    )).toBeGreaterThan(0.5);
+  }
+});
+
 test("collects and harvests deterministic resources without duplicate loot", async ({ page }, testInfo) => {
   await page.goto("/?test=1&storage=1", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());

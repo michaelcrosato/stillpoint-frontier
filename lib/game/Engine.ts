@@ -4,6 +4,7 @@ import {
   CAMERA_DRAW_DISTANCE,
   MAX_PIXEL_RATIO,
   PLAYER_HEIGHT,
+  PLAYER_RADIUS,
   WAYPOINT_WORLD_MARKER_DISTANCE,
   type BeaconId,
   type QualityLevel,
@@ -28,6 +29,12 @@ import { CitizenCrowdSystem } from "./systems/CitizenCrowdSystem";
 import { EnvironmentSystem } from "./systems/EnvironmentSystem";
 import { PlayerControllerSystem } from "./systems/PlayerControllerSystem";
 import { NavigationSystem } from "./systems/NavigationSystem";
+import {
+  isPlanarPositionClear,
+  resolvePlanarMovement,
+  type PlanarCollider,
+  type PlanarPosition,
+} from "./systems/collision";
 import type { GameRuntimeContext } from "./systems/runtime";
 import { WorldStreamingSystem } from "./systems/WorldStreamingSystem";
 import {
@@ -73,6 +80,12 @@ export interface GameTestBridge {
   advanceWorldMinutes(minutes: number): void;
   setHeading(heading: number): void;
   navigationTargets(): ReturnType<NavigationService["targetsSnapshot"]>;
+  colliders(): PlanarCollider[];
+  probeCollision(current: PlanarPosition, desired: PlanarPosition): {
+    position: PlanarPosition;
+    clear: boolean;
+    candidateCount: number;
+  };
 }
 
 declare global {
@@ -819,6 +832,21 @@ export class Engine {
         this.emitSnapshot(true);
       },
       navigationTargets: () => this.navigation.targetsSnapshot(),
+      colliders: () => structuredClone(this.world.colliders),
+      probeCollision: (current, desired) => {
+        const candidates = this.world.queryColliders(current, desired, PLAYER_RADIUS);
+        const position = resolvePlanarMovement(
+          current,
+          desired,
+          candidates,
+          PLAYER_RADIUS,
+        );
+        return {
+          position,
+          clear: isPlanarPositionClear(position, this.world.colliders, PLAYER_RADIUS),
+          candidateCount: candidates.length,
+        };
+      },
     };
   }
 }

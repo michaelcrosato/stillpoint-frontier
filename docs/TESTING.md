@@ -10,7 +10,7 @@ still produce reviewable evidence.
 - `npm run test:coverage` — coverage report with enforced thresholds.
 - `npm test` — unit tests, production build, and rendered-worker HTML contract.
 - `npm run test:e2e` — browser boot, WebGL pixel, split world/citizen streaming, movement,
-  gathering, persistence, interaction, map waypoint guidance, temporary fast travel,
+  gathering, persistence, interaction, representative world-collision probes, map waypoint guidance, temporary fast travel,
   day/night controls, proportional citizens, resource budgets, and context-loss tests.
 - `npm run test:visual` — captures deterministic entry/world screenshots as Playwright artifacts.
 - `npm run test:visual:update` — writes or reviews golden snapshots when
@@ -47,6 +47,14 @@ random-access weather, legal weather menus for all seven biomes, impossible clim
 combinations, continuous epoch transitions, temperature response, and corrupt-clock recovery.
 Fast-travel tests prove every authored key location is indexed, IDs and arrivals are stable,
 arrival points avoid rendered water and colliders, and atlas-edge fallbacks remain bounded.
+
+Collision tests cover high-speed tunneling, exact tangents, wall sliding, thin walls,
+axis-aligned and rotated buildings, rounded corner hits and near misses, perpendicular-wall
+seams, invalid-spawn depenetration, collider-order independence, repeated corner pressure,
+malformed input, and randomized high-speed crossings. Spatial-index property tests compare
+indexed results with brute force. World-streaming tests then verify one unique collider per
+rendered building, tree, rock, ruin, and landmark; exact render-matrix geometry; road
+clearance; opening accessibility; and immediate collider removal after harvesting.
 
 Citizen property tests sample random atlas chunks and enforce deterministic IDs, provenance,
 road/settlement route bounds, hierarchy-scaled density, quality caps, finite time sampling,

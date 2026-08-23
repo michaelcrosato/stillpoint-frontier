@@ -58,7 +58,7 @@ describe("temporary playtest fast travel", () => {
     if (!location) return;
     const preferred = resolveFastTravelArrival(location);
     const redirected = resolveFastTravelArrival(location, [
-      { id: "test-obstruction", x: preferred.x, z: preferred.z, radius: 4 },
+      { shape: "circle", id: "test-obstruction", x: preferred.x, z: preferred.z, radius: 4 },
     ]);
     expect(Math.hypot(redirected.x - preferred.x, redirected.z - preferred.z)).toBeGreaterThan(1);
     expect(Math.hypot(redirected.x - preferred.x, redirected.z - preferred.z)).toBeGreaterThan(
@@ -77,12 +77,41 @@ describe("temporary playtest fast travel", () => {
       detail: "test",
     };
     const blocked = resolveFastTravelArrival(edge, [
-      { id: "world-blocker", x: 0, z: 0, radius: WORLD_HALF_EXTENT * 4 },
+      {
+        shape: "circle",
+        id: "world-blocker",
+        x: 0,
+        z: 0,
+        radius: WORLD_HALF_EXTENT * 4,
+      },
     ]);
     expect(blocked.x).toBeLessThanOrEqual(WORLD_HALF_EXTENT - 2);
     expect(blocked.z).toBeGreaterThanOrEqual(-WORLD_HALF_EXTENT + 2);
     expect(resolveFastTravelArrival(edge, [
-      { id: "world-blocker", x: 0, z: 0, radius: WORLD_HALF_EXTENT * 4 },
+      {
+        shape: "circle",
+        id: "world-blocker",
+        x: 0,
+        z: 0,
+        radius: WORLD_HALF_EXTENT * 4,
+      },
     ])).toEqual(blocked);
+  });
+
+  it("avoids oriented building footprints as well as circular obstacles", () => {
+    const location = getFastTravelLocation("relay:hollow-array");
+    expect(location).not.toBeNull();
+    if (!location) return;
+    const preferred = resolveFastTravelArrival(location);
+    const redirected = resolveFastTravelArrival(location, [{
+      shape: "box",
+      id: "arrival-building",
+      x: preferred.x,
+      z: preferred.z,
+      halfWidth: 12,
+      halfDepth: 5,
+      rotation: Math.PI / 5,
+    }]);
+    expect(redirected).not.toEqual(preferred);
   });
 });

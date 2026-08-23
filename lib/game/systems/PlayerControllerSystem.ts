@@ -10,7 +10,7 @@ import {
 } from "../config";
 import type { GameSystem } from "../core/SystemPipeline";
 import { sampleTerrainHeight } from "../world/terrain";
-import { resolveCircleMovement } from "./collision";
+import { resolvePlanarMovement } from "./collision";
 import { stepStamina, stepVertical } from "./locomotion";
 import type { GameRuntimeContext } from "./runtime";
 
@@ -94,10 +94,10 @@ export class PlayerControllerSystem implements GameSystem<GameRuntimeContext> {
         x: current.x + worldX * speed * deltaSeconds,
         z: current.z + worldZ * speed * deltaSeconds,
       };
-      const resolved = resolveCircleMovement(
+      const resolved = resolvePlanarMovement(
         current,
         desired,
-        context.world.colliders,
+        context.world.queryColliders(current, desired, PLAYER_RADIUS),
         PLAYER_RADIUS,
       );
       context.player.position.x = resolved.x;

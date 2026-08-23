@@ -17,7 +17,10 @@ along authored procedural lanes.
 - `ChunkManager` maintains a 9×9 visual ring, creates deterministic chunk content from
   the world seed and integer chunk coordinates, and owns every render resource that must
   be disposed when a chunk leaves the ring. Collider and target caches remain limited to
-  the inner 5×5 gameplay ring so the doubled horizon does not inflate fixed-step work.
+  the inner 5×5 gameplay ring so the doubled horizon does not inflate fixed-step work. Every
+  rendered solid is paired with a circle or exact oriented-box collider from the same recipe;
+  a 16 m uniform grid narrows each swept movement query. Placement reserves roads, water,
+  beacons, opening objectives, and existing solids before an instance becomes visible.
 - `CitizenEngine` independently streams a 5×5 resident ring. Its pure recipes place
   proportional crowds only on settlement sidewalks or road shoulders, while one shared
   low-poly figure and one instanced draw per populated chunk keep Vesper Crown's thousands
@@ -84,8 +87,11 @@ projected world marker.
 
 Movement treats player position as feet rather than camera position. The controller owns
 gravity, grounded state, jump velocity, crouch eye height, sprint state, stamina, and a
-recovery delay. This leaves a clean seam for slopes, vertical colliders, climbing, or
-vehicles without coupling those ideas to React or world generation.
+recovery delay. Horizontal movement continuously sweeps the circular player footprint
+against circle and oriented-box colliders, resolves the earliest time of impact, slides along
+rounded corners, and deterministically depenetrates invalid streamed or saved positions.
+The current colliders are intentionally planar; this leaves a clean seam for obstacle height,
+slopes, climbing, or vehicles without coupling those ideas to React or world generation.
 
 ## Performance contract
 
@@ -94,6 +100,8 @@ The initial target is an RTX 3060-class machine at 1440p/60:
 - Fixed simulation: 60 Hz, with large frame deltas clamped and spiral-of-death protection.
 - Resident terrain: 81 chunks in a 9×9 visual ring; decorative props are instanced per chunk.
 - Gameplay queries and ambient citizens: independent 25-chunk inner rings.
+- Collision broad phase: streamed 16 m spatial cells, followed by swept-circle narrow phase;
+  city cost scales with nearby candidates rather than every solid in the gameplay ring.
 - Atlas territory: 9,216 km²; the full map is never resident.
 - Roads, settlement blocks, forest, rocks, water, ruins, and citizens use static or instanced
   meshes; no gameplay object requires an animation clip.

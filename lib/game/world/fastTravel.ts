@@ -1,6 +1,9 @@
 import { BEACONS, PLAYER_RADIUS } from "../config";
 import { hashString } from "../core/random";
-import type { CircleCollider } from "../systems/collision";
+import {
+  isPlanarPositionClear,
+  type PlanarCollider,
+} from "../systems/collision";
 import {
   SETTLEMENTS,
   WORLD_HALF_EXTENT,
@@ -102,12 +105,12 @@ function terrainIsWalkable(x: number, z: number, y: number) {
 function clearsColliders(
   x: number,
   z: number,
-  colliders: readonly CircleCollider[],
+  colliders: readonly PlanarCollider[],
 ) {
-  return colliders.every(
-    (collider) =>
-      Math.hypot(x - collider.x, z - collider.z) >=
-      collider.radius + PLAYER_RADIUS + 0.85,
+  return isPlanarPositionClear(
+    { x, z },
+    colliders,
+    PLAYER_RADIUS + 0.85,
   );
 }
 
@@ -118,7 +121,7 @@ function clearsColliders(
  */
 export function resolveFastTravelArrival(
   location: FastTravelLocation,
-  colliders: readonly CircleCollider[] = [],
+  colliders: readonly PlanarCollider[] = [],
 ): FastTravelArrival {
   const baseDistance = preferredArrivalDistance(location.kind);
   const baseAngle =

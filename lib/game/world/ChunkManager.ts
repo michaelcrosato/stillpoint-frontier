@@ -12,7 +12,11 @@ import {
 import type { EntityDiff } from "../gameplay/interactions";
 import type { ItemId } from "../gameplay/items";
 import { randomRange, seededRandom } from "../core/random";
-import type { CircleCollider } from "../systems/collision";
+import {
+  PlanarCollisionIndex,
+  isPlanarPositionClear,
+  type PlanarCollider,
+} from "../systems/collision";
 import {
   WATER_LEVEL,
   WORLD_MODEL_SCALE,
@@ -25,7 +29,6 @@ import {
 } from "./macroWorld";
 import {
   distanceToPathSegment,
-  settlementStreetSegmentsForChunk,
   worldPathSegmentsForChunk,
 } from "./roads";
 import {
@@ -61,7 +64,7 @@ interface ChunkRuntime {
   chunkX: number;
   chunkZ: number;
   root: THREE.Group;
-  colliders: CircleCollider[];
+  colliders: PlanarCollider[];
   targets: WorldTarget[];
 }
 
@@ -71,6 +74,13 @@ const SETTLEMENT_BUILDINGS = {
   town: { count: 15, height: 14, color: 0x5c5548 },
   village: { count: 8, height: 7, color: 0x665c4b },
 } as const;
+
+const OPENING_RESERVATIONS = [
+  { x: 0, z: 8, radius: 4.5 },
+  { x: 2.3, z: 5.4, radius: 1.1 },
+  { x: 4.2, z: 0.8, radius: 2.4 },
+  { x: -3.2, z: -0.4, radius: 1.45 },
+] as const;
 
 function targetDiff(
   worldDiffs: Readonly<Record<string, EntityDiff>>,
@@ -85,7 +95,8 @@ export class ChunkManager {
   private activeChunkX = 0;
   private activeChunkZ = 0;
   private scanned = new Set<BeaconId>();
-  private colliderCache: CircleCollider[] = [];
+  private colliderCache: PlanarCollider[] = [];
+  private readonly collisionIndex = new PlanarCollisionIndex(16);
   private targetCache: WorldTarget[] = [];
 
   constructor(
@@ -156,6 +167,14 @@ export class ChunkManager {
     return this.colliderCache;
   }
 
+  queryColliders(
+    current: { x: number; z: number },
+    desired: { x: number; z: number },
+    radius: number,
+  ) {
+    return this.collisionIndex.querySweep(current, desired, radius);
+  }
+
   get targets() {
     return this.targetCache;
   }
@@ -177,6 +196,7 @@ export class ChunkManager {
         Math.abs(chunk.chunkZ - this.activeChunkZ) <= GAMEPLAY_CHUNK_RADIUS,
     );
     this.colliderCache = simulationChunks.flatMap((chunk) => chunk.colliders);
+    this.collisionIndex.rebuild(this.colliderCache);
     this.targetCache = simulationChunks.flatMap((chunk) =>
       chunk.targets.filter((target) => !this.worldDiffs[target.id]?.removed),
     );
@@ -216,13 +236,13 @@ export class ChunkManager {
     terrain.userData.shadow = false;
     root.add(terrain);
 
-    const colliders: CircleCollider[] = [];
+    const colliders: PlanarCollider[] = [];
     const targets: WorldTarget[] = [];
     this.addWater(root, center.x, center.z);
     this.addRoads(root, center.x, center.z, key);
     this.addSettlementBuildings(root, center.x, center.z, key, colliders);
     this.addRockField(root, center.x, center.z, key, climate.biome.rockDensity, colliders);
-    this.addForest(root, center.x, center.z, key, climate.biome.treeDensity);
+    this.addForest(root, center.x, center.z, key, climate.biome.treeDensity, colliders);
     this.addRuinSlabs(root, center.x, center.z, key, colliders);
     this.addGatherables(
       root,
@@ -242,12 +262,66 @@ export class ChunkManager {
       const target = this.createBeacon(beacon);
       root.add(target.root);
       targets.push(target);
-      colliders.push({ id: `beacon:${beacon.id}`, x: beacon.x, z: beacon.z, radius: 1.25 });
+      colliders.push({
+        shape: "circle",
+        id: `beacon:${beacon.id}`,
+        x: beacon.x,
+        z: beacon.z,
+        radius: 2.8,
+      });
       if (this.scanned.has(beacon.id)) this.applyScannedAppearance(target.root);
     }
 
     this.scene.add(root);
     this.loaded.set(key, { key, chunkX, chunkZ, root, colliders, targets });
+  }
+
+  private findSolidPlacement(
+    random: () => number,
+    centerX: number,
+    centerZ: number,
+    key: string,
+    radius: number,
+    colliders: readonly PlanarCollider[],
+    maxOffset = CHUNK_SIZE * 0.44,
+    attempts = 48,
+  ) {
+    const chunk = worldToChunk(centerX, centerZ);
+    const paths = worldPathSegmentsForChunk(chunk.x, chunk.z);
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const x = centerX + randomRange(random, -maxOffset, maxOffset);
+      const z = centerZ + randomRange(random, -maxOffset, maxOffset);
+      if (Math.abs(x - riverCenterX(z)) <= riverWidth(z) + radius + 1.25) continue;
+      if (
+        key === "0:0" &&
+        OPENING_RESERVATIONS.some(
+          (reservation) =>
+            Math.hypot(x - reservation.x, z - reservation.z) <
+            radius + reservation.radius,
+        )
+      ) {
+        continue;
+      }
+      if (
+        BEACONS.some(
+          (beacon) => Math.hypot(x - beacon.x, z - beacon.z) < radius + 3.1,
+        )
+      ) {
+        continue;
+      }
+      if (
+        paths.some(
+          (path) =>
+            distanceToPathSegment({ x, z }, path) <
+            path.width * 0.5 + radius + 1.25,
+        )
+      ) {
+        continue;
+      }
+      if (!isPlanarPositionClear({ x, z }, colliders, radius + 0.2)) continue;
+      return { x, z };
+    }
+    return null;
   }
 
   private addWater(root: THREE.Group, centerX: number, centerZ: number) {
@@ -374,11 +448,9 @@ export class ChunkManager {
     centerX: number,
     centerZ: number,
     key: string,
-    colliders: CircleCollider[],
+    colliders: PlanarCollider[],
   ) {
     const nearby = settlementsNear(centerX, centerZ, CHUNK_SIZE * 0.72);
-    const chunk = worldToChunk(centerX, centerZ);
-    const chunkStreets = settlementStreetSegmentsForChunk(chunk.x, chunk.z);
     for (const settlement of nearby) {
       const spec = SETTLEMENT_BUILDINGS[settlement.tier];
       const influence = Math.max(0.08, settlementInfluence(settlement, centerX, centerZ));
@@ -398,43 +470,47 @@ export class ChunkManager {
       const quaternion = new THREE.Quaternion();
       const position = new THREE.Vector3();
       const scale = new THREE.Vector3();
-      const streets = chunkStreets.filter((street) => street.settlementId === settlement.id);
+      let renderedCount = 0;
 
       for (let index = 0; index < count; index += 1) {
         const width = randomRange(random, 4.5, settlement.tier === "megacity" ? 14 : 9);
         const depth = randomRange(random, 4.2, settlement.tier === "megacity" ? 13 : 8);
-        let x = centerX;
-        let z = centerZ;
-        for (let attempt = 0; attempt < 10; attempt += 1) {
-          x = centerX + randomRange(random, -CHUNK_SIZE * 0.43, CHUNK_SIZE * 0.43);
-          z = centerZ + randomRange(random, -CHUNK_SIZE * 0.43, CHUNK_SIZE * 0.43);
-          if (Math.abs(x - riverCenterX(z)) < riverWidth(z) + 8) x += CHUNK_SIZE * 0.33;
-          const streetClearance = Math.max(width, depth) * 0.54 + 4.5;
-          if (streets.some((street) => distanceToPathSegment({ x, z }, street) < streetClearance)) {
-            continue;
-          }
-          break;
-        }
+        const placement = this.findSolidPlacement(
+          random,
+          centerX,
+          centerZ,
+          key,
+          Math.hypot(width, depth) * 0.5,
+          colliders,
+          CHUNK_SIZE * 0.43,
+          64,
+        );
+        if (!placement) continue;
+        const { x, z } = placement;
         const radial = settlementInfluence(settlement, x, z);
         const height = randomRange(random, 3.5, Math.max(5, spec.height * (0.18 + radial * 0.82)));
+        const rotation = Math.round(random() * 3) * Math.PI * 0.5;
         position.set(x, sampleTerrainHeight(x, z) + height / 2, z);
-        quaternion.setFromEuler(new THREE.Euler(0, Math.round(random() * 3) * Math.PI * 0.5, 0));
+        quaternion.setFromEuler(new THREE.Euler(0, rotation, 0));
         scale.set(width, height, depth);
         matrix.compose(position, quaternion, scale);
-        buildings.setMatrixAt(index, matrix);
-        if (index < 9) {
-          colliders.push({
-            id: `building:${settlement.id}:${key}:${index}`,
-            x,
-            z,
-            radius: Math.max(width, depth) * 0.52,
-          });
-        }
+        buildings.setMatrixAt(renderedCount, matrix);
+        colliders.push({
+          shape: "box",
+          id: `building:${settlement.id}:${key}:${renderedCount}`,
+          x,
+          z,
+          halfWidth: width * 0.5,
+          halfDepth: depth * 0.5,
+          rotation,
+        });
+        renderedCount += 1;
       }
+      buildings.count = renderedCount;
       buildings.instanceMatrix.needsUpdate = true;
       buildings.computeBoundingSphere();
       root.add(buildings);
-      this.addSettlementMarker(root, settlement, centerX, centerZ);
+      this.addSettlementMarker(root, settlement, centerX, centerZ, colliders);
     }
   }
 
@@ -443,6 +519,7 @@ export class ChunkManager {
     settlement: Settlement,
     centerX: number,
     centerZ: number,
+    colliders: PlanarCollider[],
   ) {
     if (Math.abs(settlement.x - centerX) > CHUNK_SIZE / 2) return;
     if (Math.abs(settlement.z - centerZ) > CHUNK_SIZE / 2) return;
@@ -465,6 +542,15 @@ export class ChunkManager {
     );
     marker.castShadow = this.quality === "cinematic";
     root.add(marker);
+    colliders.push({
+      shape: "box",
+      id: `landmark:${settlement.id}`,
+      x: settlement.x,
+      z: settlement.z,
+      halfWidth: settlement.tier === "megacity" ? 9 : 4,
+      halfDepth: 4,
+      rotation: 0,
+    });
   }
 
   private addRockField(
@@ -473,7 +559,7 @@ export class ChunkManager {
     centerZ: number,
     key: string,
     density: number,
-    colliders: CircleCollider[],
+    colliders: PlanarCollider[],
   ) {
     const random = seededRandom(`${WORLD_SEED}:chunk:${key}:rocks:v1`);
     const count = Math.max(3, Math.floor(4 + density * 13 + random() * 4));
@@ -489,19 +575,37 @@ export class ChunkManager {
     const quaternion = new THREE.Quaternion();
     const scale = new THREE.Vector3();
     const position = new THREE.Vector3();
+    let renderedCount = 0;
     for (let index = 0; index < count; index += 1) {
-      const x = centerX + randomRange(random, -CHUNK_SIZE * 0.45, CHUNK_SIZE * 0.45);
-      const z = centerZ + randomRange(random, -CHUNK_SIZE * 0.45, CHUNK_SIZE * 0.45);
       const size = randomRange(random, 0.35, 1.75);
+      const scaleX = size * randomRange(random, 0.72, 1.18);
+      const scaleZ = size * 0.72;
+      const colliderRadius = Math.max(scaleX, size, scaleZ);
+      const placement = this.findSolidPlacement(
+        random,
+        centerX,
+        centerZ,
+        key,
+        colliderRadius,
+        colliders,
+      );
+      if (!placement) continue;
+      const { x, z } = placement;
       position.set(x, sampleTerrainHeight(x, z) + size * 0.42, z);
       quaternion.setFromEuler(new THREE.Euler(random() * 2, random() * Math.PI, random()));
-      scale.set(size * randomRange(random, 0.72, 1.18), size, size * 0.72);
+      scale.set(scaleX, size, scaleZ);
       matrix.compose(position, quaternion, scale);
-      rocks.setMatrixAt(index, matrix);
-      if (size > 1.25 && Math.hypot(x, z - 8) > 7) {
-        colliders.push({ id: `scenery-rock:${key}:${index}`, x, z, radius: size * 0.62 });
-      }
+      rocks.setMatrixAt(renderedCount, matrix);
+      colliders.push({
+        shape: "circle",
+        id: `scenery-rock:${key}:${renderedCount}`,
+        x,
+        z,
+        radius: colliderRadius,
+      });
+      renderedCount += 1;
     }
+    rocks.count = renderedCount;
     rocks.instanceMatrix.needsUpdate = true;
     rocks.computeBoundingSphere();
     root.add(rocks);
@@ -513,6 +617,7 @@ export class ChunkManager {
     centerZ: number,
     key: string,
     density: number,
+    colliders: PlanarCollider[],
   ) {
     const random = seededRandom(`${WORLD_SEED}:chunk:${key}:forest:v1`);
     const count = Math.floor(density * 18 + random() * 3);
@@ -531,20 +636,41 @@ export class ChunkManager {
     const quaternion = new THREE.Quaternion();
     const scale = new THREE.Vector3();
     const position = new THREE.Vector3();
+    let renderedCount = 0;
     for (let index = 0; index < count; index += 1) {
-      const x = centerX + randomRange(random, -CHUNK_SIZE * 0.46, CHUNK_SIZE * 0.46);
-      const z = centerZ + randomRange(random, -CHUNK_SIZE * 0.46, CHUNK_SIZE * 0.46);
       const size = randomRange(random, 0.78, 1.38);
+      const colliderRadius = 0.42 * size;
+      const placement = this.findSolidPlacement(
+        random,
+        centerX,
+        centerZ,
+        key,
+        colliderRadius,
+        colliders,
+        CHUNK_SIZE * 0.46,
+      );
+      if (!placement) continue;
+      const { x, z } = placement;
       const baseY = sampleTerrainHeight(x, z);
       quaternion.setFromEuler(new THREE.Euler(0, random() * Math.PI * 2, 0));
       scale.set(size, size, size);
       position.set(x, baseY + 1.8 * size, z);
       matrix.compose(position, quaternion, scale);
-      trunks.setMatrixAt(index, matrix);
+      trunks.setMatrixAt(renderedCount, matrix);
       position.set(x, baseY + 5.0 * size, z);
       matrix.compose(position, quaternion, scale);
-      canopies.setMatrixAt(index, matrix);
+      canopies.setMatrixAt(renderedCount, matrix);
+      colliders.push({
+        shape: "circle",
+        id: `scenery-tree:${key}:${renderedCount}`,
+        x,
+        z,
+        radius: colliderRadius,
+      });
+      renderedCount += 1;
     }
+    trunks.count = renderedCount;
+    canopies.count = renderedCount;
     for (const mesh of [trunks, canopies]) {
       mesh.name = `forest:${key}`;
       mesh.castShadow = this.quality === "cinematic";
@@ -560,7 +686,7 @@ export class ChunkManager {
     centerX: number,
     centerZ: number,
     key: string,
-    colliders: CircleCollider[],
+    colliders: PlanarCollider[],
   ) {
     const random = seededRandom(`${WORLD_SEED}:chunk:${key}:ruins:v1`);
     const count = random() > 0.58 ? 3 + Math.floor(random() * 3) : 0;
@@ -577,21 +703,40 @@ export class ChunkManager {
     const quaternion = new THREE.Quaternion();
     const scale = new THREE.Vector3();
     const position = new THREE.Vector3();
-    const originX = centerX + randomRange(random, -28, 28);
-    const originZ = centerZ + randomRange(random, -28, 28);
+    let renderedCount = 0;
     for (let index = 0; index < count; index += 1) {
-      const x = originX + index * randomRange(random, 3.2, 5.6);
-      const z = originZ + randomRange(random, -2, 2);
       const heightScale = randomRange(random, 0.58, 1.35);
+      const depthScale = randomRange(random, 0.72, 1.1);
+      const rotation = randomRange(random, -0.35, 0.35);
+      const colliderRadius = Math.hypot(0.325, 1.1 * depthScale);
+      const placement = this.findSolidPlacement(
+        random,
+        centerX,
+        centerZ,
+        key,
+        colliderRadius,
+        colliders,
+        32,
+      );
+      if (!placement) continue;
+      const { x, z } = placement;
       position.set(x, sampleTerrainHeight(x, z) + 2.25 * heightScale, z);
-      quaternion.setFromEuler(new THREE.Euler(0, randomRange(random, -0.35, 0.35), 0));
-      scale.set(1, heightScale, randomRange(random, 0.72, 1.1));
+      quaternion.setFromEuler(new THREE.Euler(0, rotation, 0));
+      scale.set(1, heightScale, depthScale);
       matrix.compose(position, quaternion, scale);
-      ruins.setMatrixAt(index, matrix);
-      if (Math.hypot(x, z - 8) > 8) {
-        colliders.push({ id: `ruin:${key}:${index}`, x, z, radius: 1.2 });
-      }
+      ruins.setMatrixAt(renderedCount, matrix);
+      colliders.push({
+        shape: "box",
+        id: `ruin:${key}:${renderedCount}`,
+        x,
+        z,
+        halfWidth: 0.325,
+        halfDepth: 1.1 * depthScale,
+        rotation,
+      });
+      renderedCount += 1;
     }
+    ruins.count = renderedCount;
     ruins.instanceMatrix.needsUpdate = true;
     ruins.computeBoundingSphere();
     root.add(ruins);
@@ -605,50 +750,92 @@ export class ChunkManager {
     treeDensity: number,
     rockDensity: number,
     primaryResource: ItemId,
-    colliders: CircleCollider[],
+    colliders: PlanarCollider[],
     targets: WorldTarget[],
   ) {
     const pickupRandom = seededRandom(`${WORLD_SEED}:chunk:${key}:pickups:v1`);
-    const pickupX = key === "0:0" ? 2.3 : centerX + randomRange(pickupRandom, -35, 35);
-    const pickupZ = key === "0:0" ? 5.4 : centerZ + randomRange(pickupRandom, -35, 35);
+    const pickupPlacement = key === "0:0"
+      ? { x: 2.3, z: 5.4 }
+      : this.findSolidPlacement(
+          pickupRandom,
+          centerX,
+          centerZ,
+          key,
+          0.65,
+          colliders,
+          35,
+        );
     const pickupId = `pickup:${primaryResource}:v1:${key}:0`;
-    this.registerGatherable(
-      root,
-      targets,
-      colliders,
-      this.createPickup(pickupId, pickupX, pickupZ, primaryResource),
-    );
-
-    if (rockDensity > 0.28) {
-      const rockRandom = seededRandom(`${WORLD_SEED}:chunk:${key}:resource-rock:v1`);
-      const x = key === "0:0" ? 4.2 : centerX + randomRange(rockRandom, -34, 34);
-      const z = key === "0:0" ? 0.8 : centerZ + randomRange(rockRandom, -34, 34);
-      const item: ItemId = primaryResource === "ore" ? "ore" : "stone";
+    if (pickupPlacement) {
       this.registerGatherable(
         root,
         targets,
         colliders,
-        this.createRockResource(`resource:rock:v1:${key}:0`, x, z, item),
+        this.createPickup(pickupId, pickupPlacement.x, pickupPlacement.z, primaryResource),
       );
+    }
+
+    if (rockDensity > 0.28) {
+      const rockRandom = seededRandom(`${WORLD_SEED}:chunk:${key}:resource-rock:v1`);
+      const placement = key === "0:0"
+        ? { x: 4.2, z: 0.8 }
+        : this.findSolidPlacement(
+            rockRandom,
+            centerX,
+            centerZ,
+            key,
+            1.56,
+            colliders,
+            34,
+          );
+      const item: ItemId = primaryResource === "ore" ? "ore" : "stone";
+      if (placement) {
+        this.registerGatherable(
+          root,
+          targets,
+          colliders,
+          this.createRockResource(
+            `resource:rock:v1:${key}:0`,
+            placement.x,
+            placement.z,
+            item,
+          ),
+        );
+      }
     }
 
     if (treeDensity > 0.15) {
       const treeRandom = seededRandom(`${WORLD_SEED}:chunk:${key}:resource-tree:v1`);
-      const x = key === "0:0" ? -3.2 : centerX + randomRange(treeRandom, -34, 34);
-      const z = key === "0:0" ? -0.4 : centerZ + randomRange(treeRandom, -34, 34);
-      this.registerGatherable(
-        root,
-        targets,
-        colliders,
-        this.createTreeResource(`resource:tree:v1:${key}:0`, x, z),
-      );
+      const placement = key === "0:0"
+        ? { x: -3.2, z: -0.4 }
+        : this.findSolidPlacement(
+            treeRandom,
+            centerX,
+            centerZ,
+            key,
+            0.58,
+            colliders,
+            34,
+          );
+      if (placement) {
+        this.registerGatherable(
+          root,
+          targets,
+          colliders,
+          this.createTreeResource(
+            `resource:tree:v1:${key}:0`,
+            placement.x,
+            placement.z,
+          ),
+        );
+      }
     }
   }
 
   private registerGatherable(
     root: THREE.Group,
     targets: WorldTarget[],
-    colliders: CircleCollider[],
+    colliders: PlanarCollider[],
     target: WorldTarget,
   ) {
     const diff = targetDiff(this.worldDiffs, target.id);
@@ -667,10 +854,11 @@ export class ChunkManager {
     }
     if (target.kind === "resource") {
       colliders.push({
+        shape: "circle",
         id: target.id,
         x: target.root.position.x,
         z: target.root.position.z,
-        radius: target.item === "wood" ? 0.72 : 0.92,
+        radius: target.item === "wood" ? 0.58 : 1.56,
       });
     }
   }
