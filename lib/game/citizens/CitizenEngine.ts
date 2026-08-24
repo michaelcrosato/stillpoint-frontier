@@ -1,6 +1,10 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { CITIZEN_CHUNK_LOAD_RADIUS, type QualityLevel } from "../config";
+import {
+  CHUNK_SIZE,
+  CITIZEN_CHUNK_LOAD_RADIUS,
+  type QualityLevel,
+} from "../config";
 import {
   crowdDensityForCount,
   generateCitizenChunk,
@@ -206,7 +210,11 @@ export class CitizenEngine {
       mesh = new THREE.InstancedMesh(this.geometry, this.material, recipes.length);
       mesh.name = `ambient-citizens:${key}`;
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      mesh.frustumCulled = false;
+      mesh.frustumCulled = true;
+      mesh.boundingSphere = new THREE.Sphere(
+        new THREE.Vector3(chunkX * CHUNK_SIZE, 18, chunkZ * CHUNK_SIZE),
+        CHUNK_SIZE * 0.9,
+      );
       mesh.castShadow = false;
       mesh.receiveShadow = false;
       mesh.userData.shadow = false;

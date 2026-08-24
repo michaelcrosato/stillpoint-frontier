@@ -1,4 +1,10 @@
-import { BEACONS, type BeaconId } from "../config";
+import {
+  BEACONS,
+  DEFAULT_HORIZON_MODE,
+  isHorizonMode,
+  type BeaconId,
+  type HorizonMode,
+} from "../config";
 import {
   EMPTY_INVENTORY,
   ITEM_DEFINITIONS,
@@ -24,13 +30,14 @@ export interface StorageAdapter {
 }
 
 export interface FrontierSave {
-  version: 5;
+  version: 6;
   scanned: BeaconId[];
   inventory: InventoryState;
   worldDiffs: Record<string, EntityDiff>;
   doorStates: Record<string, boolean>;
   manualWaypoint: SavedMapWaypoint | null;
   worldMinutes: number;
+  horizonMode: HorizonMode;
 }
 
 export interface FrontierSaveInput {
@@ -40,6 +47,7 @@ export interface FrontierSaveInput {
   doorStates: Readonly<Record<string, boolean>>;
   manualWaypoint: Readonly<SavedMapWaypoint> | null;
   worldMinutes: number;
+  horizonMode: HorizonMode;
 }
 
 export interface SavedMapWaypoint {
@@ -49,13 +57,14 @@ export interface SavedMapWaypoint {
 
 function emptySave(): FrontierSave {
   return {
-    version: 5,
+    version: 6,
     scanned: [],
     inventory: { ...EMPTY_INVENTORY },
     worldDiffs: {},
     doorStates: {},
     manualWaypoint: null,
     worldMinutes: WORLD_START_MINUTES,
+    horizonMode: DEFAULT_HORIZON_MODE,
   };
 }
 
@@ -120,6 +129,10 @@ function normalizeWorldMinutes(value: unknown) {
   return Math.min(value, MAX_WORLD_MINUTES);
 }
 
+function normalizeHorizonMode(value: unknown): HorizonMode {
+  return isHorizonMode(value) ? value : DEFAULT_HORIZON_MODE;
+}
+
 export class SaveStore {
   constructor(private readonly storage: StorageAdapter | null) {}
 
@@ -136,6 +149,7 @@ export class SaveStore {
         doorStates?: unknown;
         manualWaypoint?: unknown;
         worldMinutes?: unknown;
+        horizonMode?: unknown;
       };
       if (parsed.version === 1) {
         return { ...emptySave(), scanned: normalizeScanned(parsed.scanned) };
@@ -144,25 +158,35 @@ export class SaveStore {
         parsed.version !== 2 &&
         parsed.version !== 3 &&
         parsed.version !== 4 &&
-        parsed.version !== 5
+        parsed.version !== 5 &&
+        parsed.version !== 6
       ) {
         return emptySave();
       }
       return {
-        version: 5,
+        version: 6,
         scanned: normalizeScanned(parsed.scanned),
         inventory: normalizeInventory(parsed.inventory),
         worldDiffs: normalizeWorldDiffs(parsed.worldDiffs),
         doorStates:
-          parsed.version === 5 ? normalizeDoorStates(parsed.doorStates) : {},
+          parsed.version === 5 || parsed.version === 6
+            ? normalizeDoorStates(parsed.doorStates)
+            : {},
         manualWaypoint:
-          parsed.version === 3 || parsed.version === 4 || parsed.version === 5
+          parsed.version === 3 ||
+          parsed.version === 4 ||
+          parsed.version === 5 ||
+          parsed.version === 6
             ? normalizeManualWaypoint(parsed.manualWaypoint)
             : null,
         worldMinutes:
-          parsed.version === 4 || parsed.version === 5
+          parsed.version === 4 || parsed.version === 5 || parsed.version === 6
             ? normalizeWorldMinutes(parsed.worldMinutes)
             : WORLD_START_MINUTES,
+        horizonMode:
+          parsed.version === 6
+            ? normalizeHorizonMode(parsed.horizonMode)
+            : DEFAULT_HORIZON_MODE,
       };
     } catch {
       return emptySave();
@@ -173,13 +197,14 @@ export class SaveStore {
     if (!this.storage) return false;
     try {
       const payload: FrontierSave = {
-        version: 5,
+        version: 6,
         scanned: normalizeScanned(input.scanned),
         inventory: normalizeInventory(input.inventory),
         worldDiffs: normalizeWorldDiffs(input.worldDiffs),
         doorStates: normalizeDoorStates(input.doorStates),
         manualWaypoint: normalizeManualWaypoint(input.manualWaypoint),
         worldMinutes: normalizeWorldMinutes(input.worldMinutes),
+        horizonMode: normalizeHorizonMode(input.horizonMode),
       };
       this.storage.setItem(SAVE_KEY, JSON.stringify(payload));
       return true;

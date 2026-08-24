@@ -11,6 +11,8 @@ export const GAMEPLAY_CHUNK_RADIUS = 2;
 export const CITIZEN_CHUNK_LOAD_RADIUS = 2;
 export const WORLD_RESIDENT_CHUNKS = (WORLD_CHUNK_LOAD_RADIUS * 2 + 1) ** 2;
 export const CITIZEN_RESIDENT_CHUNKS = (CITIZEN_CHUNK_LOAD_RADIUS * 2 + 1) ** 2;
+export const DETAILED_TERRAIN_HALF_EXTENT =
+  (WORLD_CHUNK_LOAD_RADIUS + 0.5) * CHUNK_SIZE;
 export const CAMERA_DRAW_DISTANCE = 1_840;
 export const WAYPOINT_WORLD_MARKER_DISTANCE = 846;
 export const PLAYER_HEIGHT = 1.72;
@@ -32,6 +34,63 @@ export const MAX_PIXEL_RATIO = 1.75;
 export const SHADOW_MAP_SIZE = 2048;
 
 export type QualityLevel = "cinematic" | "performance";
+
+export type HorizonMode = "standard" | "extended" | "unlimited";
+
+export interface HorizonRingDefinition {
+  inner: number;
+  outer: number;
+  cellSize: number;
+}
+
+export interface HorizonPreset {
+  label: string;
+  drawDistanceMeters: number;
+  /** Clear-weather multiplier; hazardous weather deliberately restores denser fog. */
+  hazeMultiplier: number;
+  rings: readonly HorizonRingDefinition[];
+}
+
+/**
+ * View distance never expands the synchronous full-detail chunk ring. Extended
+ * terrain is render-only HLOD: no props, interiors, collision, targets, or AI.
+ * "Unlimited" means the finite atlas horizon rather than an infinite far plane.
+ */
+export const HORIZON_PRESETS: Readonly<Record<HorizonMode, HorizonPreset>> = {
+  standard: {
+    label: "STANDARD",
+    drawDistanceMeters: CAMERA_DRAW_DISTANCE,
+    hazeMultiplier: 1,
+    rings: [{ inner: DETAILED_TERRAIN_HALF_EXTENT, outer: 1_920, cellSize: 48 }],
+  },
+  extended: {
+    label: "EXTENDED",
+    drawDistanceMeters: 12_000,
+    hazeMultiplier: 0.2,
+    rings: [
+      { inner: DETAILED_TERRAIN_HALF_EXTENT, outer: 1_920, cellSize: 48 },
+      { inner: 1_920, outer: 6_144, cellSize: 192 },
+      { inner: 6_144, outer: 12_288, cellSize: 384 },
+    ],
+  },
+  unlimited: {
+    label: "UNLIMITED",
+    drawDistanceMeters: 70_000,
+    hazeMultiplier: 0.055,
+    rings: [
+      { inner: DETAILED_TERRAIN_HALF_EXTENT, outer: 1_920, cellSize: 48 },
+      { inner: 1_920, outer: 6_144, cellSize: 192 },
+      { inner: 6_144, outer: 24_576, cellSize: 768 },
+      { inner: 24_576, outer: 49_152, cellSize: 1_536 },
+    ],
+  },
+} as const;
+
+export const DEFAULT_HORIZON_MODE: HorizonMode = "standard";
+
+export function isHorizonMode(value: unknown): value is HorizonMode {
+  return value === "standard" || value === "extended" || value === "unlimited";
+}
 
 export const BEACONS = [
   {

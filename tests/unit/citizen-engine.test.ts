@@ -15,6 +15,8 @@ describe("citizen presentation", () => {
     );
     expect(mesh).toBeDefined();
     expect(mesh?.count ?? 0).toBeGreaterThan(0);
+    expect(mesh?.frustumCulled).toBe(true);
+    expect(mesh?.boundingSphere?.radius ?? 0).toBeGreaterThan(0);
     if (!mesh) return;
 
     citizens.update(0, 8, 1 / 60, false);

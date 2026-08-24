@@ -1,13 +1,16 @@
 import * as THREE from "three";
 import {
   BEACONS,
-  CAMERA_DRAW_DISTANCE,
+  DEFAULT_HORIZON_MODE,
+  HORIZON_PRESETS,
   MAX_PIXEL_RATIO,
   PLAYER_HEIGHT,
   PLAYER_RADIUS,
   WAYPOINT_WORLD_MARKER_DISTANCE,
   type BeaconId,
+  type HorizonMode,
   type QualityLevel,
+  isHorizonMode,
 } from "./config";
 import { CitizenEngine } from "./citizens/CitizenEngine";
 import { SystemPipeline } from "./core/SystemPipeline";
@@ -48,6 +51,7 @@ import {
   addDiscovery,
 } from "./state";
 import { ChunkManager, type WorldTarget } from "./world/ChunkManager";
+import { HorizonRenderer, type HorizonDiagnostics } from "./world/HorizonRenderer";
 import {
   getFastTravelLocation,
   resolveFastTravelArrival,
@@ -106,6 +110,8 @@ export interface GameTestBridge {
   setDeveloperClockPaused(paused: boolean): void;
   setDeveloperWeather(weatherId: WeatherId | null): boolean;
   resetDeveloperOverrides(): void;
+  setHorizonMode(mode: HorizonMode): boolean;
+  horizon(): HorizonDiagnostics;
   setHeading(heading: number): void;
   navigationTargets(): ReturnType<NavigationService["targetsSnapshot"]>;
   colliders(): PlanarCollider[];
@@ -133,15 +139,11 @@ interface EngineOptions {
 export class Engine {
   private readonly canvas: HTMLCanvasElement;
   private readonly scene = new THREE.Scene();
-  private readonly camera = new THREE.PerspectiveCamera(
-    67,
-    1,
-    0.08,
-    CAMERA_DRAW_DISTANCE,
-  );
+  private readonly camera: THREE.PerspectiveCamera;
   private readonly renderer: THREE.WebGLRenderer;
   private readonly input: InputManager;
   private readonly world: ChunkManager;
+  private readonly horizon: HorizonRenderer;
   private readonly citizens: CitizenEngine;
   private readonly navigation = new NavigationService();
   private readonly environment: EnvironmentRuntime;
@@ -180,6 +182,7 @@ export class Engine {
   private developerPanelOpen = false;
   private contextStatus: "ready" | "lost" = "ready";
   private quality: QualityLevel = "cinematic";
+  private horizonMode: HorizonMode = DEFAULT_HORIZON_MODE;
   private scanned: BeaconId[] = [];
   private inventory: InventoryState = { ...EMPTY_INVENTORY };
   private worldDiffs: Record<string, EntityDiff> = {};
@@ -211,15 +214,37 @@ export class Engine {
     this.inventory = saved.inventory;
     this.worldDiffs = saved.worldDiffs;
     this.doorStates = saved.doorStates;
+    this.horizonMode = saved.horizonMode;
     if (saved.manualWaypoint) this.navigation.setManualWaypoint(saved.manualWaypoint);
 
+    this.camera = new THREE.PerspectiveCamera(
+      67,
+      1,
+      0.08,
+      HORIZON_PRESETS[this.horizonMode].drawDistanceMeters,
+    );
+
+    const contextAttributes: WebGLContextAttributes = {
+      alpha: false,
+      antialias: true,
+      powerPreference: "high-performance",
+      preserveDrawingBuffer: this.testMode,
+      stencil: false,
+    };
+    const webglContext = this.canvas.getContext("webgl2", contextAttributes);
+    const reversedDepthSupported = Boolean(
+      webglContext?.getExtension("EXT_clip_control"),
+    );
     this.renderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
+      context: webglContext ?? undefined,
       antialias: true,
       alpha: false,
       powerPreference: "high-performance",
       stencil: false,
       preserveDrawingBuffer: this.testMode,
+      reversedDepthBuffer: reversedDepthSupported,
+      logarithmicDepthBuffer: !reversedDepthSupported,
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -234,6 +259,7 @@ export class Engine {
       this.worldDiffs,
       this.doorStates,
     );
+    this.horizon = new HorizonRenderer(this.scene, this.horizonMode);
     this.citizens = new CitizenEngine(this.scene, this.quality);
     this.environment = createEnvironment(
       this.scene,
@@ -241,6 +267,7 @@ export class Engine {
       this.quality,
       saved.worldMinutes,
     );
+    this.environment.setHorizonMode(this.horizonMode);
     this.player.position.y = sampleTerrainHeight(
       this.player.position.x,
       this.player.position.z,
@@ -256,6 +283,7 @@ export class Engine {
       input: this.input,
       camera: this.camera,
       world: this.world,
+      horizon: this.horizon,
       citizens: this.citizens,
       environment: this.environment,
       navigation: this.navigation,
@@ -306,6 +334,7 @@ export class Engine {
   async initialize() {
     this.resize();
     this.world.update(this.player.position.x, this.player.position.z);
+    this.horizon.update(this.player.position.x, this.player.position.z);
     this.citizens.updateStreaming(this.player.position.x, this.player.position.z);
     this.environment.sync(this.player.position, true);
     this.environment.present(this.player.position, 0);
@@ -512,6 +541,20 @@ export class Engine {
     this.emitSnapshot(true);
   }
 
+  setHorizonMode(mode: HorizonMode) {
+    if (!isHorizonMode(mode) || mode === this.horizonMode) return false;
+    this.horizonMode = mode;
+    this.camera.far = HORIZON_PRESETS[mode].drawDistanceMeters;
+    this.camera.updateProjectionMatrix();
+    this.horizon.setMode(mode);
+    this.environment.setHorizonMode(mode);
+    this.environment.sync(this.player.position);
+    this.environment.present(this.player.position, 0);
+    this.persist();
+    this.emitSnapshot(true);
+    return true;
+  }
+
   advanceWorldMinutes(minutes: number) {
     if (!Number.isFinite(minutes)) return;
     this.setWorldMinutes(this.environment.getPersistentWorldMinutes() + minutes);
@@ -585,6 +628,7 @@ export class Engine {
     this.runtime.nearbyTarget = null;
     this.runtime.nearbyDistance = null;
     this.world.update(x, z);
+    this.horizon.update(x, z);
     this.citizens.update(x, z, 0, true);
     this.navigation.update(this.player.position);
     this.environment.sync(this.player.position, true);
@@ -602,6 +646,7 @@ export class Engine {
       doorStates: this.doorStates,
       manualWaypoint,
       worldMinutes: this.environment.getPersistentWorldMinutes(),
+      horizonMode: this.horizonMode,
     });
   }
 
@@ -619,6 +664,7 @@ export class Engine {
     this.navigation.dispose();
     this.citizens.dispose();
     this.world.dispose();
+    this.horizon.dispose();
     this.environment.dispose();
     this.renderer.dispose();
     if (window.__STILLPOINT_TEST__) delete window.__STILLPOINT_TEST__;
@@ -690,6 +736,7 @@ export class Engine {
     const atmosphere = this.environment.getSample();
     const developer = this.environment.getDeveloperState();
     const nearbyTarget = this.runtime.nearbyTarget;
+    const horizon = this.horizon.diagnostics;
     this.snapshot = {
       ready: this.ready,
       started: this.started,
@@ -714,7 +761,11 @@ export class Engine {
       fps: this.fps,
       chunk,
       loadedChunks: this.world.loadedCount,
-      drawDistanceMeters: CAMERA_DRAW_DISTANCE,
+      drawDistanceMeters: HORIZON_PRESETS[this.horizonMode].drawDistanceMeters,
+      horizonMode: this.horizonMode,
+      horizonTiles: horizon.terrainTiles,
+      horizonTriangles: horizon.terrainTriangles,
+      horizonSettlementInstances: horizon.settlementInstances,
       citizenCount: this.citizens.visibleCount,
       citizenActivity: this.citizens.activityMultiplier,
       crowdDensity: this.citizens.density,
@@ -1002,6 +1053,8 @@ export class Engine {
       resetDeveloperOverrides: () => {
         this.resetDeveloperOverrides();
       },
+      setHorizonMode: (mode) => this.setHorizonMode(mode),
+      horizon: () => this.horizon.diagnostics,
       setHeading: (heading) => {
         this.player.yaw = (-heading * Math.PI) / 180;
         this.camera.rotation.set(this.player.pitch, this.player.yaw, 0, "YXZ");

@@ -1,8 +1,10 @@
 import * as THREE from "three";
 import {
   CAMERA_DRAW_DISTANCE,
+  HORIZON_PRESETS,
   SHADOW_MAP_SIZE,
   WORLD_SEED,
+  type HorizonMode,
   type QualityLevel,
 } from "./config";
 import { seededRandom } from "./core/random";
@@ -50,6 +52,7 @@ export interface EnvironmentRuntime {
   getDeveloperState(): DeveloperEnvironmentState;
   getDeveloperWeatherOptions(): DeveloperWeatherOption[];
   setQuality(quality: QualityLevel): void;
+  setHorizonMode(mode: HorizonMode): void;
   dispose(): void;
 }
 
@@ -115,6 +118,7 @@ function createPrecipitation(): PrecipitationRuntime {
     transparent: true,
     depthWrite: false,
     vertexShader: `
+      #include <logdepthbuf_pars_vertex>
       uniform float uTime;
       uniform float uSpeed;
       uniform float uSize;
@@ -128,16 +132,19 @@ function createPrecipitation(): PrecipitationRuntime {
         particle.z = mod(position.z + uTime * uWind.y + uRadius, uRadius * 2.0) - uRadius;
         vec4 viewPosition = modelViewMatrix * vec4(particle, 1.0);
         gl_Position = projectionMatrix * viewPosition;
+        #include <logdepthbuf_vertex>
         gl_PointSize = uSize * clamp(110.0 / max(1.0, -viewPosition.z), 0.7, 2.8);
       }
     `,
     fragmentShader: `
+      #include <logdepthbuf_pars_fragment>
       uniform float uOpacity;
       uniform vec3 uColor;
       void main() {
         vec2 centered = gl_PointCoord - vec2(0.5);
         float edge = 1.0 - smoothstep(0.08, 0.5, length(centered));
         if (edge <= 0.01) discard;
+        #include <logdepthbuf_fragment>
         gl_FragColor = vec4(uColor, uOpacity * edge);
       }
     `,
@@ -219,13 +226,16 @@ export function createEnvironment(
       cloudCover: { value: 0.1 },
     },
     vertexShader: `
+      #include <logdepthbuf_pars_vertex>
       varying vec3 vWorldPosition;
       void main() {
         vWorldPosition = position;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        #include <logdepthbuf_vertex>
       }
     `,
     fragmentShader: `
+      #include <logdepthbuf_pars_fragment>
       varying vec3 vWorldPosition;
       uniform vec3 topColor;
       uniform vec3 horizonColor;
@@ -240,6 +250,7 @@ export function createEnvironment(
           : mix(horizonColor, groundColor, smoothstep(0.0, 0.32, -h));
         float bands = sin(direction.x * 19.0 + direction.z * 13.0) * 0.5 + 0.5;
         float clouds = smoothstep(0.44, 0.78, bands) * cloudCover * smoothstep(0.02, 0.45, h);
+        #include <logdepthbuf_fragment>
         gl_FragColor = vec4(mix(color, cloudColor, clouds * 0.48), 1.0);
       }
     `,
@@ -258,6 +269,7 @@ export function createEnvironment(
   let worldMinutes = sanitizeWorldMinutes(initialWorldMinutes);
   let developerState = createDeveloperEnvironmentState(worldMinutes);
   let effectSeconds = 0;
+  let horizonMode: HorizonMode = "standard";
   let climate = sampleClimate(0, 8);
   let targetSample = sampleEnvironment(worldMinutes, climate);
   let displaySample = { ...targetSample };
@@ -280,6 +292,21 @@ export function createEnvironment(
   const moonColor = new THREE.Color(0x91a9c8);
   const temporaryColor = new THREE.Color();
 
+  const effectiveFogMultiplier = (sample: EnvironmentSample) => {
+    const presetMultiplier = HORIZON_PRESETS[horizonMode].hazeMultiplier;
+    if (presetMultiplier >= 1) return 1;
+    const hazard = Math.max(
+      sample.weatherId === "fog" ? 1 : 0,
+      sample.precipitationRate,
+      sample.dust,
+    );
+    const hazardousMultiplier = horizonMode === "extended" ? 0.72 : 0.68;
+    return THREE.MathUtils.lerp(presetMultiplier, hazardousMultiplier, hazard);
+  };
+
+  const effectiveFogDensity = (sample: EnvironmentSample) =>
+    sample.fogDensity * effectiveFogMultiplier(sample) * (1 + sample.night * 0.08);
+
   const applyAtmosphere = (position: THREE.Vector3) => {
     topColor.lerpColors(nightTop, dayTop, displaySample.daylight);
     horizonColor.lerpColors(nightHorizon, dayHorizon, displaySample.daylight);
@@ -298,7 +325,7 @@ export function createEnvironment(
     skyMaterial.uniforms.cloudColor.value.copy(cloudColor);
     skyMaterial.uniforms.cloudCover.value = displaySample.cloudCover;
     fog.color.copy(fogColor);
-    fog.density = displaySample.fogDensity * (1 + displaySample.night * 0.08);
+    fog.density = effectiveFogDensity(displaySample);
     (scene.background as THREE.Color).copy(fogColor).multiplyScalar(0.72);
 
     const useSun = displaySample.sunElevation > -0.06;
@@ -429,7 +456,13 @@ export function createEnvironment(
       return worldMinutes;
     },
     getSample() {
-      return { ...targetSample };
+      const density = effectiveFogDensity(targetSample);
+      return {
+        ...targetSample,
+        visibilityMeters: Math.round(
+          Math.min(HORIZON_PRESETS[horizonMode].drawDistanceMeters, 1.978 / density),
+        ),
+      };
     },
     setDeveloperMode(enabled) {
       developerState = setDeveloperMode(developerState, enabled, worldMinutes);
@@ -472,6 +505,9 @@ export function createEnvironment(
           ? CINEMATIC_PRECIPITATION_POINTS
           : PERFORMANCE_PRECIPITATION_POINTS,
       );
+    },
+    setHorizonMode(mode) {
+      horizonMode = mode;
     },
     dispose() {
       scene.remove(

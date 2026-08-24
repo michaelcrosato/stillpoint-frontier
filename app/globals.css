@@ -1441,6 +1441,103 @@ kbd {
   background: var(--ember);
 }
 
+.dev-rendering {
+  display: grid;
+  gap: 11px;
+  margin: 21px 28px 0;
+  padding: 20px 0 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.dev-rendering legend {
+  padding: 0 12px 0 0;
+  color: var(--signal);
+  font: 700 9px/1 var(--mono);
+  letter-spacing: 0.16em;
+}
+
+.dev-horizon-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  color: var(--paper-muted);
+  font: 700 8px/1 var(--mono);
+  letter-spacing: 0.12em;
+}
+
+.dev-horizon-heading strong {
+  color: var(--signal);
+  font-size: 9px;
+}
+
+.dev-horizon-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.dev-horizon-grid button {
+  display: grid;
+  min-height: 76px;
+  gap: 6px;
+  align-content: start;
+  padding: 10px 8px;
+  border: 1px solid rgba(232, 226, 214, 0.18);
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--paper-muted);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--mono);
+}
+
+.dev-horizon-grid button > span {
+  color: var(--paper);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.dev-horizon-grid button > strong {
+  color: var(--signal);
+  font-size: 12px;
+}
+
+.dev-horizon-grid button > small {
+  color: rgba(232, 226, 214, 0.42);
+  font-size: 6px;
+  line-height: 1.35;
+  letter-spacing: 0.05em;
+}
+
+.dev-horizon-grid button.is-active {
+  border-color: rgba(153, 194, 163, 0.72);
+  background: rgba(153, 194, 163, 0.08);
+}
+
+.dev-horizon-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 12px;
+  margin: 0;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--paper-muted);
+  font: 7px/1.2 var(--mono);
+  letter-spacing: 0.05em;
+}
+
+.dev-horizon-status strong {
+  margin-left: auto;
+  color: var(--signal);
+}
+
+.dev-horizon-note {
+  margin: 0;
+  color: rgba(232, 226, 214, 0.46);
+  font: 7px/1.5 var(--mono);
+}
+
 .dev-environment {
   display: grid;
   gap: 13px;

@@ -35,6 +35,12 @@ economic metadata, bounds, road connectivity, and river continuity. Gathering te
 that partial work persists, final hits grant loot exactly once, and removed objects cannot
 duplicate inventory. Locomotion property tests constrain stamina and landing math.
 
+Horizon tests enforce monotonic finite profiles, the invariant 81-chunk detailed ring,
+continuous concentric LOD definitions, atlas-edge clamping, deterministic settlement
+silhouettes, frustum/shadow policy, no gameplay fields on proxies, and fixed budgets below
+60,000 far-terrain triangles and 200 proxy instances. Browser coverage cycles and persists
+all three profiles while checking that gameplay and citizen residency never changes.
+
 Navigation tests cover north-zero clockwise bearings, yaw sign, 359°/000° wraparound,
 five-degree compass windows, arbitrary map/world coordinate round trips, non-square map
 clicks, target validation, player/quest target replacement, stale clears, one-shot arrival,
@@ -73,7 +79,7 @@ warmup. Ordinary headless CI should gate deterministic state, draw-call/triangle
 budgets, resource plateaus, and screenshot stability rather than treating software-renderer
 FPS as representative hardware performance.
 
-The 9×9 visual world ring must remain 81 chunks while the citizen ring remains 25. Browser
-tests lock that separation so a future draw-distance change cannot accidentally triple the
-per-frame citizen matrix budget. Fast-travel churn is also covered by the resource plateau
-test because relocation replaces the complete visual ring in one operation.
+The 9×9 full-detail world ring must remain 81 chunks while the citizen ring remains 25.
+Standard, Extended, and Unlimited only replace bounded HLOD geometry. Browser tests lock
+that separation so a future draw-distance change cannot inflate interaction or citizen
+work, and the resource plateau test cycles horizon modes during relocation to catch leaks.

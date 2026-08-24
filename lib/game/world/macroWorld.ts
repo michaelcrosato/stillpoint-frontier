@@ -2,8 +2,9 @@ import { hashString } from "../core/random";
 
 /**
  * The authored atlas is 96 km square. Only a 9x9 visual ring of 96 m chunks is
- * resident, while gameplay and citizen simulation stay inside 5x5 rings. The
- * atlas scale changes geography and travel time without loading the full map.
+ * resident, while gameplay and citizen simulation stay inside 5x5 rings. A
+ * fixed-budget horizon HLOD may sample the atlas, but never loads full-detail
+ * props, interiors, collision, or simulation outside those rings.
  */
 export const WORLD_MODEL_SCALE = 7.5;
 export const WORLD_HALF_EXTENT = 6_400 * WORLD_MODEL_SCALE;

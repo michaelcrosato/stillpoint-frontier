@@ -1,7 +1,9 @@
 import {
   BEACONS,
   CAMERA_DRAW_DISTANCE,
+  DEFAULT_HORIZON_MODE,
   type BeaconId,
+  type HorizonMode,
   type QualityLevel,
 } from "./config";
 import type {
@@ -82,6 +84,10 @@ export interface GameSnapshot {
   chunk: { x: number; z: number };
   loadedChunks: number;
   drawDistanceMeters: number;
+  horizonMode: HorizonMode;
+  horizonTiles: number;
+  horizonTriangles: number;
+  horizonSettlementInstances: number;
   citizenCount: number;
   citizenActivity: number;
   crowdDensity: "WILDERNESS" | "QUIET" | "LOCAL" | "ACTIVE" | "BUSY" | "SURGE";
@@ -135,6 +141,10 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
   chunk: { x: 0, z: 0 },
   loadedChunks: 0,
   drawDistanceMeters: CAMERA_DRAW_DISTANCE,
+  horizonMode: DEFAULT_HORIZON_MODE,
+  horizonTiles: 0,
+  horizonTriangles: 0,
+  horizonSettlementInstances: 0,
   citizenCount: 0,
   citizenActivity: 0,
   crowdDensity: "WILDERNESS",

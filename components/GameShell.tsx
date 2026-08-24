@@ -340,6 +340,16 @@ export default function GameShell() {
                 <span>PROFILE</span>
                 <strong>{snapshot.quality === "cinematic" ? "CINE" : "PERF"}</strong>
               </div>
+              <div>
+                <span>HORIZON</span>
+                <strong>
+                  {snapshot.horizonMode === "standard"
+                    ? "STD"
+                    : snapshot.horizonMode === "extended"
+                      ? "EXT"
+                      : "MAX"}
+                </strong>
+              </div>
               <button
                 type="button"
                 className={`dev-launcher ${snapshot.devTools.enabled ? "is-active" : ""}`}
@@ -555,6 +565,7 @@ export default function GameShell() {
           onAdvanceTime={(minutes) => engineRef.current?.advanceDeveloperMinutes(minutes)}
           onSetClockPaused={(paused) => engineRef.current?.setDeveloperClockPaused(paused)}
           onSetWeather={(weatherId) => engineRef.current?.setDeveloperWeather(weatherId)}
+          onSetHorizonMode={(mode) => engineRef.current?.setHorizonMode(mode)}
           onReset={() => engineRef.current?.resetDeveloperOverrides()}
         />
       )}

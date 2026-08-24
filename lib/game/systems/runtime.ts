@@ -5,6 +5,7 @@ import type { EnvironmentRuntime } from "../environment";
 import type { InputManager } from "../input/InputManager";
 import type { NavigationService } from "../navigation/NavigationService";
 import type { ChunkManager } from "../world/ChunkManager";
+import type { HorizonRenderer } from "../world/HorizonRenderer";
 import type { WorldTarget } from "../world/ChunkManager";
 
 export interface PlayerRuntime {
@@ -24,6 +25,7 @@ export interface GameRuntimeContext {
   input: InputManager;
   camera: THREE.PerspectiveCamera;
   world: ChunkManager;
+  horizon: HorizonRenderer;
   citizens: CitizenEngine;
   environment: EnvironmentRuntime;
   navigation: NavigationService;

@@ -269,7 +269,9 @@ export default function WorldMap({
             <div><dt>SETTLEMENTS</dt><dd>{SETTLEMENTS.length}</dd></div>
             <div><dt>ACTIVE GRID</dt><dd>{snapshot.chunk.x}:{snapshot.chunk.z}</dd></div>
             <div><dt>RESIDENT</dt><dd>{snapshot.loadedChunks} CHUNKS</dd></div>
-            <div><dt>DRAW HORIZON</dt><dd>{(snapshot.drawDistanceMeters / 1_000).toFixed(2)} KM</dd></div>
+            <div><dt>DRAW HORIZON / {snapshot.horizonMode.toUpperCase()}</dt><dd>{(snapshot.drawDistanceMeters / 1_000).toFixed(snapshot.drawDistanceMeters >= 10_000 ? 0 : 2)} KM</dd></div>
+            <div><dt>OPTICAL VISIBILITY</dt><dd>{formatNavigationDistance(snapshot.environment.visibilityMeters)}</dd></div>
+            <div><dt>FAR HLOD</dt><dd>{snapshot.horizonTiles} TILES / {snapshot.horizonSettlementInstances} PROXIES</dd></div>
             <div><dt>LOCAL TIME</dt><dd>{String(snapshot.environment.hour).padStart(2, "0")}:{String(snapshot.environment.minute).padStart(2, "0")}</dd></div>
             <div><dt>WEATHER</dt><dd>{snapshot.environment.weatherLabel.toUpperCase()}</dd></div>
             <div><dt>AMBIENT CITIZENS</dt><dd>{snapshot.citizenCount.toLocaleString()} / {snapshot.crowdDensity}</dd></div>

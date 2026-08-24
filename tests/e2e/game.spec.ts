@@ -1,7 +1,7 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import {
-  CAMERA_DRAW_DISTANCE,
   CITIZEN_RESIDENT_CHUNKS,
+  HORIZON_PRESETS,
   WORLD_RESIDENT_CHUNKS,
 } from "../../lib/game/config";
 import { getSettlement } from "../../lib/game/world/macroWorld";
@@ -63,7 +63,10 @@ test("boots WebGL2 without a blank frame", async ({ page }, testInfo) => {
   await openDeterministicWorld(page);
   const state = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
   expect(state?.loadedChunks).toBe(WORLD_RESIDENT_CHUNKS);
-  expect(state?.drawDistanceMeters).toBe(CAMERA_DRAW_DISTANCE);
+  expect(state?.horizonMode).toBe("standard");
+  expect(state?.drawDistanceMeters).toBe(HORIZON_PRESETS.standard.drawDistanceMeters);
+  expect(state?.horizonTiles).toBe(HORIZON_PRESETS.standard.rings.length * 16);
+  expect(state?.horizonTriangles ?? 0).toBeLessThan(60_000);
   expect(state?.triangles).toBeGreaterThan(1_000);
   const pixels = await canvasVisualStats(page);
   expect(pixels.webgl2).toBe(true);
@@ -379,6 +382,41 @@ test("keeps developer time and weather overrides out of the normal save", async 
   expect(restored?.environment.minute).toBe(0);
 });
 
+test("persists horizon HLOD without expanding gameplay streaming", async ({ page }) => {
+  await page.goto("/?test=1&storage=1", { waitUntil: "load" });
+  await page.evaluate(() => window.localStorage.clear());
+  await page.reload({ waitUntil: "load" });
+  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  await page.getByTestId("enter-frontier").click();
+  await page.getByTestId("developer-launcher").click();
+  await page.getByTestId("horizon-mode-unlimited").click();
+
+  await expect
+    .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().horizonMode))
+    .toBe("unlimited");
+  const maximum = await page.evaluate(() => ({
+    state: window.__STILLPOINT_TEST__?.snapshot(),
+    horizon: window.__STILLPOINT_TEST__?.horizon(),
+    citizenChunks: window.__STILLPOINT_TEST__?.citizens().chunks,
+  }));
+  expect(maximum.state?.drawDistanceMeters)
+    .toBe(HORIZON_PRESETS.unlimited.drawDistanceMeters);
+  expect(maximum.state?.loadedChunks).toBe(WORLD_RESIDENT_CHUNKS);
+  expect(maximum.citizenChunks).toBe(CITIZEN_RESIDENT_CHUNKS);
+  expect(maximum.horizon?.terrainTiles)
+    .toBe(HORIZON_PRESETS.unlimited.rings.length * 16);
+  expect(maximum.horizon?.terrainTriangles ?? 0).toBeLessThan(60_000);
+  expect(maximum.horizon?.settlementInstances ?? 0).toBeLessThan(200);
+
+  await page.reload({ waitUntil: "load" });
+  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  const restored = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
+  expect(restored?.horizonMode).toBe("unlimited");
+  expect(restored?.loadedChunks).toBe(WORLD_RESIDENT_CHUNKS);
+});
+
 test("opens developer tools from the keyboard while paused and protects form input", async ({ page }) => {
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
@@ -625,6 +663,14 @@ test("keeps GPU resource counts bounded through repeated chunk churn", async ({ 
   await page.getByTestId("enter-frontier").click();
   const baseline = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
 
+  for (const mode of ["extended", "unlimited", "standard"] as const) {
+    await page.evaluate(
+      (nextMode) => window.__STILLPOINT_TEST__?.setHorizonMode(nextMode),
+      mode,
+    );
+    await page.waitForTimeout(80);
+  }
+
   for (const [x, z] of [
     [2_000, 2_000],
     [-3_000, 1_500],
@@ -639,6 +685,8 @@ test("keeps GPU resource counts bounded through repeated chunk churn", async ({ 
 
   const settled = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
   expect(settled?.loadedChunks).toBe(WORLD_RESIDENT_CHUNKS);
+  expect(settled?.horizonMode).toBe("standard");
+  expect(settled?.horizonTiles).toBe(HORIZON_PRESETS.standard.rings.length * 16);
   expect(settled?.geometries).toBeLessThanOrEqual((baseline?.geometries ?? 0) + 3);
   expect(settled?.textures).toBeLessThanOrEqual(baseline?.textures ?? 0);
 });
@@ -667,6 +715,24 @@ test("entry and fixed world views are visually reviewable @visual", async ({ pag
     await expect(page).toHaveScreenshot("frontier-world.png");
   } else {
     await attachScreenshot(page, testInfo, "visual-world-candidate");
+  }
+
+  await page.evaluate(
+    ({ x, z, roofY }) => {
+      window.__STILLPOINT_TEST__?.teleport(x, z, roofY + 0.04);
+      window.__STILLPOINT_TEST__?.setDeveloperMode(true);
+      window.__STILLPOINT_TEST__?.setDeveloperTimeOfDay(12 * 60);
+      window.__STILLPOINT_TEST__?.setDeveloperWeather("fair");
+      window.__STILLPOINT_TEST__?.setHorizonMode("unlimited");
+      window.__STILLPOINT_TEST__?.setHeading(123);
+    },
+    TEN_STORY_BUILDING,
+  );
+  await page.waitForTimeout(150);
+  if (process.env.VISUAL_BASELINES === "1") {
+    await expect(page).toHaveScreenshot("tower-roof-unlimited-horizon.png");
+  } else {
+    await attachScreenshot(page, testInfo, "tower-roof-unlimited-horizon-candidate");
   }
 });
 
@@ -716,6 +782,10 @@ test("HUD and territory-map fixtures are visually reviewable without a GPU @visu
   await page.goto("/?visual=dev", { waitUntil: "load" });
   await expect(page.getByTestId("developer-panel")).toContainText("SESSION-ONLY SANDBOX");
   await expect(page.getByTestId("developer-panel")).toContainText("Canopy drizzle");
+  await expect(page.getByTestId("horizon-mode-standard")).toBeVisible();
+  await expect(page.getByTestId("horizon-mode-extended")).toBeVisible();
+  await expect(page.getByTestId("horizon-mode-unlimited")).toBeVisible();
+  await expect(page.getByTestId("developer-horizon-status")).toContainText("FULL DETAIL");
   await attachScreenshot(page, testInfo, "developer-tools-fixture");
 
   await page.goto("/?visual=night", { waitUntil: "load" });

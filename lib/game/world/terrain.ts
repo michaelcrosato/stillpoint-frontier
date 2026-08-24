@@ -11,17 +11,37 @@ import {
 
 const seedPhase = (hashString(WORLD_SEED) % 4096) / 4096;
 
+function coastalDropAt(z: number) {
+  return smoothstep(4_900, 5_900, z / WORLD_MODEL_SCALE) * 38;
+}
+
 /** Continuous analytic terrain: adjacent chunks always share exact edge heights. */
 export function sampleTerrainHeight(x: number, z: number): number {
   const broad = Math.sin(x * 0.013 + seedPhase * 4.2) * 1.65;
   const cross = Math.cos(z * 0.015 - seedPhase * 2.1) * 1.3;
   const ridge = Math.sin((x + z) * 0.006 + seedPhase) * 2.4;
   const detail = Math.sin(x * 0.071) * Math.cos(z * 0.063) * 0.38;
-  const coastalDrop = smoothstep(4_900, 5_900, z / WORLD_MODEL_SCALE) * 38;
-  const land = sampleMacroElevation(x, z) + broad + cross + ridge + detail - coastalDrop;
+  const land =
+    sampleMacroElevation(x, z) + broad + cross + ridge + detail - coastalDropAt(z);
   const riverBlend = smoothstep(riverWidth(z) + 28, riverWidth(z) - 4, distanceToRiver(x, z));
   const riverBed = WATER_LEVEL - 1.7 - Math.sin(z * 0.004) * 0.35;
   return land * (1 - riverBlend) + riverBed * riverBlend;
+}
+
+/**
+ * Low-frequency surface used by the render-only horizon clipmap. River and sea
+ * samples resolve to the water surface, avoiding both distant trench aliasing
+ * and the need for a second full-world water mesh.
+ */
+export function sampleHorizonTerrainHeight(x: number, z: number): number {
+  const land = sampleMacroElevation(x, z) - coastalDropAt(z);
+  const riverBlend = smoothstep(
+    riverWidth(z) + 28,
+    riverWidth(z) - 4,
+    distanceToRiver(x, z),
+  );
+  const surface = land * (1 - riverBlend) + WATER_LEVEL * riverBlend;
+  return Math.max(WATER_LEVEL, surface);
 }
 
 export interface ChunkCoordinate {

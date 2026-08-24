@@ -1,6 +1,10 @@
 "use client";
 
 import { useEffect, useRef, type KeyboardEvent } from "react";
+import {
+  HORIZON_PRESETS,
+  type HorizonMode,
+} from "../lib/game/config";
 import type { WeatherId } from "../lib/game/environment/model";
 import type { GameSnapshot } from "../lib/game/state";
 
@@ -12,6 +16,7 @@ interface DeveloperPanelProps {
   onAdvanceTime(minutes: number): void;
   onSetClockPaused(paused: boolean): void;
   onSetWeather(weatherId: WeatherId | null): void;
+  onSetHorizonMode(mode: HorizonMode): void;
   onReset(): void;
 }
 
@@ -26,6 +31,18 @@ function formatClock(hour: number, minute: number) {
   return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
+function formatDistance(meters: number) {
+  return meters >= 1_000
+    ? `${(meters / 1_000).toFixed(meters >= 10_000 ? 0 : 1)} KM`
+    : `${Math.round(meters)} M`;
+}
+
+const HORIZON_DESCRIPTIONS: Readonly<Record<HorizonMode, string>> = {
+  standard: "LOCAL HLOD / WEATHER-AUTHENTIC",
+  extended: "REGIONAL HLOD / RECOMMENDED",
+  unlimited: "FINITE ATLAS / MAXIMUM HORIZON",
+};
+
 export default function DeveloperPanel({
   snapshot,
   onClose,
@@ -34,6 +51,7 @@ export default function DeveloperPanel({
   onAdvanceTime,
   onSetClockPaused,
   onSetWeather,
+  onSetHorizonMode,
   onReset,
 }: DeveloperPanelProps) {
   const panelRef = useRef<HTMLElement>(null);
@@ -106,7 +124,7 @@ export default function DeveloperPanel({
           <span aria-hidden="true">◇</span>
           <p>
             <strong>SESSION-ONLY SANDBOX</strong>
-            Time and weather overrides never write to the survey save.
+            Time and weather overrides are session-only. Rendering preferences are saved locally.
           </p>
         </div>
 
@@ -123,6 +141,41 @@ export default function DeveloperPanel({
           </span>
           <i aria-hidden="true"><b /></i>
         </button>
+
+        <fieldset className="dev-rendering">
+          <legend>RENDERING / SAVED LOCALLY</legend>
+          <div className="dev-horizon-heading">
+            <span>WORLD HORIZON</span>
+            <strong>{HORIZON_PRESETS[snapshot.horizonMode].label}</strong>
+          </div>
+          <div className="dev-horizon-grid" role="radiogroup" aria-label="World horizon distance">
+            {(Object.keys(HORIZON_PRESETS) as HorizonMode[]).map((mode) => (
+              <button
+                type="button"
+                key={mode}
+                className={snapshot.horizonMode === mode ? "is-active" : ""}
+                aria-pressed={snapshot.horizonMode === mode}
+                data-testid={`horizon-mode-${mode}`}
+                onClick={() => onSetHorizonMode(mode)}
+              >
+                <span>{HORIZON_PRESETS[mode].label}</span>
+                <strong>{formatDistance(HORIZON_PRESETS[mode].drawDistanceMeters)}</strong>
+                <small>{HORIZON_DESCRIPTIONS[mode]}</small>
+              </button>
+            ))}
+          </div>
+          <p className="dev-horizon-status" data-testid="developer-horizon-status">
+            <span>FULL DETAIL {snapshot.loadedChunks}</span>
+            <span>HLOD {snapshot.horizonTiles}</span>
+            <span>FAR TRIS {Math.round(snapshot.horizonTriangles).toLocaleString()}</span>
+            <span>PROXIES {snapshot.horizonSettlementInstances}</span>
+            <strong>OPTICAL {formatDistance(snapshot.environment.visibilityMeters)}</strong>
+          </p>
+          <p className="dev-horizon-note">
+            Weather remains the final visibility limit. Distant terrain and settlement silhouettes
+            carry no interiors, objects, collision, citizens, or shadows.
+          </p>
+        </fieldset>
 
         <fieldset className="dev-environment" disabled={!snapshot.devTools.enabled}>
           <legend>ENVIRONMENT</legend>

@@ -21,6 +21,13 @@ along authored procedural lanes.
   rendered solid is paired with a circle or exact oriented-box collider from the same recipe;
   a 16 m uniform grid narrows each swept movement query. Placement reserves roads, water,
   beacons, opening objectives, and existing solids before an instance becomes visible.
+- `HorizonRenderer` is an independent render-only clipmap outside that 9×9 ring. Three
+  saved profiles build at most four concentric terrain LODs, split into small cardinal tiles
+  for frustum culling, plus fewer than 200 deterministic settlement silhouettes. The
+  layer never owns interiors, individual resources, collision, targets, citizens, or
+  shadows. The near LOD follows chunk crossings while outer LODs snap to progressively
+  coarser cells and are reused, so walking does not rebuild the atlas horizon every 96 m;
+  changing the profile cannot expand gameplay streaming or recreate city travel stalls.
 - `CitizenEngine` independently streams a 5×5 resident ring. Its pure recipes place
   proportional crowds only on settlement sidewalks or road shoulders, while one shared
   low-poly figure and one instanced draw per populated chunk keep Vesper Crown's thousands
@@ -73,8 +80,8 @@ Persistent resource IDs include the feature, recipe version, chunk coordinate, a
 index. Pickups, trees, and rock outcrops are reduced through a pure idempotent interaction
 function. Only a sparse `{hits, removed}` world delta is saved; generated chunks remain
 derivable. Inventory and its matching entity delta are written in the same save operation.
-The version-four envelope retains the player's manual map waypoint and total world minutes;
-version-one relay, version-two world, and version-three waypoint saves migrate in place.
+The version-six envelope retains the player's manual map waypoint, total world minutes,
+door state, and horizon preference; versions one through five migrate in place.
 Weather remains derived rather than stored. Quest destinations remain owned by quest state
 and can re-register with the navigation service after loading.
 
@@ -99,6 +106,9 @@ The initial target is an RTX 3060-class machine at 1440p/60:
 
 - Fixed simulation: 60 Hz, with large frame deltas clamped and spiral-of-death protection.
 - Resident terrain: 81 chunks in a 9×9 visual ring; decorative props are instanced per chunk.
+- Far terrain: 16–64 frustum-cullable HLOD tiles, under 60,000 triangles and 200 settlement
+  proxies. Standard reaches 1.84 km, Extended 12 km, and Unlimited the finite atlas horizon
+  at 70 km, with reverse-depth used when the browser exposes `EXT_clip_control`.
 - Gameplay queries and ambient citizens: independent 25-chunk inner rings.
 - Collision broad phase: streamed 16 m spatial cells, followed by swept-circle narrow phase;
   city cost scales with nearby candidates rather than every solid in the gameplay ring.
@@ -112,11 +122,12 @@ The initial target is an RTX 3060-class machine at 1440p/60:
 - One shadow-casting directional sun/moon key; 2K shadow map in cinematic mode. Dynamic
   weather changes palette, fog, exposure, and one shader-driven precipitation field.
 - Pixel ratio capped at 1.75; performance mode forces DPR 1 and disables shadows.
-- Renderer diagnostics expose FPS, active chunks, draw horizon, and triangles to the HUD
-  and tests. The camera cutoff is 1,840 m, while fog conceals the finite terrain edge.
+- Renderer diagnostics expose FPS, active chunks, selected horizon, far tiles, far triangles,
+  settlement proxies, and optical visibility to the HUD and tests. Weather remains the final
+  visibility limit, with fog and storms restoring dense extinction in every profile.
 - Every unloaded chunk explicitly disposes geometries and materials.
 
 The next production hardening modules are worker-based chunk recipes, floating-origin
-rebasing, terrain/settlement HLOD, shared asset reference counting, vertical capsule
+rebasing, shared asset reference counting, vertical capsule
 collision, and authored road routing around water and grades. Their boundaries already
 align with the present world, system, and feature layers.

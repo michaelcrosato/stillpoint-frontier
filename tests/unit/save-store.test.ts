@@ -27,6 +27,7 @@ const saveInput = {
   },
   manualWaypoint: { x: 12_400, z: -8_200 },
   worldMinutes: 2_345.5,
+  horizonMode: "unlimited" as const,
 };
 
 describe("versioned frontier saves", () => {
@@ -35,13 +36,14 @@ describe("versioned frontier saves", () => {
     const store = new SaveStore(storage);
     expect(store.save(saveInput)).toBe(true);
     expect(store.load()).toEqual({
-      version: 5,
+      version: 6,
       scanned: ["amber-relay", "meridian-vault"],
       inventory: { ...EMPTY_INVENTORY, stone: 7, wood: 3 },
       worldDiffs: saveInput.worldDiffs,
       doorStates: saveInput.doorStates,
       manualWaypoint: saveInput.manualWaypoint,
       worldMinutes: saveInput.worldMinutes,
+      horizonMode: "unlimited",
     });
   });
 
@@ -52,13 +54,14 @@ describe("versioned frontier saves", () => {
       scanned: ["hollow-array", "invented", "hollow-array", 7],
     });
     expect(new SaveStore(storage).load()).toEqual({
-      version: 5,
+      version: 6,
       scanned: ["hollow-array"],
       inventory: EMPTY_INVENTORY,
       worldDiffs: {},
       doorStates: {},
       manualWaypoint: null,
       worldMinutes: WORLD_START_MINUTES,
+      horizonMode: "standard",
     });
   });
 
@@ -80,6 +83,7 @@ describe("versioned frontier saves", () => {
     expect(result.doorStates).toEqual({});
     expect(result.manualWaypoint).toBeNull();
     expect(result.worldMinutes).toBe(WORLD_START_MINUTES);
+    expect(result.horizonMode).toBe("standard");
   });
 
   it("migrates version-two world state and validates version-three waypoints", () => {
@@ -93,6 +97,7 @@ describe("versioned frontier saves", () => {
     });
     expect(new SaveStore(storage).load().manualWaypoint).toEqual({ x: 2_500, z: -7_500 });
     expect(new SaveStore(storage).load().worldMinutes).toBe(WORLD_START_MINUTES);
+    expect(new SaveStore(storage).load().horizonMode).toBe("standard");
 
     storage.value = JSON.stringify({
       version: 3,
@@ -145,26 +150,38 @@ describe("versioned frontier saves", () => {
     expect(new SaveStore(storage).load().doorStates).toEqual({});
   });
 
+  it("persists valid horizon modes and sanitizes corrupt version-six preferences", () => {
+    const storage = new MemoryStorage();
+    for (const horizonMode of ["standard", "extended", "unlimited"] as const) {
+      expect(new SaveStore(storage).save({ ...saveInput, horizonMode })).toBe(true);
+      expect(new SaveStore(storage).load().horizonMode).toBe(horizonMode);
+    }
+
+    storage.value = JSON.stringify({ version: 6, horizonMode: "infinite" });
+    expect(new SaveStore(storage).load().horizonMode).toBe("standard");
+  });
+
   it.each(["not json", JSON.stringify({ version: 99, scanned: ["amber-relay"] })])(
     "recovers safely from invalid data: %s",
     (value) => {
       const storage = new MemoryStorage();
       storage.value = value;
       expect(new SaveStore(storage).load()).toEqual({
-        version: 5,
+        version: 6,
         scanned: [],
         inventory: EMPTY_INVENTORY,
         worldDiffs: {},
         doorStates: {},
         manualWaypoint: null,
         worldMinutes: WORLD_START_MINUTES,
+        horizonMode: "standard",
       });
     },
   );
 
   it("runs without browser storage in deterministic tests", () => {
     const store = new SaveStore(null);
-    expect(store.load().version).toBe(5);
+    expect(store.load().version).toBe(6);
     expect(store.save(saveInput)).toBe(false);
   });
 
