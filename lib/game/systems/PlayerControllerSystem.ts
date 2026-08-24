@@ -3,6 +3,7 @@ import {
   CROUCH_HEIGHT,
   CROUCH_SPEED,
   JUMP_SPEED,
+  MAX_STEP_HEIGHT,
   PLAYER_HEIGHT,
   PLAYER_RADIUS,
   SPRINT_SPEED,
@@ -46,6 +47,7 @@ export class PlayerControllerSystem implements GameSystem<GameRuntimeContext> {
       context.input.isDown("ControlLeft") ||
       context.input.isDown("ControlRight") ||
       context.input.isDown("KeyC");
+    const eyeHeight = context.player.crouching ? CROUCH_HEIGHT : PLAYER_HEIGHT;
     const sprintHeld =
       context.input.isDown("ShiftLeft") || context.input.isDown("ShiftRight");
     context.player.sprinting =
@@ -96,7 +98,13 @@ export class PlayerControllerSystem implements GameSystem<GameRuntimeContext> {
       const resolved = resolvePlanarMovement(
         current,
         desired,
-        context.world.queryColliders(current, desired, PLAYER_RADIUS),
+        context.world.queryColliders(
+          current,
+          desired,
+          PLAYER_RADIUS,
+          context.player.position.y,
+          context.player.position.y + eyeHeight,
+        ),
         PLAYER_RADIUS,
       );
       context.player.position.x = resolved.x;
@@ -106,18 +114,20 @@ export class PlayerControllerSystem implements GameSystem<GameRuntimeContext> {
     const groundY = context.world.sampleGroundHeight(
       context.player.position.x,
       context.player.position.z,
+      context.player.position.y,
     );
     const vertical = stepVertical(
       context.player.position.y,
       context.player.verticalVelocity,
       groundY,
       deltaSeconds,
+      context.player.grounded,
+      MAX_STEP_HEIGHT,
     );
     context.player.position.y = vertical.y;
     context.player.verticalVelocity = vertical.velocity;
     context.player.grounded = vertical.grounded;
 
-    const eyeHeight = context.player.crouching ? CROUCH_HEIGHT : PLAYER_HEIGHT;
     context.camera.position.set(
       context.player.position.x,
       context.player.position.y + eyeHeight,

@@ -5,6 +5,9 @@ export interface PlanarPosition {
 
 interface ColliderBase extends PlanarPosition {
   id: string;
+  /** Optional absolute vertical bounds; omitted colliders remain infinite. */
+  minY?: number;
+  maxY?: number;
 }
 
 export interface CircleCollider extends ColliderBase {
@@ -54,6 +57,15 @@ function isFinitePosition(position: PlanarPosition) {
 
 function isValidCollider(collider: PlanarCollider) {
   if (!collider.id || !isFinitePosition(collider)) return false;
+  if (
+    (collider.minY !== undefined && !Number.isFinite(collider.minY)) ||
+    (collider.maxY !== undefined && !Number.isFinite(collider.maxY)) ||
+    (collider.minY !== undefined &&
+      collider.maxY !== undefined &&
+      collider.minY > collider.maxY)
+  ) {
+    return false;
+  }
   if (collider.shape === "circle") {
     return Number.isFinite(collider.radius) && collider.radius >= 0;
   }
@@ -63,6 +75,21 @@ function isValidCollider(collider: PlanarCollider) {
     Number.isFinite(collider.halfDepth) &&
     collider.halfDepth >= 0 &&
     Number.isFinite(collider.rotation)
+  );
+}
+
+export function colliderIntersectsVerticalRange(
+  collider: PlanarCollider,
+  minY: number,
+  maxY: number,
+) {
+  const lower = Number.isFinite(minY) ? minY : -Infinity;
+  const upper = Number.isFinite(maxY) ? maxY : Infinity;
+  const safeMinY = Math.min(lower, upper);
+  const safeMaxY = Math.max(lower, upper);
+  return (
+    (collider.maxY ?? Infinity) >= safeMinY &&
+    (collider.minY ?? -Infinity) <= safeMaxY
   );
 }
 

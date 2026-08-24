@@ -61,12 +61,21 @@ const MAX_FRAME_DELTA = 0.075;
 export interface GameTestBridge {
   isReady(): boolean;
   snapshot(): GameSnapshot;
-  teleport(x: number, z: number): void;
+  teleport(x: number, z: number, y?: number): void;
   faceBeacon(beaconId: BeaconId): void;
   discover(beaconId: BeaconId): void;
   loseContext(): void;
   restoreContext(): void;
-  targets(): Array<{ id: string; kind: string; x: number; z: number }>;
+  targets(): Array<{
+    id: string;
+    kind: string;
+    action: string;
+    x: number;
+    z: number;
+    open: boolean | null;
+  }>;
+  doors(): Array<{ id: string; open: boolean }>;
+  groundHeight(x: number, z: number, referenceY?: number): number;
   citizens(): {
     visible: number;
     generated: number;
@@ -100,7 +109,7 @@ export interface GameTestBridge {
   setHeading(heading: number): void;
   navigationTargets(): ReturnType<NavigationService["targetsSnapshot"]>;
   colliders(): PlanarCollider[];
-  probeCollision(current: PlanarPosition, desired: PlanarPosition): {
+  probeCollision(current: PlanarPosition, desired: PlanarPosition, feetY?: number): {
     position: PlanarPosition;
     clear: boolean;
     candidateCount: number;
@@ -174,6 +183,7 @@ export class Engine {
   private scanned: BeaconId[] = [];
   private inventory: InventoryState = { ...EMPTY_INVENTORY };
   private worldDiffs: Record<string, EntityDiff> = {};
+  private doorStates: Record<string, boolean> = {};
   private lastDiscovery: BeaconId | null = null;
   private lastGather: LastGatherSnapshot | null = null;
   private lastFastTravel: GameSnapshot["lastFastTravel"] = null;
@@ -200,6 +210,7 @@ export class Engine {
     this.scanned = saved.scanned;
     this.inventory = saved.inventory;
     this.worldDiffs = saved.worldDiffs;
+    this.doorStates = saved.doorStates;
     if (saved.manualWaypoint) this.navigation.setManualWaypoint(saved.manualWaypoint);
 
     this.renderer = new THREE.WebGLRenderer({
@@ -217,7 +228,12 @@ export class Engine {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     this.input = new InputManager(this.canvas, this.handlePointerLockChange);
-    this.world = new ChunkManager(this.scene, this.quality, this.worldDiffs);
+    this.world = new ChunkManager(
+      this.scene,
+      this.quality,
+      this.worldDiffs,
+      this.doorStates,
+    );
     this.citizens = new CitizenEngine(this.scene, this.quality);
     this.environment = createEnvironment(
       this.scene,
@@ -350,6 +366,18 @@ export class Engine {
   }
 
   performInteraction(target: WorldTarget) {
+    if (target.action === "toggle") {
+      if (target.doorId) {
+        const result = this.world.toggleDoor(
+          target.doorId,
+          this.player.position,
+          PLAYER_RADIUS,
+        );
+        if (result === "opened" || result === "closed") this.persist();
+      }
+      this.emitSnapshot(true);
+      return;
+    }
     if (target.action === "scan" && target.beaconId) {
       this.discover(target.beaconId);
       return;
@@ -571,6 +599,7 @@ export class Engine {
       scanned: this.scanned,
       inventory: this.inventory,
       worldDiffs: this.worldDiffs,
+      doorStates: this.doorStates,
       manualWaypoint,
       worldMinutes: this.environment.getPersistentWorldMinutes(),
     });
@@ -750,6 +779,7 @@ export class Engine {
             hits: nearbyTarget.hits,
             hitsRequired: nearbyTarget.hitsRequired,
             beaconId: nearbyTarget.beaconId ?? null,
+            open: nearbyTarget.open ?? null,
           }
         : null,
       nearbyBeacon: nearbyTarget?.beaconId ?? null,
@@ -885,8 +915,8 @@ export class Engine {
     window.__STILLPOINT_TEST__ = {
       isReady: () => this.ready,
       snapshot: () => structuredClone(this.snapshot),
-      teleport: (x, z) => {
-        this.relocatePlayer(x, z);
+      teleport: (x, z, y) => {
+        this.relocatePlayer(x, z, y);
         this.emitSnapshot(true);
       },
       faceBeacon: (beaconId) => {
@@ -913,9 +943,14 @@ export class Engine {
         this.world.targets.map((target) => ({
           id: target.id,
           kind: target.kind,
+          action: target.action,
           x: target.position.x,
           z: target.position.z,
+          open: target.open ?? null,
         })),
+      doors: () => structuredClone(this.world.doorsSnapshot),
+      groundHeight: (x, z, referenceY) =>
+        this.world.sampleGroundHeight(x, z, referenceY),
       citizens: () => this.citizens.debugSnapshot(),
       nightLighting: () => this.world.nightLightingSnapshot,
       faceTarget: (id) => {
@@ -975,8 +1010,15 @@ export class Engine {
       },
       navigationTargets: () => this.navigation.targetsSnapshot(),
       colliders: () => structuredClone(this.world.colliders),
-      probeCollision: (current, desired) => {
-        const candidates = this.world.queryColliders(current, desired, PLAYER_RADIUS);
+      probeCollision: (current, desired, feetY) => {
+        const groundY = feetY ?? this.world.sampleGroundHeight(current.x, current.z);
+        const candidates = this.world.queryColliders(
+          current,
+          desired,
+          PLAYER_RADIUS,
+          groundY,
+          groundY + PLAYER_HEIGHT,
+        );
         const position = resolvePlanarMovement(
           current,
           desired,
@@ -985,7 +1027,7 @@ export class Engine {
         );
         return {
           position,
-          clear: isPlanarPositionClear(position, this.world.colliders, PLAYER_RADIUS),
+          clear: isPlanarPositionClear(position, candidates, PLAYER_RADIUS),
           candidateCount: candidates.length,
         };
       },

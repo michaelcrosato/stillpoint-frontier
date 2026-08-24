@@ -140,6 +140,7 @@ export default function GameShell() {
             hits: 1,
             hitsRequired: 3,
             beaconId: null,
+            open: null,
           },
           nearbyDistance: 4.2,
         });
@@ -441,6 +442,10 @@ export default function GameShell() {
                 <span>
                   {nearbyTarget.action === "harvest"
                     ? "HARVEST RESOURCE"
+                    : nearbyTarget.action === "toggle"
+                      ? nearbyTarget.open
+                        ? "CLOSE DOOR"
+                        : "OPEN DOOR"
                     : nearbyTarget.action === "collect"
                       ? "COLLECT"
                       : "RECOVER RECORD"}

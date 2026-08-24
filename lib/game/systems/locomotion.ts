@@ -38,7 +38,18 @@ export function stepVertical(
   velocity: number,
   groundY: number,
   deltaSeconds: number,
+  wasGrounded = false,
+  maxStepDown = 0,
 ) {
+  const stepDown = Math.max(0, Number.isFinite(maxStepDown) ? maxStepDown : 0);
+  if (
+    wasGrounded &&
+    velocity <= 0 &&
+    y >= groundY &&
+    y - groundY <= stepDown + 1e-6
+  ) {
+    return { y: groundY, velocity: 0, grounded: true };
+  }
   const nextVelocity = velocity - GRAVITY * deltaSeconds;
   const nextY = y + nextVelocity * deltaSeconds;
   if (nextY <= groundY) return { y: groundY, velocity: 0, grounded: true };

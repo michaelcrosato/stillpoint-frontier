@@ -31,7 +31,7 @@ function disposeRoot(root: THREE.Object3D) {
 }
 
 describe("single spawn building prototype", () => {
-  it("defines one human-scale floor with an open door and real windows", () => {
+  it("defines one human-scale floor with a hinged door and real glass", () => {
     expect(SPAWN_BUILDING.id).toBe("spawn-field-unit-01");
     expect(SPAWN_BUILDING.chunkKey).toBe("0:0");
     expect(SPAWN_BUILDING.floorCount).toBe(1);
@@ -50,13 +50,29 @@ describe("single spawn building prototype", () => {
     const runtime = createSpawnBuilding("performance");
     expect(runtime.root.userData).toMatchObject({ enterable: true, floorCount: 1 });
     const meshNames: string[] = [];
+    const glass: THREE.Mesh[] = [];
     runtime.root.traverse((object) => {
-      if (object instanceof THREE.Mesh) meshNames.push(object.name);
+      if (!(object instanceof THREE.Mesh)) return;
+      meshNames.push(object.name);
+      if (object.userData.glass) glass.push(object);
     });
-    expect(meshNames.filter((name) => name.includes(":window:"))).toHaveLength(3);
-    expect(meshNames).toContain("spawn-building:door:open-leaf");
+    expect(glass).toHaveLength(3);
+    for (const pane of glass) {
+      expect(pane.material).toBeInstanceOf(THREE.MeshPhysicalMaterial);
+      const material = pane.material as THREE.MeshPhysicalMaterial;
+      expect(material.transparent).toBe(true);
+      expect(material.opacity).toBeGreaterThan(0);
+      expect(material.opacity).toBeLessThan(1);
+      expect(material.transmission).toBeGreaterThan(0.5);
+      expect(material.depthWrite).toBe(false);
+      expect(pane.castShadow).toBe(false);
+    }
+    expect(meshNames).toContain(`authored-door:${SPAWN_BUILDING.doorId}:leaf`);
     expect(meshNames).toContain("spawn-building:roof");
     expect(meshNames.length).toBeLessThan(30);
+    expect(runtime.doors).toHaveLength(1);
+    expect(runtime.doors[0].isOpen).toBe(false);
+    expect(runtime.doors[0].pivot.rotation.y).toBeCloseTo(0);
     disposeRoot(runtime.root);
   });
 
@@ -74,10 +90,13 @@ describe("single spawn building prototype", () => {
     );
   });
 
-  it("allows entry through the doorway while every wall remains solid", () => {
+  it("atomically opens the doorway while every wall and door leaf remain solid", () => {
     const runtime = createSpawnBuilding("performance");
-    expect(runtime.colliders).toHaveLength(5);
-    expect(new Set(runtime.colliders.map((collider) => collider.id)).size).toBe(5);
+    expect(runtime.colliders).toHaveLength(6);
+    expect(new Set(runtime.colliders.map((collider) => collider.id)).size).toBe(6);
+    expect(runtime.colliders.filter((collider) =>
+      collider.id.startsWith(`spawn-building:${SPAWN_BUILDING.id}:wall:`),
+    )).toHaveLength(5);
     const interior = { x: SPAWN_BUILDING.x, z: SPAWN_BUILDING.z };
     const doorway = {
       x: SPAWN_BUILDING.x,
@@ -85,7 +104,7 @@ describe("single spawn building prototype", () => {
     };
     const outside = { x: doorway.x, z: doorway.z + 2 };
     expect(isPlanarPositionClear(interior, runtime.colliders, PLAYER_RADIUS)).toBe(true);
-    expect(isPlanarPositionClear(doorway, runtime.colliders, PLAYER_RADIUS)).toBe(true);
+    expect(isPlanarPositionClear(doorway, runtime.colliders, PLAYER_RADIUS)).toBe(false);
     for (const authoredOpening of [
       { x: 0, z: 8 },
       { x: 2.3, z: 5.4 },
@@ -98,6 +117,25 @@ describe("single spawn building prototype", () => {
         PLAYER_RADIUS,
       )).toBe(true);
     }
+    const blocked = resolvePlanarMovement(
+      outside,
+      interior,
+      runtime.colliders,
+      PLAYER_RADIUS,
+    );
+    expect(blocked.z).toBeGreaterThan(doorway.z);
+
+    const door = runtime.doors[0];
+    const colliderId = door.collider.id;
+    for (let toggle = 0; toggle < 100; toggle += 1) {
+      door.setOpen(toggle % 2 === 0);
+      expect(door.collider.id).toBe(colliderId);
+    }
+    door.setOpen(true);
+    expect(door.isOpen).toBe(true);
+    expect(door.pivot.rotation.y).toBeCloseTo(Math.PI * 0.5);
+    expect(door.collider.id).toBe(colliderId);
+    expect(isPlanarPositionClear(doorway, runtime.colliders, PLAYER_RADIUS)).toBe(true);
     const entered = resolvePlanarMovement(
       outside,
       interior,
@@ -144,10 +182,59 @@ describe("single spawn building prototype", () => {
     expect(world.colliders.filter((collider) =>
       collider.id.startsWith(`spawn-building:${SPAWN_BUILDING.id}:wall:`),
     )).toHaveLength(5);
+    expect(world.doorsSnapshot).toEqual([
+      { id: SPAWN_BUILDING.doorId, open: false },
+      { id: "spawn-survey-house-02:front", open: false },
+    ]);
+    expect(world.targets.filter((target) => target.kind === "door")).toHaveLength(2);
     expect(world.sampleGroundHeight(SPAWN_BUILDING.x, SPAWN_BUILDING.z))
       .toBeCloseTo(SPAWN_BUILDING.floorY);
     expect(isPlanarPositionClear({ x: 0, z: 8 }, world.colliders, PLAYER_RADIUS))
       .toBe(true);
+
+    expect(world.toggleDoor(
+      SPAWN_BUILDING.doorId,
+      { x: 0, y: SPAWN_BUILDING.floorY, z: 8 },
+      PLAYER_RADIUS,
+    )).toBe("opened");
+    expect(world.doorsSnapshot.find((door) => door.id === SPAWN_BUILDING.doorId)?.open)
+      .toBe(true);
+    expect(world.toggleDoor(
+      SPAWN_BUILDING.doorId,
+      {
+        x: SPAWN_BUILDING.x,
+        y: SPAWN_BUILDING.floorY,
+        z: SPAWN_BUILDING.z + SPAWN_BUILDING.depth * 0.5,
+      },
+      PLAYER_RADIUS,
+    )).toBe("blocked");
+    expect(world.toggleDoor(
+      SPAWN_BUILDING.doorId,
+      { x: 0, y: SPAWN_BUILDING.floorY, z: 8 },
+      PLAYER_RADIUS,
+    )).toBe("closed");
+    expect(world.doorsSnapshot.find((door) => door.id === SPAWN_BUILDING.doorId)?.open)
+      .toBe(false);
+    expect(world.targets.find((target) => target.id === SPAWN_BUILDING.doorId)?.open)
+      .toBe(false);
+    expect(world.toggleDoor(
+      SPAWN_BUILDING.doorId,
+      { x: 0, y: SPAWN_BUILDING.floorY, z: 8 },
+      PLAYER_RADIUS,
+    )).toBe("opened");
+
+    expect(world.toggleDoor(
+      "spawn-survey-house-02:front",
+      { x: 0, y: SPAWN_BUILDING.floorY, z: 8 },
+      PLAYER_RADIUS,
+    )).toBe("opened");
+    expect(world.targets.find((target) => target.id === "spawn-survey-house-02:front")?.open)
+      .toBe(true);
+    expect(world.toggleDoor(
+      "spawn-survey-house-02:front",
+      { x: 0, y: SPAWN_BUILDING.floorY, z: 8 },
+      PLAYER_RADIUS,
+    )).toBe("closed");
 
     world.update(1_200, 1_200);
     expect(scene.getObjectsByProperty("name", `spawn-building:${SPAWN_BUILDING.id}`))
@@ -155,6 +242,8 @@ describe("single spawn building prototype", () => {
     world.update(0, 8);
     expect(scene.getObjectsByProperty("name", `spawn-building:${SPAWN_BUILDING.id}`))
       .toHaveLength(1);
+    expect(world.doorsSnapshot.find((door) => door.id === SPAWN_BUILDING.doorId)?.open)
+      .toBe(true);
     world.dispose();
   });
 });

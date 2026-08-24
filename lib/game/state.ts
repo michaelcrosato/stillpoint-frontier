@@ -18,13 +18,14 @@ import type { NavigationGuidance } from "./navigation/NavigationService";
 
 export interface NearbyTargetSnapshot {
   id: string;
-  kind: "beacon" | "pickup" | "resource";
-  action: "scan" | "collect" | "harvest";
+  kind: "beacon" | "pickup" | "resource" | "door";
+  action: "scan" | "collect" | "harvest" | "toggle";
   name: string;
   item: ItemId | null;
   hits: number;
   hitsRequired: number;
   beaconId: BeaconId | null;
+  open: boolean | null;
 }
 
 export interface LastGatherSnapshot {

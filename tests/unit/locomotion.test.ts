@@ -1,6 +1,6 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { JUMP_SPEED } from "../../lib/game/config";
+import { JUMP_SPEED, MAX_STEP_HEIGHT } from "../../lib/game/config";
 import { stepStamina, stepVertical } from "../../lib/game/systems/locomotion";
 
 describe("locomotion math", () => {
@@ -14,6 +14,33 @@ describe("locomotion math", () => {
       state = stepVertical(state.y, state.velocity, 10, 1 / 60);
     }
     expect(state).toEqual({ y: 10, velocity: 0, grounded: true });
+  });
+
+  it("keeps grounded movement attached to small descending steps", () => {
+    const stepped = stepVertical(
+      12,
+      0,
+      12 - MAX_STEP_HEIGHT,
+      1 / 60,
+      true,
+      MAX_STEP_HEIGHT,
+    );
+    expect(stepped).toEqual({
+      y: 12 - MAX_STEP_HEIGHT,
+      velocity: 0,
+      grounded: true,
+    });
+
+    const drop = stepVertical(
+      12,
+      0,
+      12 - MAX_STEP_HEIGHT - 0.01,
+      1 / 60,
+      true,
+      MAX_STEP_HEIGHT,
+    );
+    expect(drop.grounded).toBe(false);
+    expect(drop.y).toBeGreaterThan(12 - MAX_STEP_HEIGHT - 0.01);
   });
 
   it("drains only while sprinting and regenerates after a delay", () => {

@@ -16,6 +16,8 @@ export const WAYPOINT_WORLD_MARKER_DISTANCE = 846;
 export const PLAYER_HEIGHT = 1.72;
 export const CROUCH_HEIGHT = 1.08;
 export const PLAYER_RADIUS = 0.42;
+/** Maximum authored rise the grounded controller can step onto in one sample. */
+export const MAX_STEP_HEIGHT = 0.22;
 export const WALK_SPEED = 6.4;
 export const SPRINT_SPEED = 10.5;
 export const CROUCH_SPEED = 3.35;

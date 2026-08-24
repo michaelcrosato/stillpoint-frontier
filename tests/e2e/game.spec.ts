@@ -6,6 +6,7 @@ import {
 } from "../../lib/game/config";
 import { getSettlement } from "../../lib/game/world/macroWorld";
 import { SPAWN_BUILDING } from "../../lib/game/world/spawnBuilding";
+import { TWO_STORY_BUILDING } from "../../lib/game/world/twoStoryBuilding";
 
 async function openDeterministicWorld(page: Page) {
   await page.goto("/?test=1", { waitUntil: "load" });
@@ -90,7 +91,7 @@ test("starts the survey, streams distant chunks, and opens the map", async ({ pa
   await attachScreenshot(page, testInfo, "distant-world-map");
 });
 
-test("enters the single-floor spawn building only through its doorway", async ({ page }) => {
+test("toggles the spawn door and exposes a traversable second floor", async ({ page }) => {
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   expect(SPAWN_BUILDING.floorCount).toBe(1);
@@ -103,17 +104,55 @@ test("enters the single-floor spawn building only through its doorway", async ({
     `spawn-building:${SPAWN_BUILDING.id}:wall:`,
   );
   expect(wallCount).toBe(5);
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.doors().length)).toBe(2);
 
-  const doorwayProbe = await page.evaluate(
+  const closedDoorwayProbe = await page.evaluate(
     ({ x, z, depth }) => window.__STILLPOINT_TEST__?.probeCollision(
       { x, z: z + depth * 0.5 + 2 },
       { x, z },
     ),
     SPAWN_BUILDING,
   );
-  expect(doorwayProbe?.clear).toBe(true);
-  expect(doorwayProbe?.position.x).toBeCloseTo(SPAWN_BUILDING.x, 3);
-  expect(doorwayProbe?.position.z).toBeCloseTo(SPAWN_BUILDING.z, 3);
+  expect(closedDoorwayProbe?.position.z ?? Number.NEGATIVE_INFINITY).toBeGreaterThan(
+    SPAWN_BUILDING.z + SPAWN_BUILDING.depth * 0.5,
+  );
+
+  await page.evaluate(
+    (doorId) => window.__STILLPOINT_TEST__?.interactTarget(doorId),
+    SPAWN_BUILDING.doorId,
+  );
+  expect(await page.evaluate(
+    (doorId) => window.__STILLPOINT_TEST__?.doors().find((door) => door.id === doorId)?.open,
+    SPAWN_BUILDING.doorId,
+  )).toBe(true);
+  const openDoorwayProbe = await page.evaluate(
+    ({ x, z, depth }) => window.__STILLPOINT_TEST__?.probeCollision(
+      { x, z: z + depth * 0.5 + 2 },
+      { x, z },
+    ),
+    SPAWN_BUILDING,
+  );
+  expect(openDoorwayProbe?.position.x).toBeCloseTo(SPAWN_BUILDING.x, 3);
+  expect(openDoorwayProbe?.position.z).toBeCloseTo(SPAWN_BUILDING.z, 3);
+
+  await page.evaluate(
+    (doorId) => window.__STILLPOINT_TEST__?.interactTarget(doorId),
+    SPAWN_BUILDING.doorId,
+  );
+  expect(await page.evaluate(
+    (doorId) => window.__STILLPOINT_TEST__?.doors().find((door) => door.id === doorId)?.open,
+    SPAWN_BUILDING.doorId,
+  )).toBe(false);
+  const reclosedDoorwayProbe = await page.evaluate(
+    ({ x, z, depth }) => window.__STILLPOINT_TEST__?.probeCollision(
+      { x, z: z + depth * 0.5 + 2 },
+      { x, z },
+    ),
+    SPAWN_BUILDING,
+  );
+  expect(reclosedDoorwayProbe?.position.z ?? Number.NEGATIVE_INFINITY).toBeGreaterThan(
+    SPAWN_BUILDING.z + SPAWN_BUILDING.depth * 0.5,
+  );
 
   const wallProbe = await page.evaluate(
     ({ x, z, width }) => window.__STILLPOINT_TEST__?.probeCollision(
@@ -126,6 +165,18 @@ test("enters the single-floor spawn building only through its doorway", async ({
   expect(wallProbe?.position.x ?? Number.POSITIVE_INFINITY).toBeLessThan(
     SPAWN_BUILDING.x + SPAWN_BUILDING.width * 0.5,
   );
+
+  const groundFloor = await page.evaluate(
+    ({ x, z }) => window.__STILLPOINT_TEST__?.groundHeight(x, z),
+    TWO_STORY_BUILDING,
+  );
+  const upperFloor = await page.evaluate(
+    ({ x, z, upperFloorY }) =>
+      window.__STILLPOINT_TEST__?.groundHeight(x, z, upperFloorY),
+    TWO_STORY_BUILDING,
+  );
+  expect(groundFloor).toBeCloseTo(TWO_STORY_BUILDING.floorY, 4);
+  expect(upperFloor).toBeCloseTo(TWO_STORY_BUILDING.upperFloorY, 4);
 });
 
 test("sets, replaces, guides, and clears a map waypoint", async ({ page }, testInfo) => {

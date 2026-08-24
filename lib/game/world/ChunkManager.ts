@@ -4,6 +4,7 @@ import {
   CHUNK_SEGMENTS,
   CHUNK_SIZE,
   GAMEPLAY_CHUNK_RADIUS,
+  PLAYER_HEIGHT,
   WORLD_CHUNK_LOAD_RADIUS,
   WORLD_SEED,
   type BeaconId,
@@ -14,9 +15,11 @@ import type { ItemId } from "../gameplay/items";
 import { randomRange, seededRandom } from "../core/random";
 import {
   PlanarCollisionIndex,
+  colliderIntersectsVerticalRange,
   isPlanarPositionClear,
   type PlanarCollider,
 } from "../systems/collision";
+import type { AuthoredDoorRuntime } from "./authoredDoor";
 import {
   WATER_LEVEL,
   WORLD_MODEL_SCALE,
@@ -43,9 +46,15 @@ import {
   createSpawnBuilding,
   spawnBuildingSupportHeight,
 } from "./spawnBuilding";
+import {
+  TWO_STORY_BUILDING,
+  createTwoStoryBuilding,
+  selectWalkableSupport,
+  twoStorySupportCandidates,
+} from "./twoStoryBuilding";
 
-export type WorldTargetKind = "beacon" | "pickup" | "resource";
-export type WorldTargetAction = "scan" | "collect" | "harvest";
+export type WorldTargetKind = "beacon" | "pickup" | "resource" | "door";
+export type WorldTargetAction = "scan" | "collect" | "harvest" | "toggle";
 
 export interface WorldTarget {
   id: string;
@@ -62,6 +71,8 @@ export interface WorldTarget {
   beaconId?: BeaconId;
   code?: string;
   note?: string;
+  doorId?: string;
+  open?: boolean;
 }
 
 interface ChunkRuntime {
@@ -71,6 +82,7 @@ interface ChunkRuntime {
   root: THREE.Group;
   colliders: PlanarCollider[];
   targets: WorldTarget[];
+  doors: AuthoredDoorRuntime[];
   nightLighting: ChunkNightLighting;
 }
 
@@ -102,6 +114,11 @@ const OPENING_RESERVATIONS = [
     z: SPAWN_BUILDING.z,
     radius: SPAWN_BUILDING.clearanceRadius,
   },
+  {
+    x: TWO_STORY_BUILDING.x,
+    z: TWO_STORY_BUILDING.z,
+    radius: TWO_STORY_BUILDING.clearanceRadius,
+  },
 ] as const;
 
 function targetDiff(
@@ -126,6 +143,7 @@ export class ChunkManager {
     private readonly scene: THREE.Scene,
     private quality: QualityLevel,
     private readonly worldDiffs: Record<string, EntityDiff> = {},
+    private readonly doorStates: Record<string, boolean> = {},
   ) {}
 
   update(playerX: number, playerZ: number) {
@@ -225,8 +243,18 @@ export class ChunkManager {
     current: { x: number; z: number },
     desired: { x: number; z: number },
     radius: number,
+    minY?: number,
+    maxY?: number,
   ) {
-    return this.collisionIndex.querySweep(current, desired, radius);
+    const candidates = this.collisionIndex.querySweep(current, desired, radius);
+    if (minY === undefined && maxY === undefined) return candidates;
+    return candidates.filter((collider) =>
+      colliderIntersectsVerticalRange(
+        collider,
+        minY ?? Number.NEGATIVE_INFINITY,
+        maxY ?? Number.POSITIVE_INFINITY,
+      ),
+    );
   }
 
   get targets() {
@@ -237,8 +265,51 @@ export class ChunkManager {
     return this.loaded.size;
   }
 
-  sampleGroundHeight(x: number, z: number) {
-    return spawnBuildingSupportHeight(x, z) ?? sampleTerrainHeight(x, z);
+  get doorsSnapshot() {
+    return [...this.loaded.values()].flatMap((chunk) =>
+      chunk.doors.map((door) => ({ id: door.id, open: door.isOpen })),
+    );
+  }
+
+  sampleGroundHeight(x: number, z: number, referenceY?: number) {
+    const supports = [
+      spawnBuildingSupportHeight(x, z),
+      ...twoStorySupportCandidates(x, z),
+    ].filter((height): height is number => height !== null);
+    return selectWalkableSupport(supports, referenceY) ?? sampleTerrainHeight(x, z);
+  }
+
+  toggleDoor(
+    id: string,
+    playerPosition: { x: number; y: number; z: number },
+    playerRadius: number,
+  ): "opened" | "closed" | "blocked" | null {
+    for (const chunk of this.loaded.values()) {
+      const door = chunk.doors.find((candidate) => candidate.id === id);
+      if (!door) continue;
+      const nextOpen = !door.isOpen;
+      if (!nextOpen) {
+        const closedCollider = door.colliderFor(false);
+        const verticallyOverlapping = colliderIntersectsVerticalRange(
+          closedCollider,
+          playerPosition.y,
+          playerPosition.y + PLAYER_HEIGHT,
+        );
+        if (
+          verticallyOverlapping &&
+          !isPlanarPositionClear(playerPosition, [closedCollider], playerRadius)
+        ) {
+          return "blocked";
+        }
+      }
+      door.setOpen(nextOpen);
+      this.doorStates[id] = nextOpen;
+      const target = chunk.targets.find((candidate) => candidate.doorId === id);
+      if (target) target.open = nextOpen;
+      this.refreshCaches();
+      return nextOpen ? "opened" : "closed";
+    }
+    return null;
   }
 
   dispose() {
@@ -301,12 +372,26 @@ export class ChunkManager {
 
     const colliders: PlanarCollider[] = [];
     const targets: WorldTarget[] = [];
+    const doors: AuthoredDoorRuntime[] = [];
     this.addWater(root, center.x, center.z);
     this.addRoads(root, center.x, center.z, key);
     if (key === SPAWN_BUILDING.chunkKey) {
-      const prototype = createSpawnBuilding(this.quality);
-      root.add(prototype.root);
-      colliders.push(...prototype.colliders);
+      const authoredBuildings = [
+        createSpawnBuilding(
+          this.quality,
+          this.doorStates[SPAWN_BUILDING.doorId] ?? false,
+        ),
+        createTwoStoryBuilding(
+          this.quality,
+          this.doorStates[TWO_STORY_BUILDING.doorId] ?? false,
+        ),
+      ];
+      for (const building of authoredBuildings) {
+        root.add(building.root);
+        colliders.push(...building.colliders);
+        doors.push(...building.doors);
+        for (const door of building.doors) targets.push(this.createDoorTarget(door));
+      }
     }
     this.addSettlementBuildings(
       root,
@@ -355,10 +440,27 @@ export class ChunkManager {
       root,
       colliders,
       targets,
+      doors,
       nightLighting,
     };
     this.loaded.set(key, runtime);
     this.applyNightLighting(nightLighting);
+  }
+
+  private createDoorTarget(door: AuthoredDoorRuntime): WorldTarget {
+    return {
+      id: door.id,
+      kind: "door",
+      action: "toggle",
+      name: door.name,
+      position: door.targetPosition.clone(),
+      root: door.pivot,
+      maxDistance: 4.25,
+      hitsRequired: 0,
+      hits: 0,
+      doorId: door.id,
+      open: door.isOpen,
+    };
   }
 
   private findSolidPlacement(

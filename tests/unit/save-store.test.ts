@@ -20,6 +20,10 @@ const saveInput = {
     "resource:rock:v1:0:0:0": { hits: 3, removed: true },
     "resource:tree:v1:0:0:0": { hits: 1, removed: false },
   },
+  doorStates: {
+    "spawn-field-unit-01:front": true,
+    "spawn-survey-house-02:front": false,
+  },
   manualWaypoint: { x: 12_400, z: -8_200 },
   worldMinutes: 2_345.5,
 };
@@ -30,10 +34,11 @@ describe("versioned frontier saves", () => {
     const store = new SaveStore(storage);
     expect(store.save(saveInput)).toBe(true);
     expect(store.load()).toEqual({
-      version: 4,
+      version: 5,
       scanned: ["amber-relay", "meridian-vault"],
       inventory: { ...EMPTY_INVENTORY, stone: 7, wood: 3 },
       worldDiffs: saveInput.worldDiffs,
+      doorStates: saveInput.doorStates,
       manualWaypoint: saveInput.manualWaypoint,
       worldMinutes: saveInput.worldMinutes,
     });
@@ -46,10 +51,11 @@ describe("versioned frontier saves", () => {
       scanned: ["hollow-array", "invented", "hollow-array", 7],
     });
     expect(new SaveStore(storage).load()).toEqual({
-      version: 4,
+      version: 5,
       scanned: ["hollow-array"],
       inventory: EMPTY_INVENTORY,
       worldDiffs: {},
+      doorStates: {},
       manualWaypoint: null,
       worldMinutes: WORLD_START_MINUTES,
     });
@@ -70,6 +76,7 @@ describe("versioned frontier saves", () => {
     const result = new SaveStore(storage).load();
     expect(result.inventory).toEqual({ ...EMPTY_INVENTORY, stone: 4 });
     expect(result.worldDiffs).toEqual({ "valid:entity": { hits: 2, removed: false } });
+    expect(result.doorStates).toEqual({});
     expect(result.manualWaypoint).toBeNull();
     expect(result.worldMinutes).toBe(WORLD_START_MINUTES);
   });
@@ -112,16 +119,42 @@ describe("versioned frontier saves", () => {
     expect(new SaveStore(storage).load().worldMinutes).toBe(10_000_000);
   });
 
+  it("migrates and validates sparse version-five door state", () => {
+    const storage = new MemoryStorage();
+    storage.value = JSON.stringify({
+      version: 5,
+      scanned: [],
+      inventory: {},
+      worldDiffs: {},
+      doorStates: {
+        "spawn-field-unit-01:front": true,
+        "spawn-survey-house-02:front": false,
+        "bad id": true,
+        "wrong:value": "open",
+      },
+      manualWaypoint: null,
+      worldMinutes: WORLD_START_MINUTES,
+    });
+    expect(new SaveStore(storage).load().doorStates).toEqual({
+      "spawn-field-unit-01:front": true,
+      "spawn-survey-house-02:front": false,
+    });
+
+    storage.value = JSON.stringify({ version: 4, doorStates: { old: true } });
+    expect(new SaveStore(storage).load().doorStates).toEqual({});
+  });
+
   it.each(["not json", JSON.stringify({ version: 99, scanned: ["amber-relay"] })])(
     "recovers safely from invalid data: %s",
     (value) => {
       const storage = new MemoryStorage();
       storage.value = value;
       expect(new SaveStore(storage).load()).toEqual({
-        version: 4,
+        version: 5,
         scanned: [],
         inventory: EMPTY_INVENTORY,
         worldDiffs: {},
+        doorStates: {},
         manualWaypoint: null,
         worldMinutes: WORLD_START_MINUTES,
       });
@@ -130,7 +163,7 @@ describe("versioned frontier saves", () => {
 
   it("runs without browser storage in deterministic tests", () => {
     const store = new SaveStore(null);
-    expect(store.load().version).toBe(4);
+    expect(store.load().version).toBe(5);
     expect(store.save(saveInput)).toBe(false);
   });
 

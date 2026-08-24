@@ -15,6 +15,7 @@ const VALID_BEACONS = new Set<string>(BEACONS.map((beacon) => beacon.id));
 const VALID_ITEMS = new Set<string>(Object.keys(ITEM_DEFINITIONS));
 const ENTITY_ID = /^[a-z0-9][a-z0-9:._-]{0,119}$/i;
 const MAX_WORLD_DIFFS = 10_000;
+const MAX_DOOR_STATES = 256;
 const MAX_WORLD_MINUTES = 10_000_000;
 
 export interface StorageAdapter {
@@ -23,10 +24,11 @@ export interface StorageAdapter {
 }
 
 export interface FrontierSave {
-  version: 4;
+  version: 5;
   scanned: BeaconId[];
   inventory: InventoryState;
   worldDiffs: Record<string, EntityDiff>;
+  doorStates: Record<string, boolean>;
   manualWaypoint: SavedMapWaypoint | null;
   worldMinutes: number;
 }
@@ -35,6 +37,7 @@ export interface FrontierSaveInput {
   scanned: readonly BeaconId[];
   inventory: Readonly<InventoryState>;
   worldDiffs: Readonly<Record<string, EntityDiff>>;
+  doorStates: Readonly<Record<string, boolean>>;
   manualWaypoint: Readonly<SavedMapWaypoint> | null;
   worldMinutes: number;
 }
@@ -46,13 +49,24 @@ export interface SavedMapWaypoint {
 
 function emptySave(): FrontierSave {
   return {
-    version: 4,
+    version: 5,
     scanned: [],
     inventory: { ...EMPTY_INVENTORY },
     worldDiffs: {},
+    doorStates: {},
     manualWaypoint: null,
     worldMinutes: WORLD_START_MINUTES,
   };
+}
+
+function normalizeDoorStates(value: unknown): Record<string, boolean> {
+  const doorStates: Record<string, boolean> = {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) return doorStates;
+  for (const [id, open] of Object.entries(value).slice(0, MAX_DOOR_STATES)) {
+    if (!ENTITY_ID.test(id) || typeof open !== "boolean") continue;
+    doorStates[id] = open;
+  }
+  return doorStates;
 }
 
 function normalizeScanned(value: unknown): BeaconId[] {
@@ -119,26 +133,34 @@ export class SaveStore {
         scanned?: unknown;
         inventory?: unknown;
         worldDiffs?: unknown;
+        doorStates?: unknown;
         manualWaypoint?: unknown;
         worldMinutes?: unknown;
       };
       if (parsed.version === 1) {
         return { ...emptySave(), scanned: normalizeScanned(parsed.scanned) };
       }
-      if (parsed.version !== 2 && parsed.version !== 3 && parsed.version !== 4) {
+      if (
+        parsed.version !== 2 &&
+        parsed.version !== 3 &&
+        parsed.version !== 4 &&
+        parsed.version !== 5
+      ) {
         return emptySave();
       }
       return {
-        version: 4,
+        version: 5,
         scanned: normalizeScanned(parsed.scanned),
         inventory: normalizeInventory(parsed.inventory),
         worldDiffs: normalizeWorldDiffs(parsed.worldDiffs),
+        doorStates:
+          parsed.version === 5 ? normalizeDoorStates(parsed.doorStates) : {},
         manualWaypoint:
-          parsed.version === 3 || parsed.version === 4
+          parsed.version === 3 || parsed.version === 4 || parsed.version === 5
             ? normalizeManualWaypoint(parsed.manualWaypoint)
             : null,
         worldMinutes:
-          parsed.version === 4
+          parsed.version === 4 || parsed.version === 5
             ? normalizeWorldMinutes(parsed.worldMinutes)
             : WORLD_START_MINUTES,
       };
@@ -151,10 +173,11 @@ export class SaveStore {
     if (!this.storage) return false;
     try {
       const payload: FrontierSave = {
-        version: 4,
+        version: 5,
         scanned: normalizeScanned(input.scanned),
         inventory: normalizeInventory(input.inventory),
         worldDiffs: normalizeWorldDiffs(input.worldDiffs),
+        doorStates: normalizeDoorStates(input.doorStates),
         manualWaypoint: normalizeManualWaypoint(input.manualWaypoint),
         worldMinutes: normalizeWorldMinutes(input.worldMinutes),
       };

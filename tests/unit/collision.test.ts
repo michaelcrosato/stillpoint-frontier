@@ -2,6 +2,7 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
   PlanarCollisionIndex,
+  colliderIntersectsVerticalRange,
   isPlanarPositionClear,
   resolvePlanarMovement,
   type BoxCollider,
@@ -32,6 +33,19 @@ function expectClear(position: { x: number; z: number }, colliders: readonly Pla
 }
 
 describe("continuous player collision", () => {
+  it("treats omitted vertical bounds as infinite and bounded floors independently", () => {
+    expect(colliderIntersectsVerticalRange(circle, 100, 102)).toBe(true);
+    const upperWall: BoxCollider = {
+      ...building,
+      id: "upper-wall",
+      minY: 3.5,
+      maxY: 7,
+    };
+    expect(colliderIntersectsVerticalRange(upperWall, 0, 1.72)).toBe(false);
+    expect(colliderIntersectsVerticalRange(upperWall, 3.5, 5.22)).toBe(true);
+    expect(colliderIntersectsVerticalRange(upperWall, Number.NaN, Infinity)).toBe(true);
+  });
+
   it("does not alter clear movement or worlds without colliders", () => {
     expect(resolvePlanarMovement({ x: 5, z: 5 }, { x: 6, z: 5 }, [circle], PLAYER_RADIUS))
       .toEqual({ x: 6, z: 5 });

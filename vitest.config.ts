@@ -16,6 +16,8 @@ export default defineConfig({
         "lib/game/world/macroWorld.ts",
         "lib/game/world/roads.ts",
         "lib/game/world/spawnBuilding.ts",
+        "lib/game/world/authoredDoor.ts",
+        "lib/game/world/twoStoryBuilding.ts",
         "lib/game/citizens/citizenRecipes.ts",
         "lib/game/gameplay/items.ts",
         "lib/game/gameplay/interactions.ts",

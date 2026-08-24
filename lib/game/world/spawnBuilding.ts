@@ -1,6 +1,10 @@
 import * as THREE from "three";
 import type { QualityLevel } from "../config";
 import type { PlanarCollider } from "../systems/collision";
+import {
+  createAuthoredDoor,
+  type AuthoredDoorRuntime,
+} from "./authoredDoor";
 import { sampleTerrainHeight } from "./terrain";
 
 const SITE = {
@@ -38,6 +42,7 @@ export const SPAWN_BUILDING = Object.freeze({
   floorCount: 1,
   hasBasement: false,
   roofAccess: false,
+  doorId: "spawn-field-unit-01:front",
   wallHeight: 3.5,
   wallThickness: 0.22,
   roofThickness: 0.24,
@@ -56,6 +61,7 @@ export const SPAWN_BUILDING = Object.freeze({
 export interface SpawnBuildingRuntime {
   root: THREE.Group;
   colliders: PlanarCollider[];
+  doors: AuthoredDoorRuntime[];
 }
 
 function wallCollider(
@@ -93,6 +99,7 @@ export function spawnBuildingSupportHeight(x: number, z: number) {
 
 export function createSpawnBuilding(
   quality: QualityLevel,
+  initialDoorOpen = false,
 ): SpawnBuildingRuntime {
   const definition = SPAWN_BUILDING;
   const root = new THREE.Group();
@@ -122,13 +129,16 @@ export function createSpawnBuilding(
     metalness: 0.3,
   });
   const glassTemplate = new THREE.MeshPhysicalMaterial({
-    color: 0x9ab8b7,
-    roughness: 0.18,
+    color: 0x8fbfc8,
+    roughness: 0.12,
     metalness: 0.05,
-    transmission: 0.28,
+    transmission: 0.72,
+    thickness: 0.045,
+    ior: 1.46,
     transparent: true,
-    opacity: 0.48,
+    opacity: 0.42,
     depthWrite: false,
+    side: THREE.DoubleSide,
   });
 
   const materials = {
@@ -156,6 +166,7 @@ export function createSpawnBuilding(
     mesh.castShadow = quality === "cinematic" && materialKind !== "glass";
     mesh.receiveShadow = materialKind !== "glass";
     mesh.userData.shadow = materialKind !== "glass";
+    mesh.userData.glass = materialKind === "glass";
     root.add(mesh);
     return mesh;
   };
@@ -274,17 +285,27 @@ export function createSpawnBuilding(
     [0, definition.doorHeight, frontZ + 0.13],
     "trim",
   );
-  addBox(
-    "door:open-leaf",
-    [definition.doorWidth, definition.doorHeight, 0.07],
-    [
-      -definition.doorWidth * 0.5,
-      definition.doorHeight * 0.5,
-      frontZ - definition.doorWidth * 0.5,
-    ],
-    "trim",
-    Math.PI * 0.5,
+  const door = createAuthoredDoor(
+    {
+      id: definition.doorId,
+      name: `${definition.name} door`,
+      buildingX: definition.x,
+      buildingZ: definition.z,
+      floorY: definition.floorY,
+      hingeX: -definition.doorWidth * 0.5,
+      hingeZ: frontZ,
+      width: definition.doorWidth,
+      height: definition.doorHeight,
+      thickness: 0.07,
+    },
+    trimTemplate,
+    initialDoorOpen,
   );
+  door.pivot.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    object.castShadow = quality === "cinematic";
+  });
+  root.add(door.pivot);
 
   for (const material of Object.values(materials)) material.dispose();
 
@@ -324,7 +345,8 @@ export function createSpawnBuilding(
       frontSegmentWidth * 0.5,
       definition.wallThickness * 0.5,
     ),
+    door.collider,
   ];
 
-  return { root, colliders };
+  return { root, colliders, doors: [door] };
 }
