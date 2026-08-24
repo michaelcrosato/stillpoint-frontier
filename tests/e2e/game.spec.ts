@@ -97,14 +97,14 @@ test("toggles the spawn door and exposes every authored floor", async ({ page })
   await page.getByTestId("enter-frontier").click();
   expect(SPAWN_BUILDING.floorCount).toBe(1);
   expect(SPAWN_BUILDING.hasBasement).toBe(false);
-  expect(SPAWN_BUILDING.roofAccess).toBe(false);
+  expect(SPAWN_BUILDING.roofAccess).toBe(true);
   const wallCount = await page.evaluate(
     (prefix) => window.__STILLPOINT_TEST__?.colliders().filter(
       (collider) => collider.id.startsWith(prefix),
     ).length,
     `spawn-building:${SPAWN_BUILDING.id}:wall:`,
   );
-  expect(wallCount).toBe(5);
+  expect(wallCount).toBe(6);
   expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.doors().length)).toBe(3);
 
   const closedDoorwayProbe = await page.evaluate(
@@ -178,6 +178,20 @@ test("toggles the spawn door and exposes every authored floor", async ({ page })
   );
   expect(groundFloor).toBeCloseTo(TWO_STORY_BUILDING.floorY, 4);
   expect(upperFloor).toBeCloseTo(TWO_STORY_BUILDING.upperFloorY, 4);
+
+  for (const building of [
+    SPAWN_BUILDING,
+    TWO_STORY_BUILDING,
+    TEN_STORY_BUILDING,
+  ]) {
+    expect(building.roofAccess).toBe(true);
+    const sampledRoof = await page.evaluate(
+      ({ x, z, referenceY }) =>
+        window.__STILLPOINT_TEST__?.groundHeight(x, z, referenceY),
+      { x: building.x, z: building.z, referenceY: building.roofY },
+    );
+    expect(sampledRoof).toBeCloseTo(building.roofY, 4);
+  }
 
   for (const floorY of TEN_STORY_BUILDING.floorYs) {
     const sampledFloor = await page.evaluate(
@@ -496,8 +510,8 @@ test("blocks representative buildings, trees, and rocks without tunneling", asyn
   const colliders = await page.evaluate(() => window.__STILLPOINT_TEST__?.colliders() ?? []);
   const representatives = [
     colliders.find((collider) => collider.id.startsWith("building:")),
-    colliders.find((collider) => collider.id.startsWith("scenery-tree:")),
-    colliders.find((collider) => collider.id.startsWith("scenery-rock:")),
+    colliders.find((collider) => collider.id.startsWith("resource:tree:v2:")),
+    colliders.find((collider) => collider.id.startsWith("resource:rock:v2:")),
   ];
   expect(representatives.every(Boolean)).toBe(true);
 
@@ -540,23 +554,57 @@ test("collects and harvests deterministic resources without duplicate loot", asy
 
   const targets = await page.evaluate(() => window.__STILLPOINT_TEST__?.targets() ?? []);
   const pickup = targets.find((target) => target.kind === "pickup");
-  const rock = targets.find((target) => target.id.includes("resource:rock:v1:0:0"));
+  const rock = targets.find((target) =>
+    target.id.startsWith("resource:rock:v2:0:0:"),
+  );
+  const tree = targets.find((target) =>
+    target.id.startsWith("resource:tree:v2:0:0:"),
+  );
   expect(pickup).toBeTruthy();
   expect(rock).toBeTruthy();
-  if (!pickup || !rock) return;
+  expect(tree).toBeTruthy();
+  if (!pickup || !rock || !tree) return;
 
   await page.evaluate((id) => window.__STILLPOINT_TEST__?.interactTarget(id), pickup.id);
   const afterPickup = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
   expect(Object.values(afterPickup?.inventory ?? {}).reduce((sum, value) => sum + value, 0)).toBe(1);
 
-  for (let hit = 0; hit < 3; hit += 1) {
-    await page.evaluate((id) => window.__STILLPOINT_TEST__?.interactTarget(id), rock.id);
+  for (const resource of [rock, tree]) {
+    await page.evaluate((target) => {
+      window.__STILLPOINT_TEST__?.teleport(target.x, target.z + 5);
+      window.__STILLPOINT_TEST__?.faceTarget(target.id);
+    }, resource);
+    await expect(page.getByTestId("interaction-prompt")).toContainText(
+      "HARVEST RESOURCE",
+    );
+    for (let hit = 0; hit < 3; hit += 1) {
+      await page.keyboard.press("KeyF");
+      if (hit < 2) {
+        await expect.poll(
+          () => page.evaluate(
+            () => window.__STILLPOINT_TEST__?.snapshot().nearbyTarget?.hits,
+          ),
+        ).toBe(hit + 1);
+      } else {
+        await expect.poll(
+          () => page.evaluate(
+            (id) => (window.__STILLPOINT_TEST__?.targets() ?? []).some(
+              (target) => target.id === id,
+            ),
+            resource.id,
+          ),
+        ).toBe(false);
+      }
+    }
   }
   const afterRock = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
   expect(afterRock?.inventory.stone).toBe(3);
+  expect(afterRock?.inventory.wood).toBe(4);
   await page.evaluate((id) => window.__STILLPOINT_TEST__?.interactTarget(id), rock.id);
   expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().inventory.stone)).toBe(3);
-  await expect(page.getByTestId("gather-card")).toContainText("+3 STONE");
+  await page.evaluate((id) => window.__STILLPOINT_TEST__?.interactTarget(id), tree.id);
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().inventory.wood)).toBe(4);
+  await expect(page.getByTestId("gather-card")).toContainText("+4 WOOD");
   await attachScreenshot(page, testInfo, "resource-harvested");
 
   await page.reload({ waitUntil: "load" });
@@ -564,9 +612,12 @@ test("collects and harvests deterministic resources without duplicate loot", asy
   await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
   const restored = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
   expect(restored?.inventory.stone).toBe(3);
-  expect((await page.evaluate(() => window.__STILLPOINT_TEST__?.targets() ?? [])).some(
-    (target) => target.id === rock.id,
-  )).toBe(false);
+  expect(restored?.inventory.wood).toBe(4);
+  const restoredTargets = await page.evaluate(
+    () => window.__STILLPOINT_TEST__?.targets() ?? [],
+  );
+  expect(restoredTargets.some((target) => target.id === rock.id)).toBe(false);
+  expect(restoredTargets.some((target) => target.id === tree.id)).toBe(false);
 });
 
 test("keeps GPU resource counts bounded through repeated chunk churn", async ({ page }) => {

@@ -66,9 +66,14 @@ describe("authored ten-story building", () => {
     const definition = TEN_STORY_BUILDING;
     expect(definition.floorCount).toBe(10);
     expect(definition.floorYs).toHaveLength(10);
-    expect(definition.stairFlights).toHaveLength(9);
+    expect(definition.stairFlights).toHaveLength(10);
     expect(definition.hasBasement).toBe(false);
-    expect(definition.roofAccess).toBe(false);
+    expect(definition.roofAccess).toBe(true);
+    expect(definition.roofY).toBeCloseTo(
+      definition.floorY + definition.wallHeight,
+    );
+    expect(definition.roofY - definition.floorYs.at(-1)!)
+      .toBeCloseTo(definition.storyHeight);
     expect(definition.storyHeight).toBeGreaterThan(3.1);
     expect(definition.storyHeight).toBeLessThan(4.2);
     expect(definition.stairWidth).toBeGreaterThan(PLAYER_RADIUS * 2 + 0.3);
@@ -99,6 +104,8 @@ describe("authored ten-story building", () => {
     expect(runtime.root.userData).toMatchObject({
       enterable: true,
       floorCount: 10,
+      roofAccess: true,
+      roofY: definition.roofY,
     });
     expect(runtime.doors).toHaveLength(1);
     const drawables: THREE.Mesh[] = [];
@@ -126,6 +133,36 @@ describe("authored ten-story building", () => {
     expect(runtime.root.userData.staticInstanceCount).toBeLessThan(600);
     expect(runtime.colliders.length).toBeLessThan(50);
 
+    const roof = drawables.find(
+      (mesh): mesh is THREE.InstancedMesh =>
+        mesh instanceof THREE.InstancedMesh &&
+        mesh.name === "ten-story-building:roof",
+    );
+    expect(roof).toBeDefined();
+    expect(roof?.count).toBe(4);
+    if (roof) {
+      const matrix = new THREE.Matrix4();
+      const position = new THREE.Vector3();
+      const quaternion = new THREE.Quaternion();
+      const scale = new THREE.Vector3();
+      const covers = (x: number, z: number) => {
+        for (let index = 0; index < roof.count; index += 1) {
+          roof.getMatrixAt(index, matrix);
+          matrix.decompose(position, quaternion, scale);
+          if (
+            Math.abs(x - position.x) <= scale.x * 0.5 &&
+            Math.abs(z - position.z) <= scale.z * 0.5
+          ) return true;
+        }
+        return false;
+      };
+      expect(covers(0, 0)).toBe(true);
+      expect(covers(
+        (definition.stairwellMinX + definition.stairwellMaxX) * 0.5,
+        (definition.stairwellMinZ + definition.stairwellMaxZ) * 0.5,
+      )).toBe(false);
+    }
+
     const glass = drawables.filter((mesh) => mesh.userData.glass);
     expect(glass).toHaveLength(4);
     expect(glass.reduce(
@@ -146,16 +183,17 @@ describe("authored ten-story building", () => {
     disposeRoot(runtime.root);
   });
 
-  it("selects all ten floors without exposing a roof or snapping players upward", () => {
+  it("selects all ten floors and the roof without snapping players upward", () => {
     const definition = TEN_STORY_BUILDING;
     const safeRoomPoint = localToWorld(0, 0);
     const supports = tenStorySupportCandidates(safeRoomPoint.x, safeRoomPoint.z);
-    expect(supports).toEqual(definition.floorYs);
+    expect(supports).toEqual([...definition.floorYs, definition.roofY]);
     expect(selectWalkableSupport(supports)).toBeCloseTo(definition.floorY);
     definition.floorYs.forEach((floorY) => {
       expect(selectWalkableSupport(supports, floorY)).toBeCloseTo(floorY);
     });
-    expect(supports).not.toContain(definition.floorY + definition.wallHeight);
+    expect(selectWalkableSupport(supports, definition.roofY))
+      .toBeCloseTo(definition.roofY);
 
     const threshold = localToWorld(0, definition.depth * 0.5 + 0.3);
     expect(tenStorySupportCandidates(threshold.x, threshold.z))
@@ -175,7 +213,7 @@ describe("authored ten-story building", () => {
     }
   });
 
-  it("provides a collision-clear 180-step route up and down every floor", () => {
+  it("provides a collision-clear 200-step route up and down every floor and the roof", () => {
     const definition = TEN_STORY_BUILDING;
     const runtime = createTenStoryBuilding("performance", true);
     let vertical = { y: definition.floorY, velocity: 0, grounded: true };
@@ -243,9 +281,7 @@ describe("authored ten-story building", () => {
       )).toBeCloseTo(flight.endY);
       previous = endLanding;
     }
-    expect(vertical.y).toBeCloseTo(
-      definition.floorYs[definition.floorYs.length - 1],
-    );
+    expect(vertical.y).toBeCloseTo(definition.roofY);
 
     for (let flightIndex = definition.stairFlights.length - 1;
       flightIndex >= 0;
@@ -415,6 +451,83 @@ describe("authored ten-story building", () => {
         PLAYER_RADIUS,
       )).toEqual(activeStep);
     }
+
+    const roofColliders = collidersAtFloor(runtime, definition.roofY);
+    const parapets = roofColliders.filter((collider) =>
+      collider.id.includes(":roof:parapet:"),
+    );
+    expect(parapets).toHaveLength(4);
+    expect(parapets.every(
+      (collider) =>
+        collider.minY === definition.roofY &&
+        collider.maxY === definition.roofY + definition.parapetHeight,
+    )).toBe(true);
+
+    const halfWidth = definition.width * 0.5;
+    const halfDepth = definition.depth * 0.5;
+    for (const [start, desired] of [
+      [localToWorld(0, halfDepth - 0.8), localToWorld(0, halfDepth + 1.5)],
+      [localToWorld(0, -halfDepth + 0.8), localToWorld(0, -halfDepth - 1.5)],
+      [localToWorld(-halfWidth + 0.8, 0), localToWorld(-halfWidth - 1.5, 0)],
+      [localToWorld(halfWidth - 0.8, -4), localToWorld(halfWidth + 1.5, -4)],
+    ] as const) {
+      const resolved = resolvePlanarMovement(
+        start,
+        desired,
+        parapets,
+        PLAYER_RADIUS,
+      );
+      expect(Math.hypot(resolved.x - desired.x, resolved.z - desired.z))
+        .toBeGreaterThan(PLAYER_RADIUS);
+    }
+
+    const topFloorY = definition.floorYs.at(-1)!;
+    expect(runtime.colliders.filter(
+      (collider) =>
+        collider.id.includes(":roof:parapet:") &&
+        colliderIntersectsVerticalRange(
+          collider,
+          topFloorY,
+          topFloorY + PLAYER_HEIGHT,
+        ),
+    )).toHaveLength(0);
+
+    const roofFlight = definition.stairFlights.at(-1)!;
+    const roofDirection = Math.sign(roofFlight.endZ - roofFlight.startZ);
+    const activeRoofLanding = localToWorld(
+      roofFlight.centerX,
+      roofFlight.endZ + roofDirection * 0.55,
+    );
+    const activeRoofStep = localToWorld(
+      roofFlight.centerX,
+      roofFlight.endZ - roofDirection * 0.15,
+    );
+    expect(resolvePlanarMovement(
+      activeRoofLanding,
+      activeRoofStep,
+      roofColliders,
+      PLAYER_RADIUS,
+    )).toEqual(activeRoofStep);
+
+    const unusedRoofLane = definition.stairFlights.at(-2)!.centerX;
+    const unusedLanding = localToWorld(
+      unusedRoofLane,
+      roofFlight.endZ + roofDirection * 0.55,
+    );
+    const unusedOpening = localToWorld(
+      unusedRoofLane,
+      roofFlight.endZ - roofDirection * 0.15,
+    );
+    const guardedUnusedLane = resolvePlanarMovement(
+      unusedLanding,
+      unusedOpening,
+      roofColliders,
+      PLAYER_RADIUS,
+    );
+    expect(Math.hypot(
+      guardedUnusedLane.x - unusedOpening.x,
+      guardedUnusedLane.z - unusedOpening.z,
+    )).toBeGreaterThan(PLAYER_RADIUS);
     disposeRoot(runtime.root);
   });
 

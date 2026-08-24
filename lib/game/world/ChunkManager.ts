@@ -44,7 +44,7 @@ import {
 import {
   SPAWN_BUILDING,
   createSpawnBuilding,
-  spawnBuildingSupportHeight,
+  spawnBuildingSupportCandidates,
 } from "./spawnBuilding";
 import {
   TWO_STORY_BUILDING,
@@ -61,6 +61,15 @@ import {
 export type WorldTargetKind = "beacon" | "pickup" | "resource" | "door";
 export type WorldTargetAction = "scan" | "collect" | "harvest" | "toggle";
 
+export interface InstancedTargetVisual {
+  mesh: THREE.InstancedMesh;
+  index: number;
+  position: THREE.Vector3;
+  quaternion: THREE.Quaternion;
+  scale: THREE.Vector3;
+  groundY: number;
+}
+
 export interface WorldTarget {
   id: string;
   kind: WorldTargetKind;
@@ -69,8 +78,12 @@ export interface WorldTarget {
   position: THREE.Vector3;
   root: THREE.Group;
   maxDistance: number;
+  /** Horizontal interaction volume used for forgiving resource selection. */
+  interactionRadius?: number;
   hitsRequired: number;
   hits: number;
+  /** Per-instance handles keep procedural resources batched into a few draw calls. */
+  instanceVisuals?: readonly InstancedTargetVisual[];
   item?: ItemId;
   yieldAmount?: number;
   beaconId?: BeaconId;
@@ -232,15 +245,11 @@ export class ChunkManager {
     this.worldDiffs[id] = { ...diff };
     const target = this.targetCache.find((candidate) => candidate.id === id);
     if (!target) return;
-    target.hits = diff.hits;
+    this.applyTargetVisualState(target, diff);
     if (diff.removed) {
-      target.root.visible = false;
       for (const chunk of this.loaded.values()) {
         chunk.colliders = chunk.colliders.filter((collider) => collider.id !== id);
       }
-    } else {
-      const remaining = Math.max(0.28, 1 - diff.hits / Math.max(1, target.hitsRequired) * 0.22);
-      target.root.scale.y = remaining;
     }
     this.refreshCaches();
   }
@@ -283,10 +292,10 @@ export class ChunkManager {
 
   sampleGroundHeight(x: number, z: number, referenceY?: number) {
     const supports = [
-      spawnBuildingSupportHeight(x, z),
+      ...spawnBuildingSupportCandidates(x, z),
       ...twoStorySupportCandidates(x, z),
       ...tenStorySupportCandidates(x, z),
-    ].filter((height): height is number => height !== null);
+    ];
     return selectWalkableSupport(supports, referenceY) ?? sampleTerrainHeight(x, z);
   }
 
@@ -416,8 +425,25 @@ export class ChunkManager {
       colliders,
       nightLighting,
     );
-    this.addRockField(root, center.x, center.z, key, climate.biome.rockDensity, colliders);
-    this.addForest(root, center.x, center.z, key, climate.biome.treeDensity, colliders);
+    this.addRockField(
+      root,
+      center.x,
+      center.z,
+      key,
+      climate.biome.rockDensity,
+      climate.biome.primaryResource,
+      colliders,
+      targets,
+    );
+    this.addForest(
+      root,
+      center.x,
+      center.z,
+      key,
+      climate.biome.treeDensity,
+      colliders,
+      targets,
+    );
     this.addRuinSlabs(root, center.x, center.z, key, colliders);
     this.addGatherables(
       root,
@@ -445,6 +471,13 @@ export class ChunkManager {
         radius: 2.8,
       });
       if (this.scanned.has(beacon.id)) this.applyScannedAppearance(target.root);
+    }
+
+    // Procedural placement always sees the complete deterministic collider set,
+    // including saved depleted resources. Prune only after generation so a
+    // removed tree or rock can never reshuffle its neighbors on reload.
+    for (let index = colliders.length - 1; index >= 0; index -= 1) {
+      if (this.worldDiffs[colliders[index].id]?.removed) colliders.splice(index, 1);
     }
 
     this.scene.add(root);
@@ -910,7 +943,9 @@ export class ChunkManager {
     centerZ: number,
     key: string,
     density: number,
+    primaryResource: ItemId,
     colliders: PlanarCollider[],
+    targets: WorldTarget[],
   ) {
     const random = seededRandom(`${WORLD_SEED}:chunk:${key}:rocks:v1`);
     const count = Math.max(3, Math.floor(4 + density * 13 + random() * 4));
@@ -942,17 +977,46 @@ export class ChunkManager {
       );
       if (!placement) continue;
       const { x, z } = placement;
-      position.set(x, sampleTerrainHeight(x, z) + size * 0.42, z);
+      const groundY = sampleTerrainHeight(x, z);
+      position.set(x, groundY + size * 0.42, z);
       quaternion.setFromEuler(new THREE.Euler(random() * 2, random() * Math.PI, random()));
       scale.set(scaleX, size, scaleZ);
       matrix.compose(position, quaternion, scale);
-      rocks.setMatrixAt(renderedCount, matrix);
+      const instanceIndex = renderedCount;
+      rocks.setMatrixAt(instanceIndex, matrix);
+      const id = `resource:rock:v2:${key}:${index}`;
       colliders.push({
         shape: "circle",
-        id: `scenery-rock:${key}:${renderedCount}`,
+        id,
         x,
         z,
         radius: colliderRadius,
+      });
+      const item: ItemId = primaryResource === "ore" ? "ore" : "stone";
+      const targetRoot = new THREE.Group();
+      targetRoot.name = id;
+      targetRoot.position.set(x, groundY, z);
+      this.registerInstancedResource(targets, {
+        id,
+        kind: "resource",
+        action: "harvest",
+        name: item === "ore" ? "Ore-bearing rock" : "Stone outcrop",
+        item,
+        yieldAmount: 3,
+        hitsRequired: 3,
+        hits: 0,
+        maxDistance: 7.5,
+        interactionRadius: colliderRadius,
+        position: new THREE.Vector3(x, groundY + size * 0.6, z),
+        root: targetRoot,
+        instanceVisuals: [{
+          mesh: rocks,
+          index: instanceIndex,
+          position: position.clone(),
+          quaternion: quaternion.clone(),
+          scale: scale.clone(),
+          groundY,
+        }],
       });
       renderedCount += 1;
     }
@@ -969,6 +1033,7 @@ export class ChunkManager {
     key: string,
     density: number,
     colliders: PlanarCollider[],
+    targets: WorldTarget[],
   ) {
     const random = seededRandom(`${WORLD_SEED}:chunk:${key}:forest:v1`);
     const count = Math.floor(density * 18 + random() * 3);
@@ -1007,16 +1072,57 @@ export class ChunkManager {
       scale.set(size, size, size);
       position.set(x, baseY + 1.8 * size, z);
       matrix.compose(position, quaternion, scale);
-      trunks.setMatrixAt(renderedCount, matrix);
+      const instanceIndex = renderedCount;
+      const trunkPosition = position.clone();
+      trunks.setMatrixAt(instanceIndex, matrix);
       position.set(x, baseY + 5.0 * size, z);
       matrix.compose(position, quaternion, scale);
-      canopies.setMatrixAt(renderedCount, matrix);
+      const canopyPosition = position.clone();
+      canopies.setMatrixAt(instanceIndex, matrix);
+      const id = `resource:tree:v2:${key}:${index}`;
       colliders.push({
         shape: "circle",
-        id: `scenery-tree:${key}:${renderedCount}`,
+        id,
         x,
         z,
         radius: colliderRadius,
+      });
+      const targetRoot = new THREE.Group();
+      targetRoot.name = id;
+      targetRoot.position.set(x, baseY, z);
+      const baseScale = scale.clone();
+      const baseQuaternion = quaternion.clone();
+      this.registerInstancedResource(targets, {
+        id,
+        kind: "resource",
+        action: "harvest",
+        name: "Workable pine",
+        item: "wood",
+        yieldAmount: 4,
+        hitsRequired: 3,
+        hits: 0,
+        maxDistance: 8.4,
+        interactionRadius: Math.max(0.75, 1.25 * size),
+        position: new THREE.Vector3(x, baseY + 2.2 * size, z),
+        root: targetRoot,
+        instanceVisuals: [
+          {
+            mesh: trunks,
+            index: instanceIndex,
+            position: trunkPosition,
+            quaternion: baseQuaternion,
+            scale: baseScale,
+            groundY: baseY,
+          },
+          {
+            mesh: canopies,
+            index: instanceIndex,
+            position: canopyPosition,
+            quaternion: baseQuaternion.clone(),
+            scale: baseScale.clone(),
+            groundY: baseY,
+          },
+        ],
       });
       renderedCount += 1;
     }
@@ -1183,6 +1289,48 @@ export class ChunkManager {
     }
   }
 
+  private registerInstancedResource(
+    targets: WorldTarget[],
+    target: WorldTarget,
+  ) {
+    const diff = targetDiff(this.worldDiffs, target.id);
+    if (diff.hits > 0 || diff.removed) {
+      this.applyTargetVisualState(target, diff);
+    }
+    targets.push(target);
+  }
+
+  private applyTargetVisualState(target: WorldTarget, diff: EntityDiff) {
+    target.hits = diff.hits;
+    const remaining = Math.max(
+      0.28,
+      1 - (diff.hits / Math.max(1, target.hitsRequired)) * 0.22,
+    );
+    if (target.instanceVisuals?.length) {
+      const matrix = new THREE.Matrix4();
+      for (const visual of target.instanceVisuals) {
+        const position = visual.position.clone();
+        const scale = visual.scale.clone();
+        if (diff.removed) {
+          scale.setScalar(0);
+          position.y = visual.groundY;
+        } else {
+          position.y =
+            visual.groundY + (visual.position.y - visual.groundY) * remaining;
+          scale.y *= remaining;
+        }
+        matrix.compose(position, visual.quaternion, scale);
+        visual.mesh.setMatrixAt(visual.index, matrix);
+        visual.mesh.instanceMatrix.needsUpdate = true;
+      }
+      target.root.visible = !diff.removed;
+      return;
+    }
+
+    target.root.visible = !diff.removed;
+    target.root.scale.y = diff.removed ? 1 : remaining;
+  }
+
   private registerGatherable(
     root: THREE.Group,
     targets: WorldTarget[],
@@ -1190,19 +1338,11 @@ export class ChunkManager {
     target: WorldTarget,
   ) {
     const diff = targetDiff(this.worldDiffs, target.id);
-    target.hits = diff.hits;
+    if (diff.hits > 0 || diff.removed) {
+      this.applyTargetVisualState(target, diff);
+    }
     root.add(target.root);
     targets.push(target);
-    if (diff.removed) {
-      target.root.visible = false;
-      return;
-    }
-    if (diff.hits > 0) {
-      target.root.scale.y = Math.max(
-        0.28,
-        1 - diff.hits / Math.max(1, target.hitsRequired) * 0.22,
-      );
-    }
     if (target.kind === "resource") {
       colliders.push({
         shape: "circle",
@@ -1267,7 +1407,8 @@ export class ChunkManager {
       yieldAmount: 3,
       hitsRequired: 3,
       hits: 0,
-      maxDistance: 6.25,
+      maxDistance: 7.5,
+      interactionRadius: 1.56,
       position: new THREE.Vector3(x, root.position.y + 0.75, z),
       root,
     };
@@ -1301,7 +1442,8 @@ export class ChunkManager {
       yieldAmount: 4,
       hitsRequired: 3,
       hits: 0,
-      maxDistance: 6.4,
+      maxDistance: 8.4,
+      interactionRadius: 1.25,
       position: new THREE.Vector3(x, root.position.y + 2.2, z),
       root,
     };

@@ -24,6 +24,18 @@ const footprintTerrain = [-1, 0, 1].flatMap((xStep) =>
 );
 const floorY = Math.max(...footprintTerrain) + 0.04;
 const foundationBottomY = Math.min(...footprintTerrain) - 0.08;
+const ROOF_STAIR_STEPS = 20;
+const ROOF_STAIR_START_Z = 2.25;
+const ROOF_STAIR_END_Z = -2.25;
+const ROOF_STAIR_RUN = ROOF_STAIR_START_Z - ROOF_STAIR_END_Z;
+const ROOF_STAIR_TREAD = ROOF_STAIR_RUN / ROOF_STAIR_STEPS;
+const ROOF_STAIR_RAIL_START_Z =
+  ROOF_STAIR_START_Z - ROOF_STAIR_TREAD * 4;
+const ROOF_STAIR_CENTER_X = 2.55;
+const ROOF_STAIR_WIDTH = 1.35;
+const WALL_HEIGHT = 3.5;
+const ROOF_THICKNESS = 0.24;
+const roofY = floorY + WALL_HEIGHT + ROOF_THICKNESS;
 
 /**
  * The only detailed/enterable building in the Version 10 prototype world.
@@ -41,11 +53,12 @@ export const SPAWN_BUILDING = Object.freeze({
   floorY,
   floorCount: 1,
   hasBasement: false,
-  roofAccess: false,
+  roofAccess: true,
   doorId: "spawn-field-unit-01:front",
-  wallHeight: 3.5,
+  wallHeight: WALL_HEIGHT,
   wallThickness: 0.22,
-  roofThickness: 0.24,
+  roofThickness: ROOF_THICKNESS,
+  roofY,
   doorWidth: 1.5,
   // A tall industrial doorway keeps the visible header above the complete
   // Version 10 jump arc. The V10 collision model is intentionally planar, so
@@ -54,6 +67,18 @@ export const SPAWN_BUILDING = Object.freeze({
   windowWidth: 1.5,
   windowHeight: 1.1,
   windowSill: 0.92,
+  roofStairCenterX: ROOF_STAIR_CENTER_X,
+  roofStairWidth: ROOF_STAIR_WIDTH,
+  roofStairStartZ: ROOF_STAIR_START_Z,
+  roofStairEndZ: ROOF_STAIR_END_Z,
+  roofStairSteps: ROOF_STAIR_STEPS,
+  roofStairRise: (roofY - floorY) / ROOF_STAIR_STEPS,
+  roofStairTread: ROOF_STAIR_TREAD,
+  roofStairRailStartZ: ROOF_STAIR_RAIL_START_Z,
+  roofStairwellMinX: 1.78,
+  roofStairwellMaxX: 3.32,
+  roofStairwellMinZ: ROOF_STAIR_END_Z,
+  roofStairwellMaxZ: ROOF_STAIR_START_Z,
   foundationDepth: floorY - foundationBottomY,
   clearanceRadius: Math.hypot(SITE.width, SITE.depth) * 0.5 + 1.25,
 });
@@ -79,11 +104,35 @@ function wallCollider(
     halfWidth,
     halfDepth,
     rotation: 0,
+    minY: SPAWN_BUILDING.floorY,
+    maxY: SPAWN_BUILDING.floorY + SPAWN_BUILDING.wallHeight,
   };
 }
 
-export function spawnBuildingSupportHeight(x: number, z: number) {
-  if (!Number.isFinite(x) || !Number.isFinite(z)) return null;
+function localBoxCollider(
+  id: string,
+  localX: number,
+  localZ: number,
+  halfWidth: number,
+  halfDepth: number,
+  minY: number,
+  maxY: number,
+): PlanarCollider {
+  return {
+    shape: "box",
+    id: `spawn-building:${SPAWN_BUILDING.id}:${id}`,
+    x: SPAWN_BUILDING.x + localX,
+    z: SPAWN_BUILDING.z + localZ,
+    halfWidth,
+    halfDepth,
+    rotation: 0,
+    minY,
+    maxY,
+  };
+}
+
+export function spawnBuildingSupportCandidates(x: number, z: number): number[] {
+  if (!Number.isFinite(x) || !Number.isFinite(z)) return [];
   const localX = x - SPAWN_BUILDING.x;
   const localZ = z - SPAWN_BUILDING.z;
   const innerHalfWidth = SPAWN_BUILDING.width * 0.5 - SPAWN_BUILDING.wallThickness;
@@ -94,7 +143,39 @@ export function spawnBuildingSupportHeight(x: number, z: number) {
     Math.abs(localX) <= SPAWN_BUILDING.doorWidth * 0.5 &&
     localZ > innerHalfDepth &&
     localZ <= SPAWN_BUILDING.depth * 0.5 + 0.55;
-  return inside || onDoorThreshold ? SPAWN_BUILDING.floorY : null;
+  if (!inside && !onDoorThreshold) return [];
+  const supports = [SPAWN_BUILDING.floorY];
+  if (!inside) return supports;
+
+  const onRoofStair =
+    Math.abs(localX - SPAWN_BUILDING.roofStairCenterX) <=
+      SPAWN_BUILDING.roofStairWidth * 0.5 &&
+    localZ <= SPAWN_BUILDING.roofStairStartZ &&
+    localZ >= SPAWN_BUILDING.roofStairEndZ;
+  if (onRoofStair) {
+    const progress = THREE.MathUtils.clamp(
+      (SPAWN_BUILDING.roofStairStartZ - localZ) / ROOF_STAIR_RUN,
+      0,
+      0.999999,
+    );
+    const stepIndex = Math.floor(progress * SPAWN_BUILDING.roofStairSteps);
+    supports.push(
+      SPAWN_BUILDING.floorY +
+        (stepIndex + 1) * SPAWN_BUILDING.roofStairRise,
+    );
+  }
+
+  const inRoofOpening =
+    localX >= SPAWN_BUILDING.roofStairwellMinX &&
+    localX <= SPAWN_BUILDING.roofStairwellMaxX &&
+    localZ >= SPAWN_BUILDING.roofStairwellMinZ &&
+    localZ <= SPAWN_BUILDING.roofStairwellMaxZ;
+  if (!inRoofOpening) supports.push(SPAWN_BUILDING.roofY);
+  return [...new Set(supports)].sort((left, right) => left - right);
+}
+
+export function spawnBuildingSupportHeight(x: number, z: number) {
+  return spawnBuildingSupportCandidates(x, z)[0] ?? null;
 }
 
 export function createSpawnBuilding(
@@ -107,6 +188,7 @@ export function createSpawnBuilding(
   root.position.set(definition.x, definition.floorY, definition.z);
   root.userData.enterable = true;
   root.userData.floorCount = definition.floorCount;
+  root.userData.roofAccess = true;
 
   const wallTemplate = new THREE.MeshStandardMaterial({
     color: 0x777166,
@@ -171,18 +253,90 @@ export function createSpawnBuilding(
     return mesh;
   };
 
+  const addBoxBatch = (
+    name: string,
+    recipes: readonly {
+      size: readonly [number, number, number];
+      position: readonly [number, number, number];
+    }[],
+    materialKind: keyof typeof materials,
+  ) => {
+    const mesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      materials[materialKind].clone(),
+      recipes.length,
+    );
+    mesh.name = `spawn-building:${name}`;
+    mesh.castShadow = quality === "cinematic" && materialKind !== "glass";
+    mesh.receiveShadow = materialKind !== "glass";
+    mesh.userData.shadow = materialKind !== "glass";
+    const matrix = new THREE.Matrix4();
+    const position = new THREE.Vector3();
+    const scale = new THREE.Vector3();
+    const quaternion = new THREE.Quaternion();
+    recipes.forEach((recipe, index) => {
+      position.set(...recipe.position);
+      scale.set(...recipe.size);
+      matrix.compose(position, quaternion, scale);
+      mesh.setMatrixAt(index, matrix);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.computeBoundingBox();
+    mesh.computeBoundingSphere();
+    root.add(mesh);
+    return mesh;
+  };
+
   addBox(
     "floor",
     [definition.width, definition.foundationDepth, definition.depth],
     [0, -definition.foundationDepth * 0.5, 0],
     "floor",
   );
-  addBox(
-    "roof",
-    [definition.width + 0.36, definition.roofThickness, definition.depth + 0.36],
-    [0, definition.wallHeight + definition.roofThickness * 0.5, 0],
-    "roof",
+  const roofHalfWidth = definition.width * 0.5 + 0.18;
+  const roofHalfDepth = definition.depth * 0.5 + 0.18;
+  const roofCenterY = definition.wallHeight + definition.roofThickness * 0.5;
+  const roofRegions: Array<{
+    size: readonly [number, number, number];
+    position: readonly [number, number, number];
+  }> = [];
+  const addRoofRegion = (
+    minX: number,
+    maxX: number,
+    minZ: number,
+    maxZ: number,
+  ) => {
+    if (maxX <= minX || maxZ <= minZ) return;
+    roofRegions.push({
+      size: [maxX - minX, definition.roofThickness, maxZ - minZ],
+      position: [(minX + maxX) * 0.5, roofCenterY, (minZ + maxZ) * 0.5],
+    });
+  };
+  addRoofRegion(
+    -roofHalfWidth,
+    definition.roofStairwellMinX,
+    -roofHalfDepth,
+    roofHalfDepth,
   );
+  addRoofRegion(
+    definition.roofStairwellMaxX,
+    roofHalfWidth,
+    -roofHalfDepth,
+    roofHalfDepth,
+  );
+  addRoofRegion(
+    definition.roofStairwellMinX,
+    definition.roofStairwellMaxX,
+    definition.roofStairwellMaxZ,
+    roofHalfDepth,
+  );
+  addRoofRegion(
+    definition.roofStairwellMinX,
+    definition.roofStairwellMaxX,
+    -roofHalfDepth,
+    definition.roofStairwellMinZ,
+  );
+  addBoxBatch("roof", roofRegions, "roof");
 
   const frontZ = definition.depth * 0.5;
   const backZ = -frontZ;
@@ -273,6 +427,94 @@ export function createSpawnBuilding(
     [-definition.doorWidth * 0.5, definition.doorHeight * 0.5, frontZ + 0.13],
     "trim",
   );
+
+  const stairRecipes: Array<{
+    size: readonly [number, number, number];
+    position: readonly [number, number, number];
+  }> = [];
+  for (let step = 0; step < definition.roofStairSteps; step += 1) {
+    const stepY = (step + 1) * definition.roofStairRise;
+    const stepZ =
+      definition.roofStairStartZ - (step + 0.5) * definition.roofStairTread;
+    stairRecipes.push({
+      size: [
+        definition.roofStairWidth,
+        definition.roofStairRise,
+        definition.roofStairTread + 0.012,
+      ],
+      position: [
+        definition.roofStairCenterX,
+        stepY - definition.roofStairRise * 0.5,
+        stepZ,
+      ],
+    });
+  }
+  addBoxBatch("roof-stair:steps", stairRecipes, "floor");
+
+  const roofTrimRecipes: Array<{
+    size: readonly [number, number, number];
+    position: readonly [number, number, number];
+  }> = [];
+  for (const side of [-1, 1] as const) {
+    // Leave the first four low steps open so the player can enter the stair
+    // laterally without squeezing between the front wall and rail endcaps.
+    for (let section = 1; section < 5; section += 1) {
+      const startStep = Math.floor((section * definition.roofStairSteps) / 5);
+      const endStep = Math.floor(((section + 1) * definition.roofStairSteps) / 5);
+      const startZ = definition.roofStairStartZ - startStep * definition.roofStairTread;
+      const endZ = definition.roofStairStartZ - endStep * definition.roofStairTread;
+      roofTrimRecipes.push({
+        size: [0.07, 0.12, startZ - endZ],
+        position: [
+          definition.roofStairCenterX +
+            side * (definition.roofStairWidth * 0.5 + 0.035),
+          endStep * definition.roofStairRise + 0.62,
+          (startZ + endZ) * 0.5,
+        ],
+      });
+    }
+  }
+  const roofOffsetY = definition.wallHeight + definition.roofThickness;
+  const parapetY = roofOffsetY + 0.525;
+  roofTrimRecipes.push(
+    {
+      size: [definition.width + 0.18, 1.05, 0.09],
+      position: [0, parapetY, -definition.depth * 0.5],
+    },
+    {
+      size: [definition.width + 0.18, 1.05, 0.09],
+      position: [0, parapetY, definition.depth * 0.5],
+    },
+    {
+      size: [0.09, 1.05, definition.depth],
+      position: [-definition.width * 0.5, parapetY, 0],
+    },
+    {
+      size: [0.09, 1.05, definition.depth],
+      position: [definition.width * 0.5, parapetY, 0],
+    },
+    {
+      size: [
+        definition.roofStairwellMaxX - definition.roofStairwellMinX,
+        1.05,
+        0.08,
+      ],
+      position: [
+        (definition.roofStairwellMinX + definition.roofStairwellMaxX) * 0.5,
+        parapetY,
+        definition.roofStairwellMaxZ,
+      ],
+    },
+    {
+      size: [0.08, 1.05, ROOF_STAIR_RUN],
+      position: [definition.roofStairwellMinX, parapetY, 0],
+    },
+    {
+      size: [0.08, 1.05, ROOF_STAIR_RUN],
+      position: [definition.roofStairwellMaxX, parapetY, 0],
+    },
+  );
+  addBoxBatch("roof-stair:rails-and-parapets", roofTrimRecipes, "trim");
   addBox(
     "door:trim-right",
     [0.09, definition.doorHeight, trimDepth],
@@ -344,6 +586,78 @@ export function createSpawnBuilding(
       definition.z + frontZ,
       frontSegmentWidth * 0.5,
       definition.wallThickness * 0.5,
+    ),
+    localBoxCollider(
+      "wall:front-header",
+      0,
+      frontZ,
+      definition.doorWidth * 0.5,
+      definition.wallThickness * 0.5,
+      definition.floorY + definition.doorHeight,
+      definition.floorY + definition.wallHeight,
+    ),
+    localBoxCollider(
+      "roof-stair:rail:left",
+      definition.roofStairCenterX - definition.roofStairWidth * 0.5 - 0.04,
+      (definition.roofStairRailStartZ + definition.roofStairEndZ) * 0.5,
+      0.04,
+      (definition.roofStairRailStartZ - definition.roofStairEndZ) * 0.5,
+      definition.floorY,
+      definition.roofY + 1.12,
+    ),
+    localBoxCollider(
+      "roof-stair:rail:right",
+      definition.roofStairCenterX + definition.roofStairWidth * 0.5 + 0.04,
+      (definition.roofStairRailStartZ + definition.roofStairEndZ) * 0.5,
+      0.04,
+      (definition.roofStairRailStartZ - definition.roofStairEndZ) * 0.5,
+      definition.floorY,
+      definition.roofY + 1.12,
+    ),
+    localBoxCollider(
+      "roof-stair:inactive-edge",
+      (definition.roofStairwellMinX + definition.roofStairwellMaxX) * 0.5,
+      definition.roofStairwellMaxZ,
+      (definition.roofStairwellMaxX - definition.roofStairwellMinX) * 0.5,
+      0.05,
+      definition.roofY,
+      definition.roofY + 1.05,
+    ),
+    localBoxCollider(
+      "roof:parapet:back",
+      0,
+      -definition.depth * 0.5,
+      definition.width * 0.5,
+      0.05,
+      definition.roofY,
+      definition.roofY + 1.05,
+    ),
+    localBoxCollider(
+      "roof:parapet:front",
+      0,
+      definition.depth * 0.5,
+      definition.width * 0.5,
+      0.05,
+      definition.roofY,
+      definition.roofY + 1.05,
+    ),
+    localBoxCollider(
+      "roof:parapet:left",
+      -definition.width * 0.5,
+      0,
+      0.05,
+      definition.depth * 0.5,
+      definition.roofY,
+      definition.roofY + 1.05,
+    ),
+    localBoxCollider(
+      "roof:parapet:right",
+      definition.width * 0.5,
+      0,
+      0.05,
+      definition.depth * 0.5,
+      definition.roofY,
+      definition.roofY + 1.05,
     ),
     door.collider,
   ];

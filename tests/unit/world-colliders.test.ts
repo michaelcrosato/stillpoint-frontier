@@ -35,6 +35,13 @@ function expectFiniteCollider(collider: PlanarCollider) {
   }
 }
 
+function expectZeroInstanceScale(matrix: THREE.Matrix4, label: string) {
+  const basis = [0, 1, 2, 4, 5, 6, 8, 9, 10].map(
+    (index) => Math.abs(matrix.elements[index]),
+  );
+  expect(Math.max(...basis), label).toBeCloseTo(0);
+}
+
 describe("streamed world collider coverage", () => {
   it("gives every rendered city solid a unique matching collider", { timeout: 20_000 }, () => {
     const settlement = getSettlement("vesper-crown");
@@ -66,7 +73,8 @@ describe("streamed world collider coverage", () => {
         collider.id.includes(`:${key}:`) &&
         (
           collider.id.startsWith("building:") ||
-          collider.id.startsWith("scenery-") ||
+          collider.id.startsWith("resource:rock:v2:") ||
+          collider.id.startsWith("resource:tree:v2:") ||
           collider.id.startsWith("ruin:")
         ),
       );
@@ -117,14 +125,20 @@ describe("streamed world collider coverage", () => {
 
         if (object instanceof THREE.InstancedMesh && object.name === `rocks:${key}`) {
           expect(colliders.filter((collider) =>
-            collider.id.startsWith(`scenery-rock:${key}:`),
+            collider.id.startsWith(`resource:rock:v2:${key}:`),
+          )).toHaveLength(object.count);
+          expect(world.targets.filter((target) =>
+            target.id.startsWith(`resource:rock:v2:${key}:`),
           )).toHaveLength(object.count);
           rockInstances += object.count;
         }
 
         if (object instanceof THREE.InstancedMesh && object.name === `forest:${key}`) {
           expect(colliders.filter((collider) =>
-            collider.id.startsWith(`scenery-tree:${key}:`),
+            collider.id.startsWith(`resource:tree:v2:${key}:`),
+          )).toHaveLength(object.count);
+          expect(world.targets.filter((target) =>
+            target.id.startsWith(`resource:tree:v2:${key}:`),
           )).toHaveLength(object.count);
           treeInstances += object.count * 0.5;
         }
@@ -209,5 +223,158 @@ describe("streamed world collider coverage", () => {
       ).some((collider) => collider.id === rock.id)).toBe(false);
     }
     world.dispose();
+  });
+
+  it("makes every procedural tree and rock harvestable without breaking instancing", { timeout: 20_000 }, () => {
+    const scene = new THREE.Scene();
+    const worldDiffs: Record<string, { hits: number; removed: boolean }> = {};
+    const world = new ChunkManager(scene, "performance", worldDiffs);
+    world.update(0, 8);
+
+    const procedural = world.targets.filter((target) =>
+      target.id.startsWith("resource:rock:v2:") ||
+      target.id.startsWith("resource:tree:v2:"),
+    );
+    expect(procedural.length).toBeGreaterThan(100);
+    expect(procedural.length).toBeLessThan(1_000);
+    expect(procedural.every((target) =>
+      Number.isFinite(target.position.x) &&
+      Number.isFinite(target.position.y) &&
+      Number.isFinite(target.position.z) &&
+      (target.interactionRadius ?? 0) > 0 &&
+      target.instanceVisuals?.length,
+    )).toBe(true);
+    expect(procedural.every((target) =>
+      world.colliders.some((collider) => collider.id === target.id),
+    )).toBe(true);
+
+    const rock = procedural.find((target) =>
+      target.id.startsWith("resource:rock:v2:0:0:"),
+    );
+    const tree = procedural.find((target) =>
+      target.id.startsWith("resource:tree:v2:0:0:"),
+    );
+    expect(rock).toBeDefined();
+    expect(tree).toBeDefined();
+    if (!rock?.instanceVisuals?.length || !tree?.instanceVisuals?.length) {
+      world.dispose();
+      return;
+    }
+
+    const matrix = new THREE.Matrix4();
+    const beforeRock = new THREE.Matrix4();
+    const rockVisual = rock.instanceVisuals[0];
+    rockVisual.mesh.getMatrixAt(rockVisual.index, beforeRock);
+    const sibling = procedural.find((target) =>
+      target !== rock &&
+      target.instanceVisuals?.[0]?.mesh === rockVisual.mesh,
+    );
+    const beforeSibling = new THREE.Matrix4();
+    if (sibling?.instanceVisuals?.[0]) {
+      sibling.instanceVisuals[0].mesh.getMatrixAt(
+        sibling.instanceVisuals[0].index,
+        beforeSibling,
+      );
+    }
+
+    world.applyEntityDiff(rock.id, { hits: 1, removed: false });
+    rockVisual.mesh.getMatrixAt(rockVisual.index, matrix);
+    expect(matrix.equals(beforeRock)).toBe(false);
+    if (sibling?.instanceVisuals?.[0]) {
+      const afterSibling = new THREE.Matrix4();
+      sibling.instanceVisuals[0].mesh.getMatrixAt(
+        sibling.instanceVisuals[0].index,
+        afterSibling,
+      );
+      expect(afterSibling.equals(beforeSibling)).toBe(true);
+    }
+
+    world.applyEntityDiff(rock.id, {
+      hits: rock.hitsRequired,
+      removed: true,
+    });
+    world.applyEntityDiff(tree.id, {
+      hits: tree.hitsRequired,
+      removed: true,
+    });
+    for (const target of [rock, tree]) {
+      expect(target.root.visible, `${target.id}:runtime visual state`).toBe(false);
+      for (const visual of target.instanceVisuals ?? []) {
+        visual.mesh.getMatrixAt(visual.index, matrix);
+        expectZeroInstanceScale(
+          matrix,
+          `${target.id}:${visual.mesh.name}:${visual.index}`,
+        );
+      }
+      expect(world.targets.some((candidate) => candidate.id === target.id)).toBe(false);
+      expect(world.colliders.some((collider) => collider.id === target.id)).toBe(false);
+    }
+
+    const rockIndex = rockVisual.index;
+    const rockKey = rock.id.split(":").slice(3, 5).join(":");
+    const treeIndices = tree.instanceVisuals.map((visual) => visual.index);
+    world.update(1_200, 1_200);
+    world.update(0, 8);
+    const reloadedRockMesh = scene.getObjectByName(`rocks:${rockKey}`);
+    expect(reloadedRockMesh).toBeInstanceOf(THREE.InstancedMesh);
+    if (reloadedRockMesh instanceof THREE.InstancedMesh) {
+      reloadedRockMesh.getMatrixAt(rockIndex, matrix);
+      expectZeroInstanceScale(matrix, `${rock.id}:reloaded`);
+    }
+    const reloadedForest = scene.getObjectsByProperty("name", `forest:${rockKey}`);
+    expect(reloadedForest).toHaveLength(2);
+    reloadedForest.forEach((object, index) => {
+      expect(object).toBeInstanceOf(THREE.InstancedMesh);
+      if (!(object instanceof THREE.InstancedMesh)) return;
+      object.getMatrixAt(treeIndices[index], matrix);
+      expectZeroInstanceScale(matrix, `${tree.id}:reloaded:${index}`);
+    });
+    expect(worldDiffs[rock.id]).toEqual({ hits: rock.hitsRequired, removed: true });
+    expect(worldDiffs[tree.id]).toEqual({ hits: tree.hitsRequired, removed: true });
+    world.dispose();
+  });
+
+  it("keeps legacy gatherable placement stable when an earlier resource is depleted", { timeout: 20_000 }, () => {
+    const firstScene = new THREE.Scene();
+    const firstWorld = new ChunkManager(firstScene, "performance");
+    firstWorld.update(0, 8);
+    const legacyRock = firstWorld.targets.find((target) =>
+      target.id.startsWith("resource:rock:v1:") &&
+      !target.id.startsWith("resource:rock:v1:0:0:") &&
+      firstWorld.targets.some(
+        (candidate) => candidate.id === target.id.replace(":rock:", ":tree:"),
+      ),
+    );
+    expect(legacyRock).toBeDefined();
+    if (!legacyRock) {
+      firstWorld.dispose();
+      return;
+    }
+    const treeId = legacyRock.id.replace(":rock:", ":tree:");
+    const firstTree = firstWorld.targets.find((target) => target.id === treeId);
+    expect(firstTree).toBeDefined();
+    const firstPosition = firstTree?.position.clone();
+    firstWorld.dispose();
+
+    const worldDiffs = {
+      [legacyRock.id]: { hits: legacyRock.hitsRequired, removed: true },
+    };
+    const restoredScene = new THREE.Scene();
+    const restoredWorld = new ChunkManager(
+      restoredScene,
+      "performance",
+      worldDiffs,
+    );
+    restoredWorld.update(0, 8);
+    const restoredTree = restoredWorld.targets.find(
+      (target) => target.id === treeId,
+    );
+    expect(restoredTree).toBeDefined();
+    expect(restoredTree?.position.toArray()).toEqual(firstPosition?.toArray());
+    expect(restoredWorld.targets.some((target) => target.id === legacyRock.id))
+      .toBe(false);
+    expect(restoredWorld.colliders.some((collider) => collider.id === legacyRock.id))
+      .toBe(false);
+    restoredWorld.dispose();
   });
 });

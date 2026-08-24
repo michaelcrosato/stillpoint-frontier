@@ -4,7 +4,10 @@ import { InteractionSystem } from "../../lib/game/systems/InteractionSystem";
 import type { GameRuntimeContext } from "../../lib/game/systems/runtime";
 import type { WorldTarget } from "../../lib/game/world/ChunkManager";
 
-function target(action: WorldTarget["action"]): WorldTarget {
+function target(
+  action: WorldTarget["action"],
+  overrides: Partial<WorldTarget> = {},
+): WorldTarget {
   return {
     id: `test:${action}`,
     kind: action === "toggle" ? "door" : "resource",
@@ -17,11 +20,12 @@ function target(action: WorldTarget["action"]): WorldTarget {
     hits: 0,
     doorId: action === "toggle" ? "test:door" : undefined,
     open: action === "toggle" ? false : undefined,
+    ...overrides,
   };
 }
 
 function context(
-  worldTarget: WorldTarget,
+  worldTarget: WorldTarget | readonly WorldTarget[],
   pressed: readonly string[],
   overrides: Partial<Pick<GameRuntimeContext, "started" | "paused">> = {},
 ) {
@@ -34,7 +38,7 @@ function context(
       consumePressed: vi.fn((code: string) => pressedSet.has(code)),
     },
     camera,
-    world: { targets: [worldTarget] },
+    world: { targets: Array.isArray(worldTarget) ? worldTarget : [worldTarget] },
     started: true,
     paused: false,
     developerPanelOpen: false,
@@ -76,5 +80,70 @@ describe("interaction system routing", () => {
     expect(paused.nearbyTarget).toBeNull();
     expect(paused.nearbyDistance).toBeNull();
     expect(paused.performInteraction).not.toHaveBeenCalled();
+  });
+
+  it("targets resources by yaw even when camera pitch and target height differ", () => {
+    const resource = target("harvest", {
+      position: new THREE.Vector3(3, -12, 0),
+    });
+    const runtime = context(resource, []);
+    runtime.camera.rotation.set(Math.PI / 2, -Math.PI / 2, 0, "YXZ");
+    runtime.camera.updateMatrixWorld(true);
+
+    new InteractionSystem().update(runtime);
+
+    expect(runtime.nearbyTarget).toBe(resource);
+    expect(runtime.nearbyDistance).toBeCloseTo(3);
+  });
+
+  it("accepts a resource near the viewport edge but never one behind the player", () => {
+    const edge = target("harvest", {
+      id: "test:edge-resource",
+      position: new THREE.Vector3(Math.sin(Math.PI / 3) * 3, 1, -1.5),
+    });
+    const behind = target("harvest", {
+      id: "test:behind-resource",
+      position: new THREE.Vector3(0, 1, 2),
+    });
+    const runtime = context([behind, edge], []);
+
+    new InteractionSystem().update(runtime);
+
+    expect(runtime.nearbyTarget).toBe(edge);
+
+    const behindOnly = context(behind, []);
+    new InteractionSystem().update(behindOnly);
+    expect(behindOnly.nearbyTarget).toBeNull();
+  });
+
+  it("uses resource interaction radius for aim assist and surface reach", () => {
+    const resource = target("harvest", {
+      position: new THREE.Vector3(4.75, 18, -1.27),
+      maxDistance: 4,
+    }) as WorldTarget & { interactionRadius: number };
+    resource.interactionRadius = 1.25;
+    const runtime = context(resource, []);
+
+    new InteractionSystem().update(runtime);
+
+    expect(runtime.nearbyTarget).toBe(resource);
+    expect(runtime.nearbyDistance).toBeCloseTo(Math.hypot(4.75, 1.27) - 1.25);
+  });
+
+  it("prefers the resource being aimed at over a nearer edge candidate", () => {
+    const centered = target("harvest", {
+      id: "test:centered-resource",
+      position: new THREE.Vector3(0, 1, -3.8),
+    });
+    const edge = target("harvest", {
+      id: "test:near-edge-resource",
+      position: new THREE.Vector3(Math.sin(Math.PI / 3) * 2, 1, -1),
+    });
+    const runtime = context([edge, centered], []);
+
+    new InteractionSystem().update(runtime);
+
+    expect(runtime.nearbyTarget).toBe(centered);
+    expect(runtime.nearbyDistance).toBeCloseTo(3.8);
   });
 });

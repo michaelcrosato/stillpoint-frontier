@@ -59,8 +59,9 @@ const foundationBottomY = Math.min(...footprintTerrain) - 0.08;
 const floorYs = Object.freeze(
   Array.from({ length: FLOOR_COUNT }, (_, floor) => floorY + floor * STORY_HEIGHT),
 );
+const roofY = floorY + FLOOR_COUNT * STORY_HEIGHT;
 const stairFlights = Object.freeze(
-  Array.from({ length: FLOOR_COUNT - 1 }, (_, index) => {
+  Array.from({ length: FLOOR_COUNT }, (_, index) => {
     const ascendsTowardBack = index % 2 === 0;
     return Object.freeze({
       index,
@@ -71,7 +72,7 @@ const stairFlights = Object.freeze(
       startZ: ascendsTowardBack ? STAIR_FRONT_Z : STAIR_BACK_Z,
       endZ: ascendsTowardBack ? STAIR_BACK_Z : STAIR_FRONT_Z,
       startY: floorYs[index],
-      endY: floorYs[index + 1],
+      endY: floorYs[index + 1] ?? roofY,
       steps: STAIR_STEPS,
       rise: STAIR_RISE,
       tread: STAIR_TREAD,
@@ -81,8 +82,9 @@ const stairFlights = Object.freeze(
 
 /**
  * A deliberately authored spawn landmark. Static instanced boxes keep the
- * ten traversable floors inexpensive, while two separate stair lanes prevent
- * vertically stacked support samples from selecting the wrong flight.
+ * ten traversable floors plus the roof inexpensive, while two separate stair
+ * lanes prevent vertically stacked support samples from selecting the wrong
+ * flight.
  */
 export const TEN_STORY_BUILDING = Object.freeze({
   id: "spawn-meridian-tower-03",
@@ -95,14 +97,16 @@ export const TEN_STORY_BUILDING = Object.freeze({
   depth: SITE.depth,
   floorY,
   floorYs,
+  roofY,
   floorCount: FLOOR_COUNT,
   storyHeight: STORY_HEIGHT,
   wallHeight: FLOOR_COUNT * STORY_HEIGHT,
   wallThickness: 0.24,
   slabThickness: 0.18,
   roofThickness: 0.28,
+  parapetHeight: 1.05,
   hasBasement: false,
-  roofAccess: false,
+  roofAccess: true,
   doorId: "spawn-meridian-tower-03:front",
   doorWidth: 1.6,
   doorHeight: 3.2,
@@ -181,6 +185,7 @@ export function tenStorySupportCandidates(x: number, z: number): number[] {
     local.z <= definition.stairwellMaxZ;
   if (!inStairwell) {
     supports.push(...definition.floorYs.slice(1));
+    supports.push(definition.roofY);
     return supports;
   }
 
@@ -248,6 +253,8 @@ export function createTenStoryBuilding(
   root.rotation.y = definition.rotation;
   root.userData.enterable = true;
   root.userData.floorCount = definition.floorCount;
+  root.userData.roofAccess = definition.roofAccess;
+  root.userData.roofY = definition.roofY;
 
   const materials = {
     wall: new THREE.MeshStandardMaterial({
@@ -305,12 +312,6 @@ export function createTenStoryBuilding(
     [definition.width, definition.foundationDepth, definition.depth],
     [0, -definition.foundationDepth * 0.5, 0],
   );
-  addRecipe(
-    roofBoxes,
-    [definition.width + 0.42, definition.roofThickness, definition.depth + 0.42],
-    [0, definition.wallHeight + definition.roofThickness * 0.5, 0],
-  );
-
   const innerHalfWidth = definition.width * 0.5 - definition.wallThickness;
   const innerHalfDepth = definition.depth * 0.5 - definition.wallThickness;
   for (let floor = 1; floor < definition.floorCount; floor += 1) {
@@ -348,6 +349,46 @@ export function createTenStoryBuilding(
       definition.stairwellMinZ,
     );
   }
+
+  const roofSurfaceY = definition.wallHeight;
+  const roofCenterY = roofSurfaceY - definition.roofThickness * 0.5;
+  const addRoofRegion = (
+    minX: number,
+    maxX: number,
+    minZ: number,
+    maxZ: number,
+  ) => {
+    if (maxX <= minX || maxZ <= minZ) return;
+    addRecipe(
+      roofBoxes,
+      [maxX - minX, definition.roofThickness, maxZ - minZ],
+      [(minX + maxX) * 0.5, roofCenterY, (minZ + maxZ) * 0.5],
+    );
+  };
+  addRoofRegion(
+    -innerHalfWidth,
+    definition.stairwellMinX,
+    -innerHalfDepth,
+    innerHalfDepth,
+  );
+  addRoofRegion(
+    definition.stairwellMaxX,
+    innerHalfWidth,
+    -innerHalfDepth,
+    innerHalfDepth,
+  );
+  addRoofRegion(
+    definition.stairwellMinX,
+    definition.stairwellMaxX,
+    definition.stairwellMaxZ,
+    innerHalfDepth,
+  );
+  addRoofRegion(
+    definition.stairwellMinX,
+    definition.stairwellMaxX,
+    -innerHalfDepth,
+    definition.stairwellMinZ,
+  );
 
   const addWindowedStory = (
     side: "front" | "back" | "left" | "right",
@@ -507,22 +548,58 @@ export function createTenStoryBuilding(
       ],
     );
   }
-  const topFloorOffset = (definition.floorCount - 1) * definition.storyHeight;
-  const unusedTopLane = STAIR_LANE_CENTERS[1];
+  const roofOffset = definition.wallHeight;
+  const roofFlight = definition.stairFlights.at(-1);
+  const activeRoofLane = roofFlight?.lane ?? 1;
+  const unusedRoofLane = STAIR_LANE_CENTERS[activeRoofLane === 0 ? 1 : 0];
+  const roofConnectedZ = roofFlight?.endZ ?? definition.stairwellMaxZ;
+  const roofOppositeZ = roofFlight?.startZ ?? definition.stairwellMinZ;
+  const unusedLaneOuterSide = unusedRoofLane < (roofFlight?.centerX ?? 0) ? -1 : 1;
+  addRecipe(
+    trimBoxes,
+    [
+      definition.stairwellMaxX - definition.stairwellMinX,
+      definition.parapetHeight,
+      0.08,
+    ],
+    [
+      (definition.stairwellMinX + definition.stairwellMaxX) * 0.5,
+      roofOffset + definition.parapetHeight * 0.5,
+      roofOppositeZ,
+    ],
+  );
   addRecipe(
     trimBoxes,
     [definition.stairWidth + 0.12, 1.05, 0.08],
-    [unusedTopLane, topFloorOffset + 0.525, definition.stairwellMinZ],
+    [unusedRoofLane, roofOffset + 0.525, roofConnectedZ],
   );
   addRecipe(
     trimBoxes,
     [0.08, 1.05, STAIR_RUN],
     [
-      unusedTopLane + definition.stairWidth * 0.5 + 0.04,
-      topFloorOffset + 0.525,
+      unusedRoofLane + unusedLaneOuterSide * (definition.stairWidth * 0.5 + 0.04),
+      roofOffset + 0.525,
       (definition.stairwellMinZ + definition.stairwellMaxZ) * 0.5,
     ],
   );
+
+  const roofHalfWidth = definition.width * 0.5;
+  const roofHalfDepth = definition.depth * 0.5;
+  const parapetCenterY = roofOffset + definition.parapetHeight * 0.5;
+  for (const z of [-roofHalfDepth, roofHalfDepth]) {
+    addRecipe(
+      trimBoxes,
+      [definition.width, definition.parapetHeight, 0.12],
+      [0, parapetCenterY, z],
+    );
+  }
+  for (const x of [-roofHalfWidth, roofHalfWidth]) {
+    addRecipe(
+      trimBoxes,
+      [0.12, definition.parapetHeight, definition.depth - 0.24],
+      [x, parapetCenterY, 0],
+    );
+  }
 
   createInstanceBatch(
     root,
@@ -646,25 +723,71 @@ export function createTenStoryBuilding(
       definition.floorYs[floor] + 1.05,
     ));
   }
-  const topFloorY = definition.floorYs.at(-1) ?? definition.floorY;
   colliders.push(
     boxCollider(
-      "stair:top:unused-lane-entry",
-      unusedTopLane,
-      definition.stairwellMinZ,
-      definition.stairWidth * 0.5 + 0.06,
+      "stair:roof:opposite-guard",
+      (definition.stairwellMinX + definition.stairwellMaxX) * 0.5,
+      roofOppositeZ,
+      (definition.stairwellMaxX - definition.stairwellMinX) * 0.5,
       0.05,
-      topFloorY,
-      topFloorY + 1.05,
+      definition.roofY,
+      definition.roofY + definition.parapetHeight,
     ),
     boxCollider(
-      "stair:top:unused-lane-side",
-      unusedTopLane + definition.stairWidth * 0.5 + 0.04,
+      "stair:roof:unused-lane-entry",
+      unusedRoofLane,
+      roofConnectedZ,
+      definition.stairWidth * 0.5 + 0.06,
+      0.05,
+      definition.roofY,
+      definition.roofY + definition.parapetHeight,
+    ),
+    boxCollider(
+      "stair:roof:unused-lane-side",
+      unusedRoofLane + unusedLaneOuterSide * (definition.stairWidth * 0.5 + 0.04),
       (definition.stairwellMinZ + definition.stairwellMaxZ) * 0.5,
       0.04,
       STAIR_RUN * 0.5,
-      topFloorY,
-      topFloorY + 1.05,
+      definition.roofY,
+      definition.roofY + definition.parapetHeight,
+    ),
+  );
+  colliders.push(
+    boxCollider(
+      "roof:parapet:back",
+      0,
+      -roofHalfDepth,
+      roofHalfWidth,
+      0.06,
+      definition.roofY,
+      definition.roofY + definition.parapetHeight,
+    ),
+    boxCollider(
+      "roof:parapet:front",
+      0,
+      roofHalfDepth,
+      roofHalfWidth,
+      0.06,
+      definition.roofY,
+      definition.roofY + definition.parapetHeight,
+    ),
+    boxCollider(
+      "roof:parapet:left",
+      -roofHalfWidth,
+      0,
+      0.06,
+      roofHalfDepth - 0.12,
+      definition.roofY,
+      definition.roofY + definition.parapetHeight,
+    ),
+    boxCollider(
+      "roof:parapet:right",
+      roofHalfWidth,
+      0,
+      0.06,
+      roofHalfDepth - 0.12,
+      definition.roofY,
+      definition.roofY + definition.parapetHeight,
     ),
   );
   colliders.push(door.collider);
