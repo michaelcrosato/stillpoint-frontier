@@ -38,19 +38,9 @@ export function stepVertical(
   velocity: number,
   groundY: number,
   deltaSeconds: number,
-  ceilingY = Number.POSITIVE_INFINITY,
-  bodyHeight = 0,
 ) {
   const nextVelocity = velocity - GRAVITY * deltaSeconds;
   const nextY = y + nextVelocity * deltaSeconds;
   if (nextY <= groundY) return { y: groundY, velocity: 0, grounded: true };
-  const maximumFeetY = ceilingY - Math.max(0, bodyHeight);
-  if (Number.isFinite(maximumFeetY) && nextY > maximumFeetY) {
-    return {
-      y: maximumFeetY,
-      velocity: Math.min(0, nextVelocity),
-      grounded: false,
-    };
-  }
   return { y: nextY, velocity: nextVelocity, grounded: false };
 }

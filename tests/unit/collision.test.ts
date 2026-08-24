@@ -2,7 +2,6 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
   PlanarCollisionIndex,
-  colliderOverlapsVerticalSpan,
   isPlanarPositionClear,
   resolvePlanarMovement,
   type BoxCollider,
@@ -304,36 +303,5 @@ describe("collision spatial index", () => {
     expect(index.querySweep({ x: -8, z: 0 }, { x: 8, z: 0 }, PLAYER_RADIUS))
       .toHaveLength(1);
     expect(() => new PlanarCollisionIndex(0)).toThrow(/positive and finite/i);
-  });
-});
-
-describe("height-aware collider filtering", () => {
-  it("blocks only overlapping storeys and ignores placement-only footprints", () => {
-    const lowerWall: BoxCollider = {
-      ...building,
-      id: "lower-wall",
-      minY: 0,
-      maxY: 3,
-    };
-    const upperWall: BoxCollider = {
-      ...building,
-      id: "upper-wall",
-      minY: 3.2,
-      maxY: 6.2,
-    };
-    const footprint: BoxCollider = {
-      ...building,
-      id: "placement-footprint",
-      blocksPlayer: false,
-    };
-    expect(colliderOverlapsVerticalSpan(lowerWall, 0, 1.82)).toBe(true);
-    expect(colliderOverlapsVerticalSpan(upperWall, 0, 1.82)).toBe(false);
-    expect(colliderOverlapsVerticalSpan(upperWall, 3.2, 5.02)).toBe(true);
-    expect(colliderOverlapsVerticalSpan(footprint, 0, 10)).toBe(false);
-    expect(colliderOverlapsVerticalSpan(
-      { ...upperWall, minY: Number.NaN },
-      3.2,
-      5.02,
-    )).toBe(false);
   });
 });

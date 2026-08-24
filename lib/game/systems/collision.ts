@@ -5,11 +5,6 @@ export interface PlanarPosition {
 
 interface ColliderBase extends PlanarPosition {
   id: string;
-  /** Optional vertical bounds for stacked interiors. Unbounded when omitted. */
-  minY?: number;
-  maxY?: number;
-  /** Placement-only volumes remain indexed but are ignored by character movement. */
-  blocksPlayer?: boolean;
 }
 
 export interface CircleCollider extends ColliderBase {
@@ -59,15 +54,6 @@ function isFinitePosition(position: PlanarPosition) {
 
 function isValidCollider(collider: PlanarCollider) {
   if (!collider.id || !isFinitePosition(collider)) return false;
-  if (
-    (collider.minY !== undefined && !Number.isFinite(collider.minY)) ||
-    (collider.maxY !== undefined && !Number.isFinite(collider.maxY)) ||
-    (collider.minY !== undefined &&
-      collider.maxY !== undefined &&
-      collider.minY > collider.maxY)
-  ) {
-    return false;
-  }
   if (collider.shape === "circle") {
     return Number.isFinite(collider.radius) && collider.radius >= 0;
   }
@@ -78,21 +64,6 @@ function isValidCollider(collider: PlanarCollider) {
     collider.halfDepth >= 0 &&
     Number.isFinite(collider.rotation)
   );
-}
-
-export function colliderOverlapsVerticalSpan(
-  collider: PlanarCollider,
-  minY: number,
-  maxY: number,
-) {
-  if (collider.blocksPlayer === false) return false;
-  const firstY = Number.isFinite(minY) ? minY : Number.NEGATIVE_INFINITY;
-  const secondY = Number.isFinite(maxY) ? maxY : Number.POSITIVE_INFINITY;
-  const safeMinY = Math.min(firstY, secondY);
-  const safeMaxY = Math.max(firstY, secondY);
-  const colliderMinY = collider.minY ?? Number.NEGATIVE_INFINITY;
-  const colliderMaxY = collider.maxY ?? Number.POSITIVE_INFINITY;
-  return safeMaxY >= colliderMinY && safeMinY <= colliderMaxY;
 }
 
 function toLocal(point: PlanarPosition, collider: BoxCollider): PlanarPosition {

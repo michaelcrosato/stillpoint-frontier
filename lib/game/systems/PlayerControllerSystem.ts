@@ -1,11 +1,9 @@
 import * as THREE from "three";
 import {
   CROUCH_HEIGHT,
-  CROUCH_BODY_HEIGHT,
   CROUCH_SPEED,
   JUMP_SPEED,
   PLAYER_HEIGHT,
-  PLAYER_BODY_HEIGHT,
   PLAYER_RADIUS,
   SPRINT_SPEED,
   WALK_SPEED,
@@ -98,42 +96,22 @@ export class PlayerControllerSystem implements GameSystem<GameRuntimeContext> {
       const resolved = resolvePlanarMovement(
         current,
         desired,
-        context.world.queryColliders(
-          current,
-          desired,
-          PLAYER_RADIUS,
-          context.player.position.y,
-          context.player.position.y +
-            (context.player.crouching ? CROUCH_BODY_HEIGHT : PLAYER_BODY_HEIGHT),
-        ),
+        context.world.queryColliders(current, desired, PLAYER_RADIUS),
         PLAYER_RADIUS,
       );
       context.player.position.x = resolved.x;
       context.player.position.z = resolved.z;
     }
 
-    const groundY = context.world.samplePlayerSupportHeight(
+    const groundY = context.world.sampleGroundHeight(
       context.player.position.x,
       context.player.position.z,
-      context.player.position.y,
-      context.player.verticalVelocity,
-      context.player.grounded,
-    );
-    const bodyHeight = context.player.crouching
-      ? CROUCH_BODY_HEIGHT
-      : PLAYER_BODY_HEIGHT;
-    const ceilingY = context.world.samplePlayerCeilingHeight(
-      context.player.position.x,
-      context.player.position.z,
-      context.player.position.y,
     );
     const vertical = stepVertical(
       context.player.position.y,
       context.player.verticalVelocity,
       groundY,
       deltaSeconds,
-      ceilingY,
-      bodyHeight,
     );
     context.player.position.y = vertical.y;
     context.player.verticalVelocity = vertical.velocity;

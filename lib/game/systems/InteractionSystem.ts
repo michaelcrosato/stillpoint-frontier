@@ -1,14 +1,10 @@
 import * as THREE from "three";
 import type { GameSystem } from "../core/SystemPipeline";
-import {
-  worldTargetInteractionPosition,
-  type WorldTarget,
-} from "../world/ChunkManager";
+import type { WorldTarget } from "../world/ChunkManager";
 import type { GameRuntimeContext } from "./runtime";
 
 const forward = new THREE.Vector3();
 const toTarget = new THREE.Vector3();
-const interactionPosition = new THREE.Vector3();
 
 export class InteractionSystem implements GameSystem<GameRuntimeContext> {
   readonly id = "interaction";
@@ -38,38 +34,12 @@ export class InteractionSystem implements GameSystem<GameRuntimeContext> {
     let bestTarget: WorldTarget | null = null;
     let bestDistance: number | null = null;
     let bestScore = Number.POSITIVE_INFINITY;
-    const cameraPosition = context.camera.position;
     for (const target of context.world.targets) {
-      const maxDistance = target.maxDistance;
-      const canPrefilterDistance =
-        Number.isFinite(maxDistance) && maxDistance >= 0;
-      if (
-        canPrefilterDistance &&
-        (Math.abs(target.position.x - cameraPosition.x) > maxDistance ||
-          Math.abs(target.position.z - cameraPosition.z) > maxDistance)
-      ) continue;
-      const targetPosition = worldTargetInteractionPosition(
-        target,
-        context.player.position.y,
-        interactionPosition,
-      );
-      if (!targetPosition) continue;
-      if (
-        canPrefilterDistance &&
-        Math.abs(targetPosition.y - cameraPosition.y) > maxDistance
-      ) continue;
-      toTarget.copy(targetPosition).sub(cameraPosition);
+      toTarget.copy(target.position).sub(context.camera.position);
       const distance = toTarget.length();
-      if (distance > maxDistance) continue;
+      if (distance > target.maxDistance) continue;
       const alignment = forward.dot(toTarget.normalize());
-      if (
-        alignment <
-        (target.kind === "pickup"
-          ? 0.5
-          : target.kind === "traversal"
-            ? 0.35
-            : 0.58)
-      ) continue;
+      if (alignment < (target.kind === "pickup" ? 0.5 : 0.58)) continue;
       const score = distance + (1 - alignment) * 4;
       if (score >= bestScore) continue;
       bestScore = score;

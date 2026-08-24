@@ -12,12 +12,7 @@ import {
   type CrowdDensity,
 } from "./citizenRecipes";
 import { getSettlement } from "../world/macroWorld";
-import {
-  chunkKey,
-  chunksAround,
-  worldToChunk,
-  type ChunkCoordinate,
-} from "../world/terrain";
+import { chunkKey, chunksAround, worldToChunk } from "../world/terrain";
 
 interface CitizenChunkRuntime {
   key: string;
@@ -76,8 +71,6 @@ export class CitizenEngine {
   });
   private readonly loaded = new Map<string, CitizenChunkRuntime>();
   private activeChunkKey = "";
-  private desiredChunkKeys = new Set<string>();
-  private pendingChunks: ChunkCoordinate[] = [];
   private elapsedSeconds = 0;
   private worldMinutes = 12 * 60;
   private disposed = false;
@@ -111,62 +104,19 @@ export class CitizenEngine {
     const nextActiveKey = chunkKey(center.x, center.z);
     if (nextActiveKey === this.activeChunkKey && this.loaded.size > 0) return false;
     this.activeChunkKey = nextActiveKey;
-    const coordinates = chunksAround(center, CITIZEN_CHUNK_LOAD_RADIUS).sort(
-      (left, right) => {
-        const leftDistance =
-          (left.x - center.x) ** 2 + (left.z - center.z) ** 2;
-        const rightDistance =
-          (right.x - center.x) ** 2 + (right.z - center.z) ** 2;
-        return leftDistance - rightDistance;
-      },
-    );
-    this.desiredChunkKeys = new Set(
-      coordinates.map((coordinate) => chunkKey(coordinate.x, coordinate.z)),
-    );
+    const desired = new Set<string>();
+    for (const coordinate of chunksAround(center, CITIZEN_CHUNK_LOAD_RADIUS)) {
+      const key = chunkKey(coordinate.x, coordinate.z);
+      desired.add(key);
+      if (!this.loaded.has(key)) this.loadChunk(coordinate.x, coordinate.z);
+    }
     for (const [key, chunk] of this.loaded) {
-      if (this.desiredChunkKeys.has(key)) continue;
+      if (desired.has(key)) continue;
       this.unloadChunk(chunk);
       this.loaded.delete(key);
     }
-    if (!this.loaded.has(nextActiveKey)) this.loadChunk(center.x, center.z);
-    this.pendingChunks = coordinates.filter(
-      (coordinate) => !this.loaded.has(chunkKey(coordinate.x, coordinate.z)),
-    );
     this.updateMatrices(this.elapsedSeconds);
     return true;
-  }
-
-  advanceStreaming(maxChunkLoads = 1) {
-    if (this.disposed) return false;
-    const safeLimit = Number.isFinite(maxChunkLoads)
-      ? Math.max(0, Math.floor(maxChunkLoads))
-      : 1;
-    let loadedCount = 0;
-    while (loadedCount < safeLimit && this.pendingChunks.length > 0) {
-      const coordinate = this.pendingChunks.shift();
-      if (!coordinate) break;
-      const key = chunkKey(coordinate.x, coordinate.z);
-      if (!this.desiredChunkKeys.has(key) || this.loaded.has(key)) continue;
-      this.loadChunk(coordinate.x, coordinate.z);
-      loadedCount += 1;
-    }
-    return loadedCount > 0;
-  }
-
-  /** Synchronous full drain for deterministic non-rendering tests only. */
-  flushStreamingForTests() {
-    const pending = this.pendingChunks.length;
-    if (pending > 0) this.advanceStreaming(pending);
-    this.updateMatrices(this.elapsedSeconds);
-  }
-
-  get streamingSnapshot() {
-    return {
-      loaded: this.loaded.size,
-      pending: this.pendingChunks.length,
-      desired: this.desiredChunkKeys.size,
-      ready: this.pendingChunks.length === 0,
-    };
   }
 
   setQuality(quality: QualityLevel) {
@@ -238,8 +188,6 @@ export class CitizenEngine {
     this.disposed = true;
     for (const chunk of this.loaded.values()) this.unloadChunk(chunk);
     this.loaded.clear();
-    this.desiredChunkKeys.clear();
-    this.pendingChunks = [];
     this.geometry.dispose();
     this.material.dispose();
   }

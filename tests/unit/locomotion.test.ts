@@ -16,16 +16,6 @@ describe("locomotion math", () => {
     expect(state).toEqual({ y: 10, velocity: 0, grounded: true });
   });
 
-  it("stops a jumping body at an interior ceiling", () => {
-    let state = { y: 4, velocity: JUMP_SPEED, grounded: false };
-    for (let index = 0; index < 30; index += 1) {
-      state = stepVertical(state.y, state.velocity, 4, 1 / 60, 6.65, 1.82);
-      expect(state.y + 1.82).toBeLessThanOrEqual(6.65);
-    }
-    expect(state.y).toBeLessThanOrEqual(4.83);
-    expect(Number.isFinite(state.velocity)).toBe(true);
-  });
-
   it("drains only while sprinting and regenerates after a delay", () => {
     const drained = stepStamina(1, 0, true, 1);
     expect(drained.stamina).toBeLessThan(1);

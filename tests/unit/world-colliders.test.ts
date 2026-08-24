@@ -1,25 +1,11 @@
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
 import { GAMEPLAY_CHUNK_RADIUS, PLAYER_RADIUS } from "../../lib/game/config";
-import {
-  isPlanarPositionClear,
-  resolvePlanarMovement,
-  type PlanarCollider,
-} from "../../lib/game/systems/collision";
+import { isPlanarPositionClear, type PlanarCollider } from "../../lib/game/systems/collision";
 import { ChunkManager } from "../../lib/game/world/ChunkManager";
-import {
-  BUILDING_SLAB_THICKNESS,
-  BUILDING_STEP_HEIGHT,
-  BUILDING_WINDOW_HEIGHT,
-  BUILDING_WINDOW_SILL,
-  buildingBasementSupportY,
-  buildingContainsPoint,
-  buildingGroundSupportY,
-  buildingLocalToWorld,
-} from "../../lib/game/world/buildings";
 import { getSettlement } from "../../lib/game/world/macroWorld";
 import { distanceToPathSegment, worldPathSegmentsForChunk } from "../../lib/game/world/roads";
-import { sampleTerrainHeight, worldToChunk } from "../../lib/game/world/terrain";
+import { worldToChunk } from "../../lib/game/world/terrain";
 
 function activeChunkRoots(scene: THREE.Scene, x: number, z: number) {
   const center = worldToChunk(x, z);
@@ -57,7 +43,6 @@ describe("streamed world collider coverage", () => {
     const scene = new THREE.Scene();
     const world = new ChunkManager(scene, "performance");
     world.update(settlement.x, settlement.z);
-    world.flushStreamingForTests();
     const roots = activeChunkRoots(scene, settlement.x, settlement.z);
     const colliders = world.colliders;
     const colliderIds = new Set(colliders.map((collider) => collider.id));
@@ -67,13 +52,7 @@ describe("streamed world collider coverage", () => {
     expect(colliders.length).toBeGreaterThan(300);
     colliders.forEach(expectFiniteCollider);
 
-    let buildingShellInstances = 0;
-    let buildingFloorInstances = 0;
-    let buildingDoorInstances = 0;
-    let buildingStairInstances = 0;
-    let buildingFacadeInstances = 0;
-    let settlementInstanceCapacity = 0;
-    let settlementLiveInstances = 0;
+    let buildingInstances = 0;
     let treeInstances = 0;
     let rockInstances = 0;
     let ruinInstances = 0;
@@ -86,7 +65,7 @@ describe("streamed world collider coverage", () => {
       const generatedSolids = colliders.filter((collider) =>
         collider.id.includes(`:${key}:`) &&
         (
-          collider.id.endsWith(":footprint") ||
+          collider.id.startsWith("building:") ||
           collider.id.startsWith("scenery-") ||
           collider.id.startsWith("ruin:")
         ),
@@ -100,35 +79,40 @@ describe("streamed world collider coverage", () => {
         ), collider.id).toBe(true);
       }
       root.traverse((object) => {
-        if (
-          object instanceof THREE.InstancedMesh &&
-          (object.name.startsWith("settlement-") ||
-            object.name.startsWith("city-windows:"))
-        ) {
-          settlementInstanceCapacity += object.instanceMatrix.count;
-          settlementLiveInstances += object.count;
-        }
-        if (object instanceof THREE.InstancedMesh && object.name.startsWith("settlement-shells:")) {
-          buildingShellInstances += object.count;
-        }
-        if (object instanceof THREE.InstancedMesh && object.name.startsWith("settlement-floors:")) {
-          buildingFloorInstances += object.count;
-          const instanceMatrix = new THREE.Matrix4();
-          const instanceScale = new THREE.Vector3();
-          for (let instanceIndex = 0; instanceIndex < object.count; instanceIndex += 1) {
-            object.getMatrixAt(instanceIndex, instanceMatrix);
-            instanceScale.setFromMatrixScale(instanceMatrix);
-            expect(instanceScale.y).toBeCloseTo(BUILDING_SLAB_THICKNESS);
+        if (object instanceof THREE.InstancedMesh && object.name.startsWith("settlement:")) {
+          const suffix = `:${key}`;
+          const settlementId = object.name.slice("settlement:".length, -suffix.length);
+          const matching = colliders.filter((collider) =>
+            collider.id.startsWith(`building:${settlementId}:${key}:`),
+          );
+          expect(matching).toHaveLength(object.count);
+          expect(matching.every((collider) => collider.shape === "box")).toBe(true);
+          buildingInstances += object.count;
+
+          if (object.count > 0) {
+            const matrix = new THREE.Matrix4();
+            const position = new THREE.Vector3();
+            const quaternion = new THREE.Quaternion();
+            const scale = new THREE.Vector3();
+            object.getMatrixAt(0, matrix);
+            matrix.decompose(position, quaternion, scale);
+            const collider = matching[0];
+            expect(collider.shape).toBe("box");
+            if (collider.shape === "box") {
+              expect(collider.x).toBeCloseTo(position.x, 3);
+              expect(collider.z).toBeCloseTo(position.z, 3);
+              expect(collider.halfWidth).toBeCloseTo(scale.x * 0.5, 4);
+              expect(collider.halfDepth).toBeCloseTo(scale.z * 0.5, 4);
+              expect(Math.cos(collider.rotation)).toBeCloseTo(
+                matrix.elements[0] / scale.x,
+                5,
+              );
+              expect(-Math.sin(collider.rotation)).toBeCloseTo(
+                matrix.elements[2] / scale.x,
+                5,
+              );
+            }
           }
-        }
-        if (object instanceof THREE.InstancedMesh && object.name.startsWith("settlement-doors:")) {
-          buildingDoorInstances += object.count;
-        }
-        if (object instanceof THREE.InstancedMesh && object.name.startsWith("settlement-stairs:")) {
-          buildingStairInstances += object.count;
-        }
-        if (object instanceof THREE.InstancedMesh && object.name.startsWith("city-windows:")) {
-          buildingFacadeInstances += object.count;
         }
 
         if (object instanceof THREE.InstancedMesh && object.name === `rocks:${key}`) {
@@ -161,117 +145,7 @@ describe("streamed world collider coverage", () => {
       });
     }
 
-    const recipes = world.buildings;
-    expect(recipes.length).toBeGreaterThan(80);
-    expect(buildingDoorInstances).toBe(recipes.length);
-    expect(buildingShellInstances).toBe(
-      recipes.length * 4 + recipes.filter((recipe) => recipe.roofAccess).length * 4,
-    );
-    expect(buildingFloorInstances).toBeGreaterThan(recipes.length * 2);
-    expect(buildingStairInstances).toBeGreaterThan(0);
-    expect(buildingFacadeInstances).toBe(recipes.length * 4);
-    expect(settlementInstanceCapacity).toBe(settlementLiveInstances);
-    const interiorDetailVisibility = { near: 0, far: 0 };
-    scene.traverse((object) => {
-      if (!(object instanceof THREE.InstancedMesh)) return;
-      if (!object.name.startsWith("settlement-floors:") && !object.name.startsWith("settlement-stairs:")) return;
-      if (object.visible) interiorDetailVisibility.near += 1;
-      else interiorDetailVisibility.far += 1;
-    });
-    expect(interiorDetailVisibility.near).toBeGreaterThan(0);
-    expect(interiorDetailVisibility.far).toBeGreaterThan(0);
-    expect(recipes.some((recipe) => recipe.floorCount > 1)).toBe(true);
-    expect(recipes.some((recipe) => recipe.hasBasement)).toBe(true);
-    expect(recipes.some((recipe) => recipe.roofAccess)).toBe(true);
-    for (const recipe of recipes) {
-      const matching = colliders.filter((collider) =>
-        collider.id.startsWith(`${recipe.id}:`),
-      );
-      expect(matching.some((collider) => collider.id.endsWith(":footprint"))).toBe(true);
-      expect(matching.some((collider) => collider.id.endsWith(":entrance-apron"))).toBe(true);
-      expect(matching.filter((collider) => collider.id.includes(":wall:"))).toHaveLength(
-        6 + (recipe.hasBasement ? 1 : 0),
-      );
-      expect(matching.filter((collider) => collider.id.includes(":roof:")).length)
-        .toBe(recipe.roofAccess ? 4 : 0);
-      expect(recipe.doorWidth).toBeGreaterThan(PLAYER_RADIUS * 2);
-      expect(recipe.doorHeight).toBeGreaterThan(1.8);
-      expect(recipe.height).toBeCloseTo(recipe.floorHeight * recipe.floorCount);
-    }
-
-    const controlledFloor = recipes[0];
-    expect(controlledFloor).toBeDefined();
-    if (controlledFloor) {
-      const center = buildingLocalToWorld(controlledFloor, 0, 0);
-      const terrainY = sampleTerrainHeight(center.x, center.z);
-      const originalFoundationY = controlledFloor.foundationY;
-      controlledFloor.foundationY =
-        terrainY - BUILDING_SLAB_THICKNESS - BUILDING_STEP_HEIGHT * 0.5;
-      const floorY = buildingGroundSupportY(controlledFloor);
-      try {
-        expect(terrainY - floorY).toBeCloseTo(BUILDING_STEP_HEIGHT * 0.5);
-        expect(world.samplePlayerSupportHeight(
-          center.x,
-          center.z,
-          floorY,
-          0,
-          true,
-        )).toBeCloseTo(floorY);
-      } finally {
-        controlledFloor.foundationY = originalFoundationY;
-      }
-    }
-
-    const enterable = recipes.find((recipe) => recipe.floorCount > 2);
-    expect(enterable).toBeDefined();
-    if (enterable) {
-      const groundY = buildingGroundSupportY(enterable);
-      const outside = buildingLocalToWorld(
-        enterable,
-        0,
-        enterable.depth * 0.5 + 1.8,
-      );
-      const inside = buildingLocalToWorld(enterable, 0, 0);
-      const entered = resolvePlanarMovement(
-        outside,
-        inside,
-        world.queryColliders(outside, inside, PLAYER_RADIUS, groundY, groundY + 1.82),
-        PLAYER_RADIUS,
-      );
-      expect(buildingContainsPoint(enterable, entered.x, entered.z)).toBe(true);
-      expect(world.samplePlayerSupportHeight(
-        inside.x,
-        inside.z,
-        groundY - 0.1,
-        0,
-        true,
-      )).toBeCloseTo(groundY);
-      const upperY = groundY + enterable.floorHeight;
-      expect(world.samplePlayerSupportHeight(
-        inside.x,
-        inside.z,
-        upperY,
-        0,
-        true,
-      )).toBeCloseTo(upperY);
-      expect(world.samplePlayerCeilingHeight(inside.x, inside.z, upperY))
-        .toBeCloseTo(upperY + enterable.floorHeight - 0.2);
-    }
-
-    const basement = recipes.find((recipe) => recipe.hasBasement);
-    expect(basement).toBeDefined();
-    if (basement) {
-      const inside = buildingLocalToWorld(basement, 0, 0);
-      const basementY = buildingBasementSupportY(basement);
-      expect(world.samplePlayerSupportHeight(
-        inside.x,
-        inside.z,
-        basementY,
-        0,
-        true,
-      )).toBeCloseTo(basementY);
-      expect(world.getInteriorStatus(inside.x, inside.z, basementY)?.level).toBe("B1");
-    }
+    expect(buildingInstances).toBeGreaterThan(100);
     expect(treeInstances).toBeGreaterThan(20);
     expect(rockInstances).toBeGreaterThan(50);
     expect(ruinInstances).toBeGreaterThan(0);
@@ -279,9 +153,8 @@ describe("streamed world collider coverage", () => {
 
     const dayLighting = world.nightLightingSnapshot;
     expect(dayLighting.strength).toBe(0);
-    expect(dayLighting.windows).toBeGreaterThan(buildingFacadeInstances);
-    expect(dayLighting.visibleWindowMeshes).toBeGreaterThan(0);
-    expect(dayLighting.litWindowMeshes).toBe(0);
+    expect(dayLighting.windows).toBeGreaterThan(buildingInstances);
+    expect(dayLighting.visibleWindowMeshes).toBe(0);
     expect(dayLighting.areaLights).toBeGreaterThan(0);
     expect(dayLighting.activeAreaLights).toBe(0);
 
@@ -289,67 +162,22 @@ describe("streamed world collider coverage", () => {
     const nightLighting = world.nightLightingSnapshot;
     expect(nightLighting.strength).toBe(1);
     expect(nightLighting.visibleWindowMeshes).toBeGreaterThan(0);
-    expect(nightLighting.litWindowMeshes).toBe(nightLighting.visibleWindowMeshes);
     expect(nightLighting.activeAreaLights).toBe(nightLighting.areaLights);
 
     world.setNightLighting(0);
-    expect(world.nightLightingSnapshot.visibleWindowMeshes).toBeGreaterThan(0);
-    expect(world.nightLightingSnapshot.litWindowMeshes).toBe(0);
+    expect(world.nightLightingSnapshot.visibleWindowMeshes).toBe(0);
     world.setNightLighting(Number.NaN);
     expect(world.nightLightingSnapshot.strength).toBe(0);
     let windowMesh: THREE.InstancedMesh | undefined;
-    let facadeMesh: THREE.InstancedMesh | undefined;
     scene.traverse((object) => {
       if (!windowMesh && object instanceof THREE.InstancedMesh && object.name.startsWith("city-windows:")) {
         windowMesh = object;
       }
-      if (!facadeMesh && object instanceof THREE.InstancedMesh && object.name.startsWith("settlement-facades:")) {
-        facadeMesh = object;
-      }
     });
     expect(windowMesh).toBeDefined();
-    expect(facadeMesh).toBeDefined();
-    const rawWindowMaterial = windowMesh?.material;
-    const windowMaterial = Array.isArray(rawWindowMaterial)
-      ? rawWindowMaterial[0]
-      : rawWindowMaterial;
-    expect(windowMaterial).toBeInstanceOf(THREE.ShaderMaterial);
-    if (windowMaterial instanceof THREE.ShaderMaterial) {
-      expect(windowMaterial.uniforms.uWindowSill?.value).toBe(BUILDING_WINDOW_SILL);
-      expect(windowMaterial.uniforms.uWindowHeight?.value).toBe(BUILDING_WINDOW_HEIGHT);
-      expect(windowMaterial.fog).toBe(true);
-      expect(windowMaterial.side).toBe(THREE.DoubleSide);
-    }
-    const rawFacadeMaterial = facadeMesh?.material;
-    const facadeMaterial = Array.isArray(rawFacadeMaterial)
-      ? rawFacadeMaterial[0]
-      : rawFacadeMaterial;
-    expect(facadeMaterial).toBeInstanceOf(THREE.ShaderMaterial);
-    if (facadeMaterial instanceof THREE.ShaderMaterial) {
-      expect(facadeMaterial.fog).toBe(true);
-      expect(facadeMaterial.side).toBe(THREE.DoubleSide);
-      expect(facadeMaterial.fragmentShader).toContain("facadeWindowMask() > 0.5");
-      expect(facadeMaterial.fragmentShader).toContain("facadeDoorMask() > 0.5");
-    }
     const disposeWindowMesh = vi.spyOn(windowMesh!, "dispose");
-    let shellMesh: THREE.InstancedMesh | undefined;
-    scene.traverse((object) => {
-      if (!shellMesh && object instanceof THREE.InstancedMesh && object.name.startsWith("settlement-shells:")) {
-        shellMesh = object;
-      }
-    });
-    expect(shellMesh).toBeDefined();
-    const disposeSharedBox = vi.spyOn(shellMesh!.geometry, "dispose");
-    const shellMaterial = Array.isArray(shellMesh!.material)
-      ? shellMesh!.material[0]
-      : shellMesh!.material;
-    const disposeSharedShellMaterial = vi.spyOn(shellMaterial, "dispose");
-    const disposeSharedWindowMaterial = vi.spyOn(windowMaterial!, "dispose");
     world.dispose();
     expect(disposeWindowMesh).toHaveBeenCalledOnce();
-    expect(disposeSharedBox).toHaveBeenCalledOnce();
-    expect(disposeSharedShellMaterial).toHaveBeenCalledOnce();
-    expect(disposeSharedWindowMaterial).toHaveBeenCalledOnce();
   });
 
   it("keeps the opening and pickups accessible and removes harvested collision", { timeout: 20_000 }, () => {
