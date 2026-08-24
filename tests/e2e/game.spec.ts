@@ -6,6 +6,7 @@ import {
 } from "../../lib/game/config";
 import { getSettlement } from "../../lib/game/world/macroWorld";
 import { SPAWN_BUILDING } from "../../lib/game/world/spawnBuilding";
+import { TEN_STORY_BUILDING } from "../../lib/game/world/tenStoryBuilding";
 import { TWO_STORY_BUILDING } from "../../lib/game/world/twoStoryBuilding";
 
 async function openDeterministicWorld(page: Page) {
@@ -91,7 +92,7 @@ test("starts the survey, streams distant chunks, and opens the map", async ({ pa
   await attachScreenshot(page, testInfo, "distant-world-map");
 });
 
-test("toggles the spawn door and exposes a traversable second floor", async ({ page }) => {
+test("toggles the spawn door and exposes every authored floor", async ({ page }) => {
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   expect(SPAWN_BUILDING.floorCount).toBe(1);
@@ -104,7 +105,7 @@ test("toggles the spawn door and exposes a traversable second floor", async ({ p
     `spawn-building:${SPAWN_BUILDING.id}:wall:`,
   );
   expect(wallCount).toBe(5);
-  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.doors().length)).toBe(2);
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.doors().length)).toBe(3);
 
   const closedDoorwayProbe = await page.evaluate(
     ({ x, z, depth }) => window.__STILLPOINT_TEST__?.probeCollision(
@@ -177,6 +178,15 @@ test("toggles the spawn door and exposes a traversable second floor", async ({ p
   );
   expect(groundFloor).toBeCloseTo(TWO_STORY_BUILDING.floorY, 4);
   expect(upperFloor).toBeCloseTo(TWO_STORY_BUILDING.upperFloorY, 4);
+
+  for (const floorY of TEN_STORY_BUILDING.floorYs) {
+    const sampledFloor = await page.evaluate(
+      ({ x, z, referenceY }) =>
+        window.__STILLPOINT_TEST__?.groundHeight(x, z, referenceY),
+      { x: TEN_STORY_BUILDING.x, z: TEN_STORY_BUILDING.z, referenceY: floorY },
+    );
+    expect(sampledFloor).toBeCloseTo(floorY, 4);
+  }
 });
 
 test("sets, replaces, guides, and clears a map waypoint", async ({ page }, testInfo) => {

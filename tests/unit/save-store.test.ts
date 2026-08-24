@@ -23,6 +23,7 @@ const saveInput = {
   doorStates: {
     "spawn-field-unit-01:front": true,
     "spawn-survey-house-02:front": false,
+    "spawn-meridian-tower-03:front": true,
   },
   manualWaypoint: { x: 12_400, z: -8_200 },
   worldMinutes: 2_345.5,

@@ -18,6 +18,7 @@ export default defineConfig({
         "lib/game/world/spawnBuilding.ts",
         "lib/game/world/authoredDoor.ts",
         "lib/game/world/twoStoryBuilding.ts",
+        "lib/game/world/tenStoryBuilding.ts",
         "lib/game/citizens/citizenRecipes.ts",
         "lib/game/gameplay/items.ts",
         "lib/game/gameplay/interactions.ts",

@@ -18,6 +18,8 @@ import {
   spawnBuildingSupportHeight,
 } from "../../lib/game/world/spawnBuilding";
 import { sampleTerrainHeight } from "../../lib/game/world/terrain";
+import { TEN_STORY_BUILDING } from "../../lib/game/world/tenStoryBuilding";
+import { TWO_STORY_BUILDING } from "../../lib/game/world/twoStoryBuilding";
 
 function disposeRoot(root: THREE.Object3D) {
   root.traverse((object) => {
@@ -184,9 +186,10 @@ describe("single spawn building prototype", () => {
     )).toHaveLength(5);
     expect(world.doorsSnapshot).toEqual([
       { id: SPAWN_BUILDING.doorId, open: false },
-      { id: "spawn-survey-house-02:front", open: false },
+      { id: TWO_STORY_BUILDING.doorId, open: false },
+      { id: TEN_STORY_BUILDING.doorId, open: false },
     ]);
-    expect(world.targets.filter((target) => target.kind === "door")).toHaveLength(2);
+    expect(world.targets.filter((target) => target.kind === "door")).toHaveLength(3);
     expect(world.sampleGroundHeight(SPAWN_BUILDING.x, SPAWN_BUILDING.z))
       .toBeCloseTo(SPAWN_BUILDING.floorY);
     expect(isPlanarPositionClear({ x: 0, z: 8 }, world.colliders, PLAYER_RADIUS))
@@ -224,14 +227,14 @@ describe("single spawn building prototype", () => {
     )).toBe("opened");
 
     expect(world.toggleDoor(
-      "spawn-survey-house-02:front",
+      TWO_STORY_BUILDING.doorId,
       { x: 0, y: SPAWN_BUILDING.floorY, z: 8 },
       PLAYER_RADIUS,
     )).toBe("opened");
-    expect(world.targets.find((target) => target.id === "spawn-survey-house-02:front")?.open)
+    expect(world.targets.find((target) => target.id === TWO_STORY_BUILDING.doorId)?.open)
       .toBe(true);
     expect(world.toggleDoor(
-      "spawn-survey-house-02:front",
+      TWO_STORY_BUILDING.doorId,
       { x: 0, y: SPAWN_BUILDING.floorY, z: 8 },
       PLAYER_RADIUS,
     )).toBe("closed");

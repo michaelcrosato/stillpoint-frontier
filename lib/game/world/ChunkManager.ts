@@ -52,6 +52,11 @@ import {
   selectWalkableSupport,
   twoStorySupportCandidates,
 } from "./twoStoryBuilding";
+import {
+  TEN_STORY_BUILDING,
+  createTenStoryBuilding,
+  tenStorySupportCandidates,
+} from "./tenStoryBuilding";
 
 export type WorldTargetKind = "beacon" | "pickup" | "resource" | "door";
 export type WorldTargetAction = "scan" | "collect" | "harvest" | "toggle";
@@ -118,6 +123,11 @@ const OPENING_RESERVATIONS = [
     x: TWO_STORY_BUILDING.x,
     z: TWO_STORY_BUILDING.z,
     radius: TWO_STORY_BUILDING.clearanceRadius,
+  },
+  {
+    x: TEN_STORY_BUILDING.x,
+    z: TEN_STORY_BUILDING.z,
+    radius: TEN_STORY_BUILDING.clearanceRadius,
   },
 ] as const;
 
@@ -275,6 +285,7 @@ export class ChunkManager {
     const supports = [
       spawnBuildingSupportHeight(x, z),
       ...twoStorySupportCandidates(x, z),
+      ...tenStorySupportCandidates(x, z),
     ].filter((height): height is number => height !== null);
     return selectWalkableSupport(supports, referenceY) ?? sampleTerrainHeight(x, z);
   }
@@ -384,6 +395,10 @@ export class ChunkManager {
         createTwoStoryBuilding(
           this.quality,
           this.doorStates[TWO_STORY_BUILDING.doorId] ?? false,
+        ),
+        createTenStoryBuilding(
+          this.quality,
+          this.doorStates[TEN_STORY_BUILDING.doorId] ?? false,
         ),
       ];
       for (const building of authoredBuildings) {
