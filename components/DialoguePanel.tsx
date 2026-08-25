@@ -3,6 +3,7 @@
 import { useState } from "react";
 import {
   CONTRACT_DEFINITIONS,
+  hasOutstandingContract,
 } from "../lib/game/gameplay/contracts";
 import { AUTHORED_NPCS, npcById, npcGreeting } from "../lib/game/npcs/authoredNpc";
 import type { GameSnapshot } from "../lib/game/state";
@@ -29,9 +30,7 @@ export default function DialoguePanel({
   const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null);
   const selectedTopic = npc.topics.find((topic) => topic.id === selectedTopicId) ?? null;
   const issued = CONTRACT_DEFINITIONS.filter((contract) => contract.issuerNpcId === npc.id);
-  const hasOutstanding = Object.values(snapshot.contractJournal.contracts).some(
-    (progress) => progress?.status === "active" || progress?.status === "ready",
-  );
+  const hasOutstanding = hasOutstandingContract(snapshot.contractJournal);
 
   return (
     <FeatureDialog

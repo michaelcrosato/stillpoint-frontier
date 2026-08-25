@@ -50,6 +50,7 @@ import {
   acceptContract as acceptContractProgress,
   contractById,
   currentContractObjective,
+  hasOutstandingContract,
   progressContracts,
   turnInContract as turnInContractProgress,
   type ContractJournalState,
@@ -802,7 +803,11 @@ export class Engine {
 
   acceptContract(contractId: string) {
     const definition = contractById(contractId);
-    if (!definition || this.featureProgress.contractJournal.contracts[definition.id]) {
+    if (
+      !definition ||
+      this.featureProgress.contractJournal.contracts[definition.id] ||
+      hasOutstandingContract(this.featureProgress.contractJournal)
+    ) {
       return false;
     }
     const acceptedJournal = acceptContractProgress(
@@ -1196,7 +1201,7 @@ export class Engine {
         source: { kind: "system", systemId: "survey-markers" },
         arrivalRadius: 3,
         clearOnArrival: false,
-      });
+      }, false);
     }
     this.applyGameplayEvent({ type: "item.used", item });
     this.applyGameplayEvent({ type: "structure.placed", archetypeId });
@@ -1441,6 +1446,7 @@ export class Engine {
   clearManualWaypoint() {
     const removed = this.navigation.removeTarget(MANUAL_WAYPOINT_ID);
     if (!removed) return false;
+    this.syncContractNavigation();
     this.persist();
     this.emitPresentation();
     this.emitSnapshot(true);
@@ -1727,8 +1733,10 @@ export class Engine {
   }
 
   clearActiveNavigationTarget(expectedId?: string) {
+    const previousActiveId = this.navigation.getActiveTarget()?.id ?? null;
     const cleared = this.navigation.clearActive(expectedId);
     if (cleared) {
+      if (previousActiveId === MANUAL_WAYPOINT_ID) this.syncContractNavigation();
       this.emitPresentation();
       this.emitSnapshot(true);
     }
@@ -1738,7 +1746,10 @@ export class Engine {
   removeNavigationTarget(id: string) {
     const removed = this.navigation.removeTarget(id);
     if (removed) {
-      if (id === MANUAL_WAYPOINT_ID) this.persist();
+      if (id === MANUAL_WAYPOINT_ID) {
+        this.syncContractNavigation();
+        this.persist();
+      }
       this.emitPresentation();
       this.emitSnapshot(true);
     }
@@ -2027,6 +2038,7 @@ export class Engine {
       },
       heading,
       navigation: this.navigation.getGuidance(this.player.position, heading),
+      navigationTargets: this.navigation.targetsSnapshot(),
       fps: this.fps,
       chunk,
       loadedChunks: this.world.loadedCount,

@@ -170,13 +170,30 @@ export function createContractJournal(): ContractJournalState {
   return { contracts: {}, activeContractId: null };
 }
 
+/**
+ * The opening field workflow intentionally carries one unresolved assignment at
+ * a time. Keep this rule in the domain layer so UI latency or a future caller
+ * cannot create multiple competing objective/navigation streams.
+ */
+export function hasOutstandingContract(
+  state: Readonly<ContractJournalState>,
+) {
+  return Object.values(state.contracts).some(
+    (progress) => progress?.status === "active" || progress?.status === "ready",
+  );
+}
+
 export function acceptContract(
   state: Readonly<ContractJournalState>,
   contractId: string,
   worldMinutes: number,
 ): ContractJournalState {
   const definition = contractById(contractId);
-  if (!definition || state.contracts[definition.id]) {
+  if (
+    !definition ||
+    state.contracts[definition.id] ||
+    hasOutstandingContract(state)
+  ) {
     return { contracts: { ...state.contracts }, activeContractId: state.activeContractId };
   }
   return {

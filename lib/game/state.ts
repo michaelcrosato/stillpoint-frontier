@@ -26,7 +26,10 @@ import {
   type DamageNotice,
   type PlayerConditionTag,
 } from "./gameplay/playerCondition";
-import type { NavigationGuidance } from "./navigation/NavigationService";
+import type {
+  NavigationGuidance,
+  NavigationTarget,
+} from "./navigation/NavigationService";
 import { DEFAULT_GAME_SETTINGS, type GameSettings } from "./settings";
 import type { InspectionRecord } from "./world/inspectables";
 import {
@@ -138,6 +141,7 @@ export interface GameSnapshot {
   position: { x: number; y: number; z: number };
   heading: number;
   navigation: NavigationGuidance | null;
+  navigationTargets: NavigationTarget[];
   fps: number;
   chunk: { x: number; z: number };
   loadedChunks: number;
@@ -241,6 +245,7 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
   position: { x: 0, y: 0, z: 0 },
   heading: 0,
   navigation: null,
+  navigationTargets: [],
   fps: 60,
   chunk: { x: 0, z: 0 },
   loadedChunks: 0,

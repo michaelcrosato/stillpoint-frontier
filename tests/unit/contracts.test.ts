@@ -54,6 +54,41 @@ describe("field contract progression", () => {
     expect(outOfOrder).toEqual(accepted);
   });
 
+  it("enforces one outstanding contract until the current assignment is filed", () => {
+    let journal = acceptContract(createContractJournal(), CALIBRATION_ID, 450);
+    expect(acceptContract(journal, SHELTER_ID, 451)).toEqual(journal);
+    expect(journal.contracts[SHELTER_ID]).toBeUndefined();
+
+    journal = progressContracts(journal, {
+      type: "object.inspected",
+      targetId: "inspectable:field-unit-noticeboard",
+    });
+    journal = progressContracts(journal, {
+      type: "item.collected",
+      item: "fiber",
+      quantity: 2,
+    });
+    journal = progressContracts(journal, {
+      type: "subject.scanned",
+      entryId: "guide:landmark:field-unit-weather-mast:v1",
+    });
+    journal = progressContracts(journal, {
+      type: "npc.talked",
+      npcId: "npc:mara-venn:v1",
+    });
+    expect(journal.contracts[CALIBRATION_ID]?.status).toBe("ready");
+    expect(acceptContract(journal, SHELTER_ID, 500)).toEqual(journal);
+
+    const filed = turnInContract(journal, CALIBRATION_ID, 510).state;
+    const next = acceptContract(filed, SHELTER_ID, 511);
+    expect(next.contracts[CALIBRATION_ID]?.status).toBe("completed");
+    expect(next.contracts[SHELTER_ID]).toMatchObject({
+      status: "active",
+      acceptedAt: 511,
+    });
+    expect(next.activeContractId).toBe(SHELTER_ID);
+  });
+
   it("advances only the current objective, clamps counts, and grants rewards once", () => {
     let journal = acceptContract(createContractJournal(), CALIBRATION_ID, 450);
     const definition = contractById(CALIBRATION_ID)!;

@@ -24,6 +24,7 @@ interface WorldMapProps {
   onClose(): void;
   onSetWaypoint(x: number, z: number): void;
   onClearWaypoint(): void;
+  onActivateNavigationTarget(id: string): void;
   onFastTravel(locationId: string): void;
 }
 
@@ -41,10 +42,14 @@ export default function WorldMap({
   onClose,
   onSetWaypoint,
   onClearWaypoint,
+  onActivateNavigationTarget,
   onFastTravel,
 }: WorldMapProps) {
   const navigation = snapshot.navigation;
   const canClear = navigation?.target.source.kind === "player";
+  const surveyMarkers = snapshot.navigationTargets.filter(
+    (target) => target.source.kind === "system" && target.source.systemId === "survey-markers",
+  );
 
   const handleMapClick = (event: MouseEvent<HTMLDivElement>) => {
     const position = mapPointToWorld(
@@ -95,6 +100,12 @@ export default function WorldMap({
     event.preventDefault();
     event.stopPropagation();
     onFastTravel(locationId);
+  };
+
+  const handleNavigationTarget = (event: MouseEvent<HTMLElement>, targetId: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onActivateNavigationTarget(targetId);
   };
 
   return (
@@ -178,6 +189,27 @@ export default function WorldMap({
               <b>{navigation.reached ? "ARRIVED" : "WAYPOINT"}</b>
             </span>
           )}
+          {surveyMarkers.map((marker) => {
+            const serial = marker.id.split(":").at(-1) ?? "?";
+            return (
+              <button
+                type="button"
+                key={marker.id}
+                className={`map-survey-marker map-selectable-marker ${navigation?.target.id === marker.id ? "is-current" : ""}`}
+                style={{
+                  left: `${mapPercent(marker.position.x)}%`,
+                  top: `${mapPercent(marker.position.z)}%`,
+                }}
+                data-testid={`survey-marker-${marker.id}`}
+                aria-label={`Navigate to ${marker.label}`}
+                title={marker.label}
+                onClick={(event) => handleNavigationTarget(event, marker.id)}
+              >
+                <i />
+                <b>M{serial}</b>
+              </button>
+            );
+          })}
           {BEACONS.map((beacon) => (
             <button
               type="button"

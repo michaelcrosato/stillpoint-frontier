@@ -26,6 +26,7 @@ export default defineConfig({
         "lib/game/systems/PlayerConditionSystem.ts",
         "lib/game/systems/LocationDiscoverySystem.ts",
         "lib/game/systems/EnvironmentalAudioSystem.ts",
+        "lib/game/systems/ScannerSystem.ts",
         "lib/game/world/spawnBuilding.ts",
         "lib/game/world/authoredDoor.ts",
         "lib/game/world/twoStoryBuilding.ts",

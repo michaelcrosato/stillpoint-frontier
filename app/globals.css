@@ -1813,7 +1813,8 @@ kbd {
   pointer-events: none;
 }
 
-.map-plot > .map-fast-travel-marker {
+.map-plot > .map-fast-travel-marker,
+.map-plot > .map-selectable-marker {
   pointer-events: auto;
 }
 
@@ -1939,6 +1940,45 @@ kbd {
 
 .map-fast-travel-marker.is-current {
   color: var(--signal);
+}
+
+.map-survey-marker {
+  position: absolute;
+  z-index: 4;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--signal);
+  cursor: pointer;
+  font: 700 6px/1 var(--mono);
+  letter-spacing: 0.08em;
+  transform: translate(-50%, -50%);
+}
+
+.map-survey-marker i {
+  width: 9px;
+  height: 9px;
+  border: 1px solid currentColor;
+  background: rgba(13, 15, 14, 0.88);
+  transform: rotate(45deg);
+}
+
+.map-survey-marker b {
+  padding: 2px 3px;
+  background: rgba(13, 15, 14, 0.82);
+}
+
+.map-survey-marker:hover,
+.map-survey-marker:focus-visible,
+.map-survey-marker.is-current {
+  z-index: 8;
+  color: var(--ember);
+  filter: drop-shadow(0 0 5px rgba(216, 117, 58, 0.5));
+  outline: none;
 }
 
 .map-beacon i {

@@ -537,7 +537,13 @@ export default function GameShell() {
               </header>
               <i><b style={{ width: `${snapshot.scanner.progress * 100}%` }} /></i>
               <p>{snapshot.scanner.focusName ?? "NO SUBJECT ALIGNED"}</p>
-              <small>{snapshot.scanner.focusEntryId ? "HOLD ALIGNMENT TO RESOLVE" : "CENTER A CATALOG SUBJECT"}</small>
+              <small>{
+                snapshot.scanner.focusEntryId
+                  ? snapshot.scanner.progress >= 1
+                    ? "CATALOG RECORD CONFIRMED"
+                    : "HOLD ALIGNMENT TO RESOLVE"
+                  : "CENTER A CATALOG SUBJECT"
+              }</small>
             </div>
           )}
 
@@ -698,6 +704,7 @@ export default function GameShell() {
           onClose={() => engineRef.current?.setMapOpen(false)}
           onSetWaypoint={(x, z) => engineRef.current?.setManualWaypoint(x, z)}
           onClearWaypoint={() => engineRef.current?.clearManualWaypoint()}
+          onActivateNavigationTarget={(id) => engineRef.current?.activateNavigationTarget(id)}
           onFastTravel={(locationId) => engineRef.current?.fastTravel(locationId)}
         />
       )}

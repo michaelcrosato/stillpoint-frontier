@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import {
   CONTRACT_DEFINITIONS,
   currentContractObjective,
+  hasOutstandingContract,
 } from "../lib/game/gameplay/contracts";
 import {
   RECIPE_DEFINITIONS,
@@ -52,9 +53,7 @@ function ContractsView({
   onTurnIn(contractId: string): void;
 }) {
   const journal = snapshot.contractJournal;
-  const hasOutstanding = Object.values(journal.contracts).some(
-    (progress) => progress?.status === "active" || progress?.status === "ready",
-  );
+  const hasOutstanding = hasOutstandingContract(journal);
 
   return (
     <div className="operations-card-list" data-testid="contract-list">
