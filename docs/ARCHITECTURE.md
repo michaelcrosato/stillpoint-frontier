@@ -38,6 +38,11 @@ they walk or glide without skeletons, clips, or pathfinding state.
   select sparse biome-native groups outside settlement cores and roads. A handful of shared
   rigid primitive models move along smooth analytic routes each rendered frame; wildlife
   never enters collision, interaction, dialogue, inventory, or save state.
+- `PlayerFlashlight` is a reusable field-equipment module rather than environment state.
+  A camera-aligned 48 m warm core and short cool spill provide a phone-style beam; only the
+  core casts a 1K shadow, and only while enabled in cinematic quality. The spotlight shader
+  path is prewarmed behind the boot screen so first activation cannot introduce a traversal
+  hitch. `PlayerEquipmentSystem` consumes one edge-triggered `L` press during active play.
 - `world/vegetation` is the catalog and low-poly geometry factory for twelve woody species
   and seven ground-cover families. `ChunkManager` preserves the original tree placement
   stream and persistent IDs, selects tree appearance from a separate style seed, and batches
@@ -133,6 +138,9 @@ The initial target is an RTX 3060-class machine at 1440p/60:
   spread across no more than six candidates per chunk with no shadows or per-animal AI.
 - One shadow-casting directional sun/moon key; 2K shadow map in cinematic mode. Dynamic
   weather changes palette, fog, exposure, and one shader-driven precipitation field.
+- The optional phone light reuses two persistent spotlights across toggles. Its unshadowed
+  spill is limited to 11 m to reduce light leaks; performance mode disables its single 1K
+  core shadow while preserving the beam.
 - Pixel ratio capped at 1.75; performance mode forces DPR 1 and disables shadows.
 - Renderer diagnostics expose FPS, active chunks, selected horizon, far tiles, far triangles,
   settlement proxies, and optical visibility to the HUD and tests. Weather remains the final

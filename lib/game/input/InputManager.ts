@@ -5,6 +5,7 @@ const GAME_KEYS = new Set([
   "KeyD",
   "KeyE",
   "KeyF",
+  "KeyL",
   "KeyC",
   "KeyM",
   "KeyQ",

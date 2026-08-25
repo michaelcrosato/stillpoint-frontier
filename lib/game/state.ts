@@ -104,6 +104,7 @@ export interface GameSnapshot {
   crouching: boolean;
   sprinting: boolean;
   stamina: number;
+  flashlightOn: boolean;
   biome: { id: string; name: string; region: string };
   environment: EnvironmentSnapshot;
   nearestSettlement: {
@@ -163,6 +164,7 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
   crouching: false,
   sprinting: false,
   stamina: 1,
+  flashlightOn: false,
   biome: { id: "grey_meadow", name: "Grey Meadow", region: "Red Basin Marches" },
   environment: {
     totalMinutes: 450,

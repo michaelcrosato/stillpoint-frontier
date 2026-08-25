@@ -18,6 +18,8 @@ export default defineConfig({
         "lib/game/world/vegetation.ts",
         "lib/game/animals/animalRecipes.ts",
         "lib/game/animals/AnimalEngine.ts",
+        "lib/game/equipment/PlayerFlashlight.ts",
+        "lib/game/systems/PlayerEquipmentSystem.ts",
         "lib/game/world/spawnBuilding.ts",
         "lib/game/world/authoredDoor.ts",
         "lib/game/world/twoStoryBuilding.ts",

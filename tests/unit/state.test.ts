@@ -15,6 +15,7 @@ describe("survey progression", () => {
     expect(INITIAL_SNAPSHOT.horizonMode).toBe("standard");
     expect(INITIAL_SNAPSHOT.drawDistanceMeters).toBeGreaterThan(0);
     expect(INITIAL_SNAPSHOT.horizonTiles).toBe(0);
+    expect(INITIAL_SNAPSHOT.flashlightOn).toBe(false);
   });
   it("adds each discovery exactly once", () => {
     const once = addDiscovery([], "amber-relay");

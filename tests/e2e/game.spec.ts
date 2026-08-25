@@ -6,6 +6,7 @@ import {
   WORLD_RESIDENT_CHUNKS,
 } from "../../lib/game/config";
 import { MAX_RESIDENT_ANIMALS } from "../../lib/game/animals/animalRecipes";
+import { FLASHLIGHT_RANGE_METERS } from "../../lib/game/equipment/PlayerFlashlight";
 import { getSettlement } from "../../lib/game/world/macroWorld";
 import { SPAWN_BUILDING } from "../../lib/game/world/spawnBuilding";
 import { TEN_STORY_BUILDING } from "../../lib/game/world/tenStoryBuilding";
@@ -85,6 +86,31 @@ test("boots WebGL2 without a blank frame", async ({ page }, testInfo) => {
   expect(pixels.range).toBeGreaterThan(12);
   expect(consoleErrors).toEqual([]);
   await attachScreenshot(page, testInfo, "entry-screen");
+});
+
+test("toggles the phone field light from HUD and keyboard", async ({ page }) => {
+  await openDeterministicWorld(page);
+  await page.getByTestId("enter-frontier").click();
+  await page.evaluate(() => window.__STILLPOINT_TEST__?.setWorldMinutes(3 * 60));
+  await page.evaluate(() => window.__STILLPOINT_TEST__?.setFlashlightEnabled(false));
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().flashlightOn))
+    .toBe(false);
+
+  await page.getByRole("button", { name: "Phone flashlight" }).click();
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().flashlightOn))
+    .toBe(true);
+  const enabled = await page.evaluate(() => window.__STILLPOINT_TEST__?.flashlight());
+  expect(enabled).toMatchObject({
+    enabled: true,
+    beams: 2,
+    rangeMeters: FLASHLIGHT_RANGE_METERS,
+    shadowsEnabled: true,
+  });
+
+  await page.keyboard.press("l");
+  await expect.poll(
+    () => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().flashlightOn),
+  ).toBe(false);
 });
 
 test("starts the survey, streams distant chunks, and opens the map", async ({ page }, testInfo) => {

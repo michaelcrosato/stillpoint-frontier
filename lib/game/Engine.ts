@@ -14,6 +14,7 @@ import {
 } from "./config";
 import { CitizenEngine } from "./citizens/CitizenEngine";
 import { AnimalEngine } from "./animals/AnimalEngine";
+import { PlayerFlashlight } from "./equipment/PlayerFlashlight";
 import { SystemPipeline } from "./core/SystemPipeline";
 import { FeatureRegistry } from "./core/FeatureRegistry";
 import { createEnvironment, type EnvironmentRuntime } from "./environment";
@@ -35,6 +36,7 @@ import { EMPTY_INVENTORY, type InventoryState } from "./gameplay/items";
 import { InteractionSystem } from "./systems/InteractionSystem";
 import { CitizenCrowdSystem } from "./systems/CitizenCrowdSystem";
 import { AmbientAnimalSystem } from "./systems/AmbientAnimalSystem";
+import { PlayerEquipmentSystem } from "./systems/PlayerEquipmentSystem";
 import { EnvironmentSystem } from "./systems/EnvironmentSystem";
 import { PlayerControllerSystem } from "./systems/PlayerControllerSystem";
 import { NavigationSystem } from "./systems/NavigationSystem";
@@ -100,6 +102,15 @@ export interface GameTestBridge {
     ids: string[];
     bySpecies: Record<string, number | undefined>;
   };
+  toggleFlashlight(): boolean;
+  setFlashlightEnabled(enabled: boolean): boolean;
+  flashlight(): {
+    enabled: boolean;
+    beams: number;
+    rangeMeters: number;
+    shadowsEnabled: boolean;
+    quality: QualityLevel;
+  };
   nightLighting(): {
     strength: number;
     windows: number;
@@ -157,6 +168,7 @@ export class Engine {
   private readonly horizon: HorizonRenderer;
   private readonly citizens: CitizenEngine;
   private readonly animals: AnimalEngine;
+  private readonly flashlight: PlayerFlashlight;
   private readonly navigation = new NavigationService();
   private readonly environment: EnvironmentRuntime;
   private readonly pipeline = new SystemPipeline<GameRuntimeContext>();
@@ -274,6 +286,7 @@ export class Engine {
     this.horizon = new HorizonRenderer(this.scene, this.horizonMode);
     this.citizens = new CitizenEngine(this.scene, this.quality);
     this.animals = new AnimalEngine(this.scene, this.quality);
+    this.flashlight = new PlayerFlashlight(this.scene, this.quality);
     this.environment = createEnvironment(
       this.scene,
       this.renderer,
@@ -311,6 +324,7 @@ export class Engine {
       performInteraction: (target) => this.performInteraction(target),
       toggleMap: () => this.toggleMap(),
       toggleQuality: () => this.toggleQuality(),
+      toggleFlashlight: () => this.toggleFlashlight(),
       toggleDeveloperPanel: () => this.toggleDeveloperPanel(),
       developerPanelOpen: false,
     };
@@ -326,6 +340,12 @@ export class Engine {
         id: "navigation-core",
         install: (registry) => {
           registry.system(new NavigationSystem());
+        },
+      })
+      .use({
+        id: "field-equipment",
+        install: (registry) => {
+          registry.system(new PlayerEquipmentSystem());
         },
       })
       .use({
@@ -357,6 +377,7 @@ export class Engine {
     this.horizon.update(this.player.position.x, this.player.position.z);
     this.citizens.updateStreaming(this.player.position.x, this.player.position.z);
     this.animals.updateStreaming(this.player.position.x, this.player.position.z);
+    this.flashlight.present(this.camera);
     this.environment.sync(this.player.position, true);
     this.environment.present(this.player.position, 0);
     this.synchronizeTimeDependentWorld();
@@ -367,10 +388,13 @@ export class Engine {
     this.canvas.addEventListener("webglcontextrestored", this.handleContextRestored);
 
     this.animationFrame = requestAnimationFrame(this.frame);
+    this.flashlight.prepareForCompile();
     try {
       await this.renderer.compileAsync(this.scene, this.camera);
     } catch {
       this.renderer.compile(this.scene, this.camera);
+    } finally {
+      this.flashlight.finishCompile();
     }
     if (this.disposed) return;
     this.renderer.render(this.scene, this.camera);
@@ -627,6 +651,18 @@ export class Engine {
     this.emitSnapshot(true);
   }
 
+  toggleFlashlight() {
+    const enabled = this.flashlight.toggle();
+    this.emitSnapshot(true);
+    return enabled;
+  }
+
+  setFlashlightEnabled(enabled: boolean) {
+    this.flashlight.setEnabled(enabled);
+    this.emitSnapshot(true);
+    return this.flashlight.isEnabled;
+  }
+
   private relocatePlayer(
     x: number,
     z: number,
@@ -655,6 +691,7 @@ export class Engine {
     this.navigation.update(this.player.position);
     this.environment.sync(this.player.position, true);
     this.environment.present(this.player.position, 0);
+    this.flashlight.present(this.camera);
     this.synchronizeTimeDependentWorld();
     this.emitPresentation();
   }
@@ -686,6 +723,7 @@ export class Engine {
     this.navigation.dispose();
     this.citizens.dispose();
     this.animals.dispose();
+    this.flashlight.dispose();
     this.world.dispose();
     this.horizon.dispose();
     this.environment.dispose();
@@ -731,6 +769,7 @@ export class Engine {
           ? this.accumulator
           : 0,
       );
+      this.flashlight.present(this.camera);
       this.emitPresentation();
       this.renderer.render(this.scene, this.camera);
       this.trackPerformance(timestamp);
@@ -813,6 +852,7 @@ export class Engine {
       crouching: this.player.crouching,
       sprinting: this.player.sprinting,
       stamina: this.player.stamina,
+      flashlightOn: this.flashlight.isEnabled,
       biome: {
         id: climate.biome.id,
         name: climate.biome.name,
@@ -950,6 +990,7 @@ export class Engine {
     this.world.setQuality(this.quality);
     this.citizens.setQuality(this.quality);
     this.animals.setQuality(this.quality);
+    this.flashlight.setQuality(this.quality);
     this.resize();
     this.emitSnapshot(true);
   }
@@ -1038,6 +1079,9 @@ export class Engine {
         this.world.sampleGroundHeight(x, z, referenceY),
       citizens: () => this.citizens.debugSnapshot(),
       animals: () => this.animals.debugSnapshot(),
+      toggleFlashlight: () => this.toggleFlashlight(),
+      setFlashlightEnabled: (enabled) => this.setFlashlightEnabled(enabled),
+      flashlight: () => this.flashlight.diagnostics,
       nightLighting: () => this.world.nightLightingSnapshot,
       faceTarget: (id) => {
         const target = this.world.targets.find((candidate) => candidate.id === id);

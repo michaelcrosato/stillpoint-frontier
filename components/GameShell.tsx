@@ -517,6 +517,17 @@ export default function GameShell() {
               <span><kbd>CTRL/C</kbd> CROUCH</span>
               <span><kbd>E</kbd> USE</span>
               <span><kbd>F/CLICK</kbd> HARVEST</span>
+              <button
+                type="button"
+                className={snapshot.flashlightOn ? "is-active" : ""}
+                data-testid="flashlight-toggle"
+                aria-pressed={snapshot.flashlightOn}
+                aria-keyshortcuts="L"
+                aria-label="Phone flashlight"
+                onClick={() => engineRef.current?.toggleFlashlight()}
+              >
+                <kbd>L</kbd> PHONE LIGHT {snapshot.flashlightOn ? "ON" : "OFF"}
+              </button>
               <button type="button" onClick={() => engineRef.current?.setMapOpen(true)}>
                 <kbd>M</kbd> MAP
               </button>

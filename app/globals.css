@@ -1185,6 +1185,15 @@ button {
   color: var(--paper);
 }
 
+.controls-strip button.is-active {
+  color: var(--signal);
+}
+
+.controls-strip button.is-active kbd {
+  border-color: rgba(153, 194, 163, 0.82);
+  box-shadow: 0 0 12px rgba(153, 194, 163, 0.2);
+}
+
 .controls-strip button {
   pointer-events: auto;
   border: 0;

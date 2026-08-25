@@ -78,6 +78,11 @@ poses, sub-tick smoothness, quality thinning, stable return IDs, frustum bounds,
 GPU cleanup. The browser boot contract also confirms that wildlife never appears in the
 interaction target registry.
 
+Field-equipment tests lock the phone light to a default-off state, one-press `L` routing,
+camera-world alignment, two fixed beams, the 48 m range, cinematic/performance shadow policy,
+compile prewarming, and idempotent cleanup. Browser coverage exercises both the accessible HUD
+toggle and keyboard path at night while exposing deterministic diagnostics through the test bridge.
+
 Each Playwright test retains traces, failure screenshots, and video on failure. Visual
 tests attach full-page candidate screenshots even when golden comparison is not enabled.
 Use a reviewed golden-update job; never update baselines automatically on every CI run.

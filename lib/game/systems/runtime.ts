@@ -42,5 +42,6 @@ export interface GameRuntimeContext {
   performInteraction(target: WorldTarget): void;
   toggleMap(): void;
   toggleQuality(): void;
+  toggleFlashlight(): void;
   toggleDeveloperPanel(): void;
 }
