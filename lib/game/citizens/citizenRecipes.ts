@@ -1,4 +1,9 @@
-import { CHUNK_SIZE, WORLD_SEED, type QualityLevel } from "../config";
+import {
+  CHUNK_SIZE,
+  WORLD_SEED,
+  qualityUsesHighDetail,
+  type QualityLevel,
+} from "../config";
 import { randomRange, seededRandom } from "../core/random";
 import {
   ROAD_CORRIDORS,
@@ -21,7 +26,11 @@ import { chunkCenter, chunkKey, sampleTerrainHeight } from "../world/terrain";
 
 export const CITIZEN_RECIPE_VERSION = 1;
 export const MAX_CITIZENS_PER_CHUNK = 215;
-export const MAX_RESIDENT_CITIZENS = { cinematic: 5_000, performance: 2_200 } as const;
+export const MAX_RESIDENT_CITIZENS: Readonly<Record<QualityLevel, number>> = {
+  ultra: 5_000,
+  cinematic: 5_000,
+  performance: 2_200,
+};
 
 export type CitizenRole = "commuter" | "worker" | "trader" | "porter" | "traveler";
 export type CrowdDensity = "WILDERNESS" | "QUIET" | "LOCAL" | "ACTIVE" | "BUSY" | "SURGE";
@@ -249,7 +258,7 @@ export function generateCitizenChunk(chunkX: number, chunkZ: number): CitizenRec
 
 export function visibleCitizenCount(count: number, quality: QualityLevel) {
   if (count <= 0) return 0;
-  const multiplier = quality === "cinematic" ? 0.92 : 0.4;
+  const multiplier = qualityUsesHighDetail(quality) ? 0.92 : 0.4;
   return Math.min(count, Math.max(1, Math.round(count * multiplier)));
 }
 

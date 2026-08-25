@@ -81,6 +81,9 @@ describe("ambient animal recipes", () => {
     expect(visibleAnimalCount(maximumGenerated, "cinematic")).toBe(
       MAX_RESIDENT_ANIMALS.cinematic,
     );
+    expect(visibleAnimalCount(maximumGenerated, "ultra")).toBe(
+      MAX_RESIDENT_ANIMALS.cinematic,
+    );
     expect(visibleAnimalCount(maximumGenerated, "performance")).toBe(
       MAX_RESIDENT_ANIMALS.performance,
     );

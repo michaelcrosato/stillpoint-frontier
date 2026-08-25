@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { GAMEPLAY_CHUNK_RADIUS, PLAYER_RADIUS } from "../../lib/game/config";
 import { isPlanarPositionClear, type PlanarCollider } from "../../lib/game/systems/collision";
 import { ChunkManager } from "../../lib/game/world/ChunkManager";
-import { getSettlement } from "../../lib/game/world/macroWorld";
+import { getSettlement, riverCenterX } from "../../lib/game/world/macroWorld";
 import { distanceToPathSegment, worldPathSegmentsForChunk } from "../../lib/game/world/roads";
 import { worldToChunk } from "../../lib/game/world/terrain";
 
@@ -99,6 +99,7 @@ describe("streamed world collider coverage", () => {
           buildingInstances += object.count;
 
           if (object.count > 0) {
+            expect(object.instanceColor).not.toBeNull();
             const matrix = new THREE.Matrix4();
             const position = new THREE.Vector3();
             const quaternion = new THREE.Quaternion();
@@ -125,6 +126,7 @@ describe("streamed world collider coverage", () => {
         }
 
         if (object instanceof THREE.InstancedMesh && object.name === `rocks:${key}`) {
+          expect(object.instanceColor).not.toBeNull();
           expect(colliders.filter((collider) =>
             collider.id.startsWith(`resource:rock:v2:${key}:`),
           )).toHaveLength(object.count);
@@ -163,6 +165,16 @@ describe("streamed world collider coverage", () => {
         if (object instanceof THREE.Mesh && object.name.startsWith("landmark:")) {
           expect(colliderIds.has(object.name)).toBe(true);
           landmarkMeshes += 1;
+        }
+
+        if (object instanceof THREE.InstancedMesh && object.name.startsWith("roads:")) {
+          expect(object.instanceColor).not.toBeNull();
+        }
+
+        if (object instanceof THREE.Mesh && object.name.startsWith("terrain:")) {
+          expect(object.geometry.getAttribute("color").count).toBe(
+            object.geometry.getAttribute("position").count,
+          );
         }
       });
       expect(colliders.filter((collider) =>
@@ -206,6 +218,25 @@ describe("streamed world collider coverage", () => {
     const disposeWindowMesh = vi.spyOn(windowMesh!, "dispose");
     world.dispose();
     expect(disposeWindowMesh).toHaveBeenCalledOnce();
+
+    const waterScene = new THREE.Scene();
+    const waterWorld = new ChunkManager(waterScene, "performance");
+    waterWorld.update(riverCenterX(0), 0);
+    const waterMeshes: THREE.Mesh[] = [];
+    waterScene.traverse((object) => {
+      if (object instanceof THREE.Mesh && object.name === "greywater-river") {
+        waterMeshes.push(object);
+      }
+    });
+    expect(waterMeshes.length).toBeGreaterThan(1);
+    const sharedWaterMaterial = waterMeshes[0].material as THREE.ShaderMaterial;
+    expect(waterMeshes.every((mesh) => mesh.material === sharedWaterMaterial)).toBe(true);
+    const disposeWater = vi.spyOn(sharedWaterMaterial, "dispose");
+    waterWorld.update(1_200, 1_200);
+    expect(disposeWater).not.toHaveBeenCalled();
+    waterWorld.dispose();
+    waterWorld.dispose();
+    expect(disposeWater).toHaveBeenCalledOnce();
   });
 
   it("keeps the opening and pickups accessible and removes harvested collision", { timeout: 20_000 }, () => {

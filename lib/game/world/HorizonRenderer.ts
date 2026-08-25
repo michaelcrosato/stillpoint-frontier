@@ -12,7 +12,6 @@ import {
   SETTLEMENTS,
   WATER_LEVEL,
   WORLD_HALF_EXTENT,
-  sampleClimate,
   type SettlementTier,
 } from "./macroWorld";
 import {
@@ -21,6 +20,10 @@ import {
   sampleTerrainHeight,
   worldToChunk,
 } from "./terrain";
+import {
+  proceduralSurfaceColor,
+  terrainSurfaceColor,
+} from "./surfaceVariation";
 
 const TERRAIN_DEPRESSION = 0.08;
 const DETAIL_BLEND_END = 960;
@@ -163,13 +166,14 @@ function blendedSurfaceHeight(x: number, z: number, anchorX: number, anchorZ: nu
   return THREE.MathUtils.lerp(detailedHeight, horizonHeight, amount);
 }
 
-function pushTerrainColor(colors: number[], x: number, z: number, height: number) {
-  const color = new THREE.Color(
-    height <= WATER_LEVEL + 0.04 ? 0x36575a : sampleClimate(x, z).biome.color,
-  );
-  if (height > WATER_LEVEL + 0.04) {
-    color.offsetHSL(0, -0.035, THREE.MathUtils.clamp(height / 520, -0.025, 0.075));
-  }
+function pushTerrainColor(
+  colors: number[],
+  color: THREE.Color,
+  x: number,
+  z: number,
+  height: number,
+) {
+  terrainSurfaceColor(color, x, z, height);
   colors.push(color.r, color.g, color.b);
 }
 
@@ -218,6 +222,7 @@ function buildPatchGeometry(
   const positions: number[] = [];
   const colors: number[] = [];
   const indices: number[] = [];
+  const surfaceColor = new THREE.Color();
 
   for (let zIndex = 0; zIndex <= segmentsZ; zIndex += 1) {
     const rawZ = THREE.MathUtils.lerp(bounds.zMin, bounds.zMax, zIndex / segmentsZ);
@@ -227,7 +232,7 @@ function buildPatchGeometry(
       const x = clampToWorld(rawX);
       const height = blendedSurfaceHeight(x, z, anchorX, anchorZ);
       positions.push(x, height - TERRAIN_DEPRESSION - verticalOffset, z);
-      pushTerrainColor(colors, x, z, height);
+      pushTerrainColor(colors, surfaceColor, x, z, height);
     }
   }
 
@@ -286,6 +291,7 @@ export function horizonSettlementRecipes(
   drawDistanceMeters: number,
 ): HorizonSettlementRecipe[] {
   const recipes: HorizonSettlementRecipe[] = [];
+  const facadeColor = new THREE.Color();
   for (const settlement of SETTLEMENTS) {
     const random = seededRandom(`${WORLD_SEED}:horizon:${settlement.id}:v1`);
     const count = TIER_PROXY_COUNTS[settlement.tier];
@@ -319,7 +325,13 @@ export function horizonSettlementRecipes(
         height,
         depth: footprint * THREE.MathUtils.lerp(0.72, 1.28, random()),
         yaw: random() * Math.PI,
-        color: TIER_COLORS[settlement.tier],
+        color: proceduralSurfaceColor(
+          facadeColor,
+          TIER_COLORS[settlement.tier],
+          "building",
+          x,
+          z,
+        ).getHex(),
         sector: Math.min(
           SETTLEMENT_SECTORS - 1,
           Math.floor((bearing / (Math.PI * 2)) * SETTLEMENT_SECTORS),

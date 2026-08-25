@@ -3,6 +3,7 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import {
   ANIMAL_CHUNK_LOAD_RADIUS,
   CHUNK_SIZE,
+  QUALITY_LEVELS,
   type QualityLevel,
 } from "../config";
 import {
@@ -163,12 +164,15 @@ export class AnimalEngine {
     private readonly groundNavigation: Readonly<AnimalGroundNavigation> =
       DEFAULT_ANIMAL_GROUND_NAVIGATION,
   ) {
+    const maximumResidentAnimals = Math.max(
+      ...QUALITY_LEVELS.map((level) => MAX_RESIDENT_ANIMALS[level]),
+    );
     for (const species of Object.values(ANIMAL_SPECIES)) {
       const geometry = createAnimalGeometry(species);
       const mesh = new THREE.InstancedMesh(
         geometry,
         this.material,
-        MAX_RESIDENT_ANIMALS.cinematic,
+        maximumResidentAnimals,
       );
       mesh.name = `ambient-animals:${species.id}`;
       mesh.count = 0;

@@ -400,7 +400,7 @@ export default function GameShell() {
               </div>
               <div>
                 <span>PROFILE</span>
-                <strong>{snapshot.quality === "cinematic" ? "CINE" : "PERF"}</strong>
+                <strong>{snapshot.quality === "ultra" ? "ULTRA" : snapshot.quality === "cinematic" ? "CINE" : "PERF"}</strong>
               </div>
               <div>
                 <span>HORIZON</span>

@@ -1,4 +1,9 @@
-import { CHUNK_SIZE, WORLD_SEED, type QualityLevel } from "../config";
+import {
+  CHUNK_SIZE,
+  WORLD_SEED,
+  qualityUsesHighDetail,
+  type QualityLevel,
+} from "../config";
 import { randomRange, seededRandom } from "../core/random";
 import {
   WATER_LEVEL,
@@ -65,6 +70,7 @@ export interface AnimalPose {
 
 export const MAX_ANIMALS_PER_CHUNK = 6;
 export const MAX_RESIDENT_ANIMALS: Readonly<Record<QualityLevel, number>> = {
+  ultra: 72,
   cinematic: 72,
   performance: 36,
 };
@@ -313,7 +319,9 @@ export function generateAnimalChunk(chunkX: number, chunkZ: number): AnimalRecip
 
 export function visibleAnimalCount(recipeCount: number, quality: QualityLevel) {
   const safeCount = Math.max(0, Math.floor(recipeCount));
-  const qualityCount = quality === "cinematic" ? safeCount : Math.ceil(safeCount * 0.55);
+  const qualityCount = qualityUsesHighDetail(quality)
+    ? safeCount
+    : Math.ceil(safeCount * 0.55);
   return Math.min(qualityCount, MAX_RESIDENT_ANIMALS[quality]);
 }
 

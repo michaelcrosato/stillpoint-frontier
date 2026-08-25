@@ -8,10 +8,13 @@ import {
   PLAYER_HEIGHT,
   WORLD_CHUNK_LOAD_RADIUS,
   WORLD_SEED,
+  qualityUsesHighDetail,
+  qualityUsesShadows,
   type BeaconId,
   type QualityLevel,
 } from "../config";
 import type { EntityDiff } from "../gameplay/interactions";
+import type { EnvironmentVisualState } from "../environment";
 import type { ItemId } from "../gameplay/items";
 import type { CraftingStationKind } from "../gameplay/crafting";
 import type { ScanCandidate } from "../gameplay/fieldGuide";
@@ -91,6 +94,11 @@ import {
   type GroundcoverKind,
   type WoodySpeciesDefinition,
 } from "./vegetation";
+import { WaterSurfaceRuntime } from "./WaterSurface";
+import {
+  proceduralSurfaceColor,
+  terrainSurfaceColor,
+} from "./surfaceVariation";
 
 export type WorldTargetKind =
   | "beacon"
@@ -248,6 +256,8 @@ export class ChunkManager {
   private placedLightFocusX = 0;
   private placedLightFocusZ = 0;
   private disposed = false;
+  private readonly waterSurface: WaterSurfaceRuntime;
+  private readonly sharedMaterials: Set<THREE.Material>;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -257,6 +267,8 @@ export class ChunkManager {
     private containerStates: ContainerStates = {},
     placedEntities: readonly PlacedEntity[] = [],
   ) {
+    this.waterSurface = new WaterSurfaceRuntime(this.quality);
+    this.sharedMaterials = new Set([this.waterSurface.material]);
     this.placedRecords = normalizePlacedEntities(placedEntities);
     this.placedRuntime = createPlacedRuntime(this.placedRecords, this.quality);
     this.scene.add(this.placedRuntime.root);
@@ -299,6 +311,7 @@ export class ChunkManager {
 
   setQuality(quality: QualityLevel) {
     this.quality = quality;
+    this.waterSurface.setQuality(quality);
     const roots = [
       ...[...this.loaded.values()].map((chunk) => chunk.root),
       this.placedRuntime.root,
@@ -306,11 +319,31 @@ export class ChunkManager {
     for (const root of roots) {
       root.traverse((object) => {
         if (object instanceof THREE.Mesh || object instanceof THREE.InstancedMesh) {
-          object.castShadow = quality === "cinematic" && object.userData.shadow !== false;
+          object.castShadow = qualityUsesShadows(quality) && object.userData.shadow !== false;
+          if (
+            object instanceof THREE.InstancedMesh &&
+            object.userData.vegetationLayer === "decorative"
+          ) {
+            const storedHighDetailCount = Number(object.userData.highDetailCount);
+            const storedPerformanceCount = Number(object.userData.performanceCount);
+            const highDetailCount = Number.isFinite(storedHighDetailCount)
+              ? storedHighDetailCount
+              : object.count;
+            const performanceCount = Number.isFinite(storedPerformanceCount)
+              ? storedPerformanceCount
+              : object.count;
+            object.count = qualityUsesHighDetail(quality)
+              ? highDetailCount
+              : performanceCount;
+          }
         }
       });
     }
     this.applyPlacedLighting();
+  }
+
+  presentEnvironment(state: Readonly<EnvironmentVisualState>) {
+    this.waterSurface.present(state);
   }
 
   setWorldMinutes(totalMinutes: number) {
@@ -598,6 +631,7 @@ export class ChunkManager {
       lights: [],
     };
     this.placedRecords = [];
+    this.waterSurface.dispose();
     this.refreshCaches();
   }
 
@@ -660,20 +694,30 @@ export class ChunkManager {
     );
     terrainGeometry.rotateX(-Math.PI / 2);
     const terrainPositions = terrainGeometry.getAttribute("position");
+    const terrainColors = new Float32Array(terrainPositions.count * 3);
+    const terrainColor = new THREE.Color();
     for (let index = 0; index < terrainPositions.count; index += 1) {
       const worldX = center.x + terrainPositions.getX(index);
       const worldZ = center.z + terrainPositions.getZ(index);
-      terrainPositions.setY(index, sampleTerrainHeight(worldX, worldZ));
+      const height = sampleTerrainHeight(worldX, worldZ);
+      terrainPositions.setY(index, height);
+      terrainSurfaceColor(terrainColor, worldX, worldZ, height).toArray(
+        terrainColors,
+        index * 3,
+      );
     }
+    terrainGeometry.setAttribute("color", new THREE.BufferAttribute(terrainColors, 3));
     terrainGeometry.computeVertexNormals();
 
     const terrainMaterial = new THREE.MeshStandardMaterial({
-      color: climate.biome.color,
+      color: 0xffffff,
       roughness: 0.96,
       metalness: 0.02,
       flatShading: true,
+      vertexColors: true,
     });
     const terrain = new THREE.Mesh(terrainGeometry, terrainMaterial);
+    terrain.name = `terrain:${key}`;
     terrain.position.set(center.x, 0, center.z);
     terrain.receiveShadow = true;
     terrain.userData.shadow = false;
@@ -886,18 +930,11 @@ export class ChunkManager {
       geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
       geometry.setIndex([0, 1, 2, 1, 3, 2, 2, 3, 4, 3, 5, 4]);
       geometry.computeVertexNormals();
-      const material = new THREE.MeshStandardMaterial({
-        color: 0x36575a,
-        roughness: 0.32,
-        metalness: 0.12,
-        transparent: true,
-        opacity: 0.86,
-        side: THREE.DoubleSide,
-      });
-      const river = new THREE.Mesh(geometry, material);
+      const river = new THREE.Mesh(geometry, this.waterSurface.material);
       river.name = "greywater-river";
       river.receiveShadow = true;
       river.userData.shadow = false;
+      this.waterSurface.bind(river, "river");
       root.add(river);
     }
 
@@ -906,15 +943,11 @@ export class ChunkManager {
       const depth = Math.min(CHUNK_SIZE, centerZ + half - coastStart);
       const geometry = new THREE.PlaneGeometry(CHUNK_SIZE, depth);
       geometry.rotateX(-Math.PI / 2);
-      const material = new THREE.MeshStandardMaterial({
-        color: 0x314d50,
-        roughness: 0.28,
-        transparent: true,
-        opacity: 0.9,
-      });
-      const sea = new THREE.Mesh(geometry, material);
+      const sea = new THREE.Mesh(geometry, this.waterSurface.material);
+      sea.name = "salt-coast-water";
       sea.position.set(centerX, WATER_LEVEL, centerZ + half - depth / 2);
       sea.userData.shadow = false;
+      this.waterSurface.bind(sea, "sea");
       root.add(sea);
     }
   }
@@ -978,7 +1011,16 @@ export class ChunkManager {
       scale.set(recipe.length, 0.1, recipe.width);
       matrix.compose(position, quaternion, scale);
       roads.setMatrixAt(index, matrix);
-      roads.setColorAt(index, color.setHex(recipe.kind === "street" ? 0x3d3c36 : 0x4a4338));
+      roads.setColorAt(
+        index,
+        proceduralSurfaceColor(
+          color,
+          recipe.kind === "street" ? 0x3d3c36 : 0x4a4338,
+          "road",
+          recipe.x,
+          recipe.z,
+        ),
+      );
     });
     roads.instanceMatrix.needsUpdate = true;
     if (roads.instanceColor) roads.instanceColor.needsUpdate = true;
@@ -1002,18 +1044,20 @@ export class ChunkManager {
       const random = seededRandom(`${WORLD_SEED}:chunk:${key}:settlement:${settlement.id}:v1`);
       const geometry = new THREE.BoxGeometry(1, 1, 1);
       const material = new THREE.MeshStandardMaterial({
-        color: spec.color,
+        color: 0xffffff,
         roughness: 0.78,
         metalness: settlement.tier === "megacity" ? 0.22 : 0.08,
+        vertexColors: true,
       });
       const buildings = new THREE.InstancedMesh(geometry, material, count);
       buildings.name = `settlement:${settlement.id}:${key}`;
-      buildings.castShadow = this.quality === "cinematic";
+      buildings.castShadow = qualityUsesShadows(this.quality);
       buildings.receiveShadow = true;
       const matrix = new THREE.Matrix4();
       const quaternion = new THREE.Quaternion();
       const position = new THREE.Vector3();
       const scale = new THREE.Vector3();
+      const facadeColor = new THREE.Color();
       const maxWindowBands =
         settlement.tier === "megacity"
           ? 5
@@ -1089,6 +1133,16 @@ export class ChunkManager {
         scale.set(width, height, depth);
         matrix.compose(position, quaternion, scale);
         buildings.setMatrixAt(renderedCount, matrix);
+        buildings.setColorAt(
+          renderedCount,
+          proceduralSurfaceColor(
+            facadeColor,
+            spec.color,
+            "building",
+            x,
+            z,
+          ),
+        );
         colliders.push({
           shape: "box",
           id: `building:${settlement.id}:${key}:${renderedCount}`,
@@ -1140,6 +1194,7 @@ export class ChunkManager {
       }
       buildings.count = renderedCount;
       buildings.instanceMatrix.needsUpdate = true;
+      if (buildings.instanceColor) buildings.instanceColor.needsUpdate = true;
       buildings.computeBoundingSphere();
       root.add(buildings);
       if (renderedWindows > 0) {
@@ -1193,7 +1248,7 @@ export class ChunkManager {
       sampleTerrainHeight(settlement.x, settlement.z) + height / 2,
       settlement.z,
     );
-    marker.castShadow = this.quality === "cinematic";
+    marker.castShadow = qualityUsesShadows(this.quality);
     root.add(marker);
     const baseIntensity =
       settlement.tier === "megacity"
@@ -1269,16 +1324,22 @@ export class ChunkManager {
     const count = Math.max(3, Math.floor(4 + density * 13 + random() * 4));
     const rocks = new THREE.InstancedMesh(
       new THREE.DodecahedronGeometry(1, 0),
-      new THREE.MeshStandardMaterial({ color: 0x4d4840, roughness: 1, flatShading: true }),
+      new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        roughness: 1,
+        flatShading: true,
+        vertexColors: true,
+      }),
       count,
     );
     rocks.name = `rocks:${key}`;
-    rocks.castShadow = this.quality === "cinematic";
+    rocks.castShadow = qualityUsesShadows(this.quality);
     rocks.receiveShadow = true;
     const matrix = new THREE.Matrix4();
     const quaternion = new THREE.Quaternion();
     const scale = new THREE.Vector3();
     const position = new THREE.Vector3();
+    const rockColor = new THREE.Color();
     let renderedCount = 0;
     for (let index = 0; index < count; index += 1) {
       const size = randomRange(random, 0.35, 1.75);
@@ -1302,6 +1363,16 @@ export class ChunkManager {
       matrix.compose(position, quaternion, scale);
       const instanceIndex = renderedCount;
       rocks.setMatrixAt(instanceIndex, matrix);
+      rocks.setColorAt(
+        instanceIndex,
+        proceduralSurfaceColor(
+          rockColor,
+          primaryResource === "ore" ? 0x555b55 : 0x4d4840,
+          "rock",
+          x,
+          z,
+        ),
+      );
       const id = `resource:rock:v2:${key}:${index}`;
       colliders.push({
         shape: "circle",
@@ -1340,6 +1411,7 @@ export class ChunkManager {
     }
     rocks.count = renderedCount;
     rocks.instanceMatrix.needsUpdate = true;
+    if (rocks.instanceColor) rocks.instanceColor.needsUpdate = true;
     rocks.computeBoundingSphere();
     root.add(rocks);
   }
@@ -1424,7 +1496,7 @@ export class ChunkManager {
       trees.name = `forest:${key}:${species.id}`;
       trees.userData.vegetationLayer = "woody";
       trees.userData.speciesId = species.id;
-      trees.castShadow = this.quality === "cinematic";
+      trees.castShadow = qualityUsesShadows(this.quality);
       trees.receiveShadow = true;
       group.forEach((tree, instanceIndex) => {
         const position = new THREE.Vector3(tree.x, tree.baseY, tree.z);
@@ -1473,18 +1545,16 @@ export class ChunkManager {
     }
 
     const profile = VEGETATION_PROFILES[biomeId];
-    const decorativeCount = groundcoverCount(
-      biomeId,
-      this.quality === "cinematic" ? 1 : 0.52,
-    );
-    if (decorativeCount > 0) {
+    const maximumDecorativeCount = groundcoverCount(biomeId, 1);
+    const performanceDecorativeCount = groundcoverCount(biomeId, 0.52);
+    if (maximumDecorativeCount > 0) {
       const groundRandom = seededRandom(
         `${WORLD_SEED}:chunk:${key}:groundcover:v1:${profile.groundcover}`,
       );
       const groundcover = new THREE.InstancedMesh(
         createGroundcoverGeometry(profile),
         vegetationMaterial(),
-        decorativeCount,
+        maximumDecorativeCount,
       );
       groundcover.name = `groundcover:${key}:${profile.groundcover}`;
       groundcover.userData.vegetationLayer = "decorative";
@@ -1497,7 +1567,7 @@ export class ChunkManager {
       const scale = new THREE.Vector3();
       let representative: THREE.Vector3 | null = null;
       let rendered = 0;
-      for (let index = 0; index < decorativeCount; index += 1) {
+      for (let index = 0; index < maximumDecorativeCount; index += 1) {
         const placement = this.findSolidPlacement(
           groundRandom,
           centerX,
@@ -1531,6 +1601,14 @@ export class ChunkManager {
         rendered += 1;
       }
       groundcover.count = rendered;
+      groundcover.userData.highDetailCount = rendered;
+      groundcover.userData.performanceCount = Math.min(
+        rendered,
+        performanceDecorativeCount,
+      );
+      groundcover.count = qualityUsesHighDetail(this.quality)
+        ? groundcover.userData.highDetailCount
+        : groundcover.userData.performanceCount;
       groundcover.instanceMatrix.needsUpdate = true;
       groundcover.computeBoundingSphere();
       root.add(groundcover);
@@ -1572,7 +1650,7 @@ export class ChunkManager {
       count,
     );
     ruins.name = `ruins:${key}`;
-    ruins.castShadow = this.quality === "cinematic";
+    ruins.castShadow = qualityUsesShadows(this.quality);
     ruins.receiveShadow = true;
     const matrix = new THREE.Matrix4();
     const quaternion = new THREE.Quaternion();
@@ -1793,6 +1871,8 @@ export class ChunkManager {
       }),
     );
     mesh.rotation.set(0.25, 0.7, 0.1);
+    mesh.castShadow = qualityUsesShadows(this.quality);
+    mesh.receiveShadow = true;
     root.add(mesh);
     return {
       id,
@@ -1816,11 +1896,20 @@ export class ChunkManager {
     root.position.set(x, sampleTerrainHeight(x, z), z);
     const mesh = new THREE.Mesh(
       new THREE.DodecahedronGeometry(1.25, 0),
-      new THREE.MeshStandardMaterial({ color: item === "ore" ? 0x5d625d : 0x514c43, roughness: 1 }),
+      new THREE.MeshStandardMaterial({
+        color: proceduralSurfaceColor(
+          new THREE.Color(),
+          item === "ore" ? 0x5d625d : 0x514c43,
+          "rock",
+          x,
+          z,
+        ),
+        roughness: 1,
+      }),
     );
     mesh.position.y = 0.72;
     mesh.scale.set(1.25, 0.8, 1);
-    mesh.castShadow = this.quality === "cinematic";
+    mesh.castShadow = qualityUsesShadows(this.quality);
     mesh.receiveShadow = true;
     root.add(mesh);
     return {
@@ -1854,7 +1943,7 @@ export class ChunkManager {
     );
     canopy.position.y = 5.5;
     for (const mesh of [trunk, canopy]) {
-      mesh.castShadow = this.quality === "cinematic";
+      mesh.castShadow = qualityUsesShadows(this.quality);
       mesh.receiveShadow = true;
       root.add(mesh);
     }
@@ -1908,7 +1997,7 @@ export class ChunkManager {
     root.add(ring);
     root.traverse((object) => {
       if (object instanceof THREE.Mesh) {
-        object.castShadow = this.quality === "cinematic";
+        object.castShadow = qualityUsesShadows(this.quality);
         object.receiveShadow = true;
       }
     });
@@ -1965,7 +2054,9 @@ export class ChunkManager {
       if (object instanceof THREE.InstancedMesh) object.dispose();
       geometries.add(object.geometry);
       const source = Array.isArray(object.material) ? object.material : [object.material];
-      for (const material of source) materials.add(material);
+      for (const material of source) {
+        if (!this.sharedMaterials.has(material)) materials.add(material);
+      }
     });
     for (const geometry of geometries) geometry.dispose();
     for (const material of materials) material.dispose();

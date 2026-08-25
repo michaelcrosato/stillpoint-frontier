@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { QualityLevel } from "../config";
+import { qualityUsesShadows, type QualityLevel } from "../config";
 import type { PlanarCollider } from "../systems/collision";
 import {
   createAuthoredDoor,
@@ -245,7 +245,7 @@ export function createSpawnBuilding(
     mesh.name = `spawn-building:${name}`;
     mesh.position.set(position[0], position[1], position[2]);
     mesh.rotation.y = rotationY;
-    mesh.castShadow = quality === "cinematic" && materialKind !== "glass";
+    mesh.castShadow = qualityUsesShadows(quality) && materialKind !== "glass";
     mesh.receiveShadow = materialKind !== "glass";
     mesh.userData.shadow = materialKind !== "glass";
     mesh.userData.glass = materialKind === "glass";
@@ -267,7 +267,7 @@ export function createSpawnBuilding(
       recipes.length,
     );
     mesh.name = `spawn-building:${name}`;
-    mesh.castShadow = quality === "cinematic" && materialKind !== "glass";
+    mesh.castShadow = qualityUsesShadows(quality) && materialKind !== "glass";
     mesh.receiveShadow = materialKind !== "glass";
     mesh.userData.shadow = materialKind !== "glass";
     const matrix = new THREE.Matrix4();
@@ -545,7 +545,7 @@ export function createSpawnBuilding(
   );
   door.pivot.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
-    object.castShadow = quality === "cinematic";
+    object.castShadow = qualityUsesShadows(quality);
   });
   root.add(door.pivot);
 

@@ -2875,6 +2875,7 @@ kbd {
 .settings-toggle b { display: block; width: 10px; height: 10px; background: var(--paper-muted); transition: transform 140ms ease; }
 .settings-toggle input:checked + i b { background: var(--signal); transform: translateX(16px); }
 .settings-button-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; }
+.settings-button-grid.quality-grid { grid-template-columns: repeat(3, 1fr); }
 .settings-button-grid.horizon-grid { grid-template-columns: repeat(3, 1fr); margin-top: 7px; }
 .settings-button-grid button { display: grid; gap: 5px; min-height: 50px; padding: 10px; border: 1px solid rgba(232, 226, 214, 0.18); background: transparent; color: var(--paper-muted); cursor: pointer; text-align: left; font: 700 7px/1 var(--mono); }
 .settings-button-grid button small { font-size: 5px; }

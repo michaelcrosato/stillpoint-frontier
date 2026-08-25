@@ -3,12 +3,15 @@ import {
   BEACONS,
   DEFAULT_HORIZON_MODE,
   HORIZON_PRESETS,
-  MAX_PIXEL_RATIO,
+  QUALITY_LEVELS,
+  QUALITY_PRESETS,
   PLAYER_HEIGHT,
   PLAYER_RADIUS,
   WAYPOINT_WORLD_MARKER_DISTANCE,
   type BeaconId,
   type HorizonMode,
+  isQualityLevel,
+  qualityUsesShadows,
   type QualityLevel,
   isHorizonMode,
 } from "./config";
@@ -429,7 +432,7 @@ export class Engine {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.12;
-    this.renderer.shadowMap.enabled = this.quality === "cinematic";
+    this.renderer.shadowMap.enabled = qualityUsesShadows(this.quality);
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     this.input = new InputManager(
@@ -598,6 +601,7 @@ export class Engine {
     this.flashlight.present(this.camera);
     this.environment.sync(this.player.position, true);
     this.environment.present(this.player.position, 0);
+    this.world.presentEnvironment(this.environment.getVisualState());
     this.synchronizeTimeDependentWorld();
     this.syncPlacedNavigationTargets();
     this.syncContractNavigation();
@@ -1930,6 +1934,7 @@ export class Engine {
       if (steps === 5) this.accumulator = 0;
 
       this.environment.present(this.player.position, delta);
+      this.world.presentEnvironment(this.environment.getVisualState());
       this.citizens.present(
         this.started &&
           !this.paused &&
@@ -2244,6 +2249,7 @@ export class Engine {
   private refreshEnvironment(snap = true) {
     this.environment.sync(this.player.position, snap);
     this.environment.present(this.player.position, 0);
+    this.world.presentEnvironment(this.environment.getVisualState());
     this.synchronizeTimeDependentWorld();
     this.emitSnapshot(true);
   }
@@ -2257,7 +2263,7 @@ export class Engine {
   }
 
   setQuality(quality: QualityLevel) {
-    if (quality !== "cinematic" && quality !== "performance") return false;
+    if (!isQualityLevel(quality)) return false;
     if (quality === this.quality) return false;
     this.applyQuality(quality);
     this.settings = { ...this.settings, quality };
@@ -2269,10 +2275,10 @@ export class Engine {
 
   private applyQuality(quality: QualityLevel) {
     this.quality = quality;
-    const cinematic = quality === "cinematic";
-    this.renderer.shadowMap.enabled = cinematic;
+    const preset = QUALITY_PRESETS[quality];
+    this.renderer.shadowMap.enabled = preset.shadows;
     this.renderer.setPixelRatio(
-      cinematic ? Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO) : 1,
+      Math.min(window.devicePixelRatio, preset.pixelRatioCap),
     );
     this.environment.setQuality(this.quality);
     this.world.setQuality(this.quality);
@@ -2283,16 +2289,15 @@ export class Engine {
   }
 
   private toggleQuality() {
-    this.setQuality(this.quality === "cinematic" ? "performance" : "cinematic");
+    const currentIndex = QUALITY_LEVELS.indexOf(this.quality);
+    this.setQuality(QUALITY_LEVELS[(currentIndex + 1) % QUALITY_LEVELS.length]);
   }
 
   private resize = () => {
     const width = Math.max(1, this.canvas.clientWidth || window.innerWidth);
     const height = Math.max(1, this.canvas.clientHeight || window.innerHeight);
     this.renderer.setPixelRatio(
-      this.quality === "cinematic"
-        ? Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO)
-        : 1,
+      Math.min(window.devicePixelRatio, QUALITY_PRESETS[this.quality].pixelRatioCap),
     );
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / height;

@@ -1,5 +1,9 @@
 import * as THREE from "three";
-import type { QualityLevel } from "../config";
+import {
+  qualityUsesHighDetail,
+  qualityUsesShadows,
+  type QualityLevel,
+} from "../config";
 import type { RestSiteDefinition } from "../gameplay/resting";
 import type { PlanarCollider } from "../systems/collision";
 import type { WorldTarget } from "./ChunkManager";
@@ -41,11 +45,13 @@ export interface PlacedLightRuntime {
  * lights participate in the renderer's light list.
  */
 export const FIELD_TORCH_LIGHT_CAP: Readonly<Record<QualityLevel, number>> = {
+  ultra: 12,
   cinematic: 12,
   performance: 6,
 };
 
 export const FIELD_TORCH_LIGHT_RANGE: Readonly<Record<QualityLevel, number>> = {
+  ultra: 15,
   cinematic: 15,
   performance: 11,
 };
@@ -70,7 +76,7 @@ function mesh(
   quality: QualityLevel,
 ) {
   const result = new THREE.Mesh(geometry, material);
-  result.castShadow = quality === "cinematic";
+  result.castShadow = qualityUsesShadows(quality);
   result.receiveShadow = true;
   return result;
 }
@@ -265,7 +271,7 @@ export function applyPlacedRuntimeLighting(
         .slice(0, FIELD_TORCH_LIGHT_CAP[quality])
         .map(({ index }) => index),
   );
-  const qualityIntensity = quality === "cinematic" ? 1 : 0.72;
+  const qualityIntensity = qualityUsesHighDetail(quality) ? 1 : 0.72;
   let active = 0;
   runtime.lights.forEach((entry, index) => {
     const enabled = activeIds.has(index);

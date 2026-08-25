@@ -16,6 +16,8 @@ export default defineConfig({
         "lib/game/world/macroWorld.ts",
         "lib/game/world/roads.ts",
         "lib/game/world/vegetation.ts",
+        "lib/game/world/surfaceVariation.ts",
+        "lib/game/world/WaterSurface.ts",
         "lib/game/animals/animalRecipes.ts",
         "lib/game/animals/AnimalEngine.ts",
         "lib/game/equipment/PlayerFlashlight.ts",

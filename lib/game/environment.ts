@@ -2,8 +2,10 @@ import * as THREE from "three";
 import {
   CAMERA_DRAW_DISTANCE,
   HORIZON_PRESETS,
-  SHADOW_MAP_SIZE,
+  QUALITY_PRESETS,
   WORLD_SEED,
+  qualityUsesHighDetail,
+  qualityUsesShadows,
   type HorizonMode,
   type QualityLevel,
 } from "./config";
@@ -43,6 +45,7 @@ export interface EnvironmentRuntime {
   setWorldMinutes(minutes: number): void;
   getPersistentWorldMinutes(): number;
   getSample(): EnvironmentSample;
+  getVisualState(): Readonly<EnvironmentVisualState>;
   setDeveloperMode(enabled: boolean): void;
   setDeveloperClockPaused(paused: boolean): void;
   setDeveloperMinuteOfDay(minutes: number): void;
@@ -54,6 +57,45 @@ export interface EnvironmentRuntime {
   setQuality(quality: QualityLevel): void;
   setHorizonMode(mode: HorizonMode): void;
   dispose(): void;
+}
+
+export interface EnvironmentVisualState {
+  effectSeconds: number;
+  cloudCover: number;
+  precipitationRate: number;
+  daylight: number;
+  night: number;
+  dust: number;
+  windKph: number;
+  windDirection: number;
+  sunDirection: THREE.Vector3;
+  moonDirection: THREE.Vector3;
+  sunColor: THREE.Color;
+  skyColor: THREE.Color;
+  horizonColor: THREE.Color;
+}
+
+/** One celestial solution drives both the visible discs and the key light. */
+export function calculateCelestialDirections(
+  sunElevation: number,
+  sunAzimuth: number,
+  sunTarget = new THREE.Vector3(),
+  moonTarget = new THREE.Vector3(),
+) {
+  const elevation = THREE.MathUtils.clamp(
+    Number.isFinite(sunElevation) ? sunElevation : 0,
+    -1,
+    1,
+  );
+  const azimuth = Number.isFinite(sunAzimuth) ? sunAzimuth : 0;
+  const horizontal = Math.sqrt(Math.max(0, 1 - elevation * elevation));
+  sunTarget.set(
+    Math.cos(azimuth) * horizontal,
+    elevation,
+    Math.sin(azimuth) * horizontal,
+  ).normalize();
+  moonTarget.copy(sunTarget).multiplyScalar(-1);
+  return { sun: sunTarget, moon: moonTarget };
 }
 
 interface PrecipitationRuntime {
@@ -201,15 +243,13 @@ export function createEnvironment(
 
   const sun = new THREE.DirectionalLight(0xffd5a0, 4.1);
   sun.position.set(-70, 92, 38);
-  sun.castShadow = quality === "cinematic";
-  sun.shadow.mapSize.set(SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
+  sun.castShadow = qualityUsesShadows(quality);
   sun.shadow.camera.near = 1;
   sun.shadow.camera.far = 260;
   sun.shadow.camera.left = -88;
   sun.shadow.camera.right = 88;
   sun.shadow.camera.top = 88;
   sun.shadow.camera.bottom = -88;
-  sun.shadow.bias = -0.00015;
   const sunTarget = new THREE.Object3D();
   scene.add(sun, sunTarget);
   sun.target = sunTarget;
@@ -224,6 +264,15 @@ export function createEnvironment(
       groundColor: { value: new THREE.Color(0x594b3d) },
       cloudColor: { value: new THREE.Color(0x70777a) },
       cloudCover: { value: 0.1 },
+      sunDirection: { value: new THREE.Vector3(0, 1, 0) },
+      moonDirection: { value: new THREE.Vector3(0, -1, 0) },
+      sunDiscColor: { value: new THREE.Color(0xffe2ae) },
+      moonDiscColor: { value: new THREE.Color(0xaabbd0) },
+      cloudOffset: { value: new THREE.Vector2() },
+      daylight: { value: 1 },
+      night: { value: 0 },
+      goldenHour: { value: 0 },
+      dust: { value: 0 },
     },
     vertexShader: `
       #include <logdepthbuf_pars_vertex>
@@ -242,16 +291,78 @@ export function createEnvironment(
       uniform vec3 groundColor;
       uniform vec3 cloudColor;
       uniform float cloudCover;
+      uniform vec3 sunDirection;
+      uniform vec3 moonDirection;
+      uniform vec3 sunDiscColor;
+      uniform vec3 moonDiscColor;
+      uniform vec2 cloudOffset;
+      uniform float daylight;
+      uniform float night;
+      uniform float goldenHour;
+      uniform float dust;
+
+      float hash31(vec3 p) {
+        p = fract(p * 0.1031);
+        p += dot(p, p.yzx + 33.33);
+        return fract((p.x + p.y) * p.z);
+      }
+
+      float valueNoise(vec3 p) {
+        vec3 cell = floor(p);
+        vec3 local = fract(p);
+        local = local * local * (3.0 - 2.0 * local);
+        float n000 = hash31(cell + vec3(0.0, 0.0, 0.0));
+        float n100 = hash31(cell + vec3(1.0, 0.0, 0.0));
+        float n010 = hash31(cell + vec3(0.0, 1.0, 0.0));
+        float n110 = hash31(cell + vec3(1.0, 1.0, 0.0));
+        float n001 = hash31(cell + vec3(0.0, 0.0, 1.0));
+        float n101 = hash31(cell + vec3(1.0, 0.0, 1.0));
+        float n011 = hash31(cell + vec3(0.0, 1.0, 1.0));
+        float n111 = hash31(cell + vec3(1.0, 1.0, 1.0));
+        float nx00 = mix(n000, n100, local.x);
+        float nx10 = mix(n010, n110, local.x);
+        float nx01 = mix(n001, n101, local.x);
+        float nx11 = mix(n011, n111, local.x);
+        return mix(mix(nx00, nx10, local.y), mix(nx01, nx11, local.y), local.z);
+      }
+
+      float cloudFbm(vec3 p) {
+        float result = valueNoise(p) * 0.58;
+        result += valueNoise(p * 2.03 + 7.1) * 0.28;
+        result += valueNoise(p * 4.07 - 3.6) * 0.14;
+        return result;
+      }
+
       void main() {
         vec3 direction = normalize(vWorldPosition);
         float h = direction.y;
         vec3 color = h > 0.0
           ? mix(horizonColor, topColor, smoothstep(0.0, 0.72, h))
           : mix(horizonColor, groundColor, smoothstep(0.0, 0.32, -h));
-        float bands = sin(direction.x * 19.0 + direction.z * 13.0) * 0.5 + 0.5;
-        float clouds = smoothstep(0.44, 0.78, bands) * cloudCover * smoothstep(0.02, 0.45, h);
+        float sunDot = dot(direction, normalize(sunDirection));
+        float moonDot = dot(direction, normalize(moonDirection));
+        float sunDisc = smoothstep(0.99972, 0.99991, sunDot) * daylight;
+        float sunHalo = smoothstep(0.955, 1.0, sunDot) * (0.18 + goldenHour * 0.34) * daylight;
+        float moonDisc = smoothstep(0.99942, 0.99978, moonDot) * night;
+        float moonHalo = smoothstep(0.972, 1.0, moonDot) * 0.16 * night;
+        color += sunDiscColor * (sunDisc * 2.2 + sunHalo);
+        color += moonDiscColor * (moonDisc * 1.15 + moonHalo);
+
+        vec3 cloudPoint = direction * 3.45;
+        cloudPoint.xz += cloudOffset * 0.012;
+        float broad = cloudFbm(cloudPoint);
+        float secondLayer = cloudFbm(direction * 7.3 - vec3(cloudOffset.y, 0.0, cloudOffset.x) * 0.006);
+        float field = broad * 0.78 + secondLayer * 0.22;
+        float threshold = mix(0.76, 0.39, cloudCover);
+        float clouds = smoothstep(threshold, threshold + 0.17, field)
+          * smoothstep(-0.015, 0.32, h)
+          * smoothstep(0.0, 0.08, cloudCover);
+        clouds *= mix(0.74, 1.0, cloudCover);
+        vec3 weatherCloud = mix(cloudColor, vec3(0.42, 0.34, 0.28), dust * 0.34);
         #include <logdepthbuf_fragment>
-        gl_FragColor = vec4(mix(color, cloudColor, clouds * 0.48), 1.0);
+        gl_FragColor = vec4(mix(color, weatherCloud, clouds * 0.68), 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `,
   });
@@ -269,6 +380,7 @@ export function createEnvironment(
   let worldMinutes = sanitizeWorldMinutes(initialWorldMinutes);
   let developerState = createDeveloperEnvironmentState(worldMinutes);
   let effectSeconds = 0;
+  const cloudOffset = new THREE.Vector2();
   let horizonMode: HorizonMode = "standard";
   let climate = sampleClimate(0, 8);
   let targetSample = sampleEnvironment(worldMinutes, climate);
@@ -291,6 +403,23 @@ export function createEnvironment(
   const sunDawn = new THREE.Color(0xff9a56);
   const moonColor = new THREE.Color(0x91a9c8);
   const temporaryColor = new THREE.Color();
+  const sunDirection = new THREE.Vector3();
+  const moonDirection = new THREE.Vector3();
+  const visualState: EnvironmentVisualState = {
+    effectSeconds,
+    cloudCover: displaySample.cloudCover,
+    precipitationRate: displaySample.precipitationRate,
+    daylight: displaySample.daylight,
+    night: displaySample.night,
+    dust: displaySample.dust,
+    windKph: displaySample.windKph,
+    windDirection: displaySample.windDirection,
+    sunDirection,
+    moonDirection,
+    sunColor: new THREE.Color(0xffe0b2),
+    skyColor: new THREE.Color(),
+    horizonColor: new THREE.Color(),
+  };
 
   const effectiveFogMultiplier = (sample: EnvironmentSample) => {
     const presetMultiplier = HORIZON_PRESETS[horizonMode].hazeMultiplier;
@@ -324,23 +453,37 @@ export function createEnvironment(
     skyMaterial.uniforms.groundColor.value.copy(groundColor);
     skyMaterial.uniforms.cloudColor.value.copy(cloudColor);
     skyMaterial.uniforms.cloudCover.value = displaySample.cloudCover;
+    skyMaterial.uniforms.cloudOffset.value.copy(cloudOffset);
+    skyMaterial.uniforms.daylight.value = displaySample.daylight;
+    skyMaterial.uniforms.night.value = displaySample.night;
+    skyMaterial.uniforms.goldenHour.value = displaySample.goldenHour;
+    skyMaterial.uniforms.dust.value = displaySample.dust;
     fog.color.copy(fogColor);
     fog.density = effectiveFogDensity(displaySample);
     (scene.background as THREE.Color).copy(fogColor).multiplyScalar(0.72);
 
     const useSun = displaySample.sunElevation > -0.06;
-    const celestialAngle = displaySample.sunAzimuth;
+    calculateCelestialDirections(
+      displaySample.sunElevation,
+      displaySample.sunAzimuth,
+      sunDirection,
+      moonDirection,
+    );
+    skyMaterial.uniforms.sunDirection.value.copy(sunDirection);
+    skyMaterial.uniforms.moonDirection.value.copy(moonDirection);
+    const keyDirection = useSun ? sunDirection : moonDirection;
     const horizontal = 116;
-    const keyX = Math.cos(celestialAngle) * horizontal * (useSun ? 1 : -1);
-    const keyZ = Math.sin(celestialAngle) * horizontal * (useSun ? 1 : -1);
+    const keyX = keyDirection.x * horizontal;
+    const keyZ = keyDirection.z * horizontal;
     const keyY = useSun
-      ? Math.max(7, displaySample.sunElevation * 126)
-      : Math.max(28, -displaySample.sunElevation * 96);
+      ? Math.max(7, keyDirection.y * 126)
+      : Math.max(28, keyDirection.y * 96);
     sun.position.set(position.x + keyX, position.y + keyY, position.z + keyZ);
     sunTarget.position.set(position.x, position.y, position.z);
     if (useSun) {
       temporaryColor.lerpColors(sunDay, sunDawn, displaySample.goldenHour * 0.86);
       sun.color.copy(temporaryColor);
+      skyMaterial.uniforms.sunDiscColor.value.copy(temporaryColor);
       sun.intensity = 4.2 * displaySample.lightScale;
     } else {
       sun.color.copy(moonColor);
@@ -386,6 +529,18 @@ export function createEnvironment(
       Math.cos(windRadians) * drift,
       Math.sin(windRadians) * drift,
     );
+
+    visualState.effectSeconds = effectSeconds;
+    visualState.cloudCover = displaySample.cloudCover;
+    visualState.precipitationRate = displaySample.precipitationRate;
+    visualState.daylight = displaySample.daylight;
+    visualState.night = displaySample.night;
+    visualState.dust = displaySample.dust;
+    visualState.windKph = displaySample.windKph;
+    visualState.windDirection = displaySample.windDirection;
+    visualState.sunColor.copy(sun.color);
+    visualState.skyColor.copy(topColor);
+    visualState.horizonColor.copy(horizonColor);
   };
 
   const runtime: EnvironmentRuntime = {
@@ -395,6 +550,10 @@ export function createEnvironment(
       const safeDelta = Number.isFinite(deltaSeconds) ? Math.max(0, deltaSeconds) : 0;
       if (running) {
         effectSeconds += safeDelta;
+        const windRadians = (displaySample.windDirection * Math.PI) / 180;
+        const cloudSpeed = THREE.MathUtils.clamp(displaySample.windKph * 0.018, 0.025, 1.8);
+        cloudOffset.x += Math.cos(windRadians) * safeDelta * cloudSpeed;
+        cloudOffset.y += Math.sin(windRadians) * safeDelta * cloudSpeed;
         if (developerState.enabled) {
           developerState = tickDeveloperEnvironment(
             developerState,
@@ -464,6 +623,9 @@ export function createEnvironment(
         ),
       };
     },
+    getVisualState() {
+      return visualState;
+    },
     setDeveloperMode(enabled) {
       developerState = setDeveloperMode(developerState, enabled, worldMinutes);
     },
@@ -498,10 +660,21 @@ export function createEnvironment(
       return developerWeatherOptions(climate.biome.id);
     },
     setQuality(nextQuality) {
-      sun.castShadow = nextQuality === "cinematic";
+      const preset = QUALITY_PRESETS[nextQuality];
+      sun.castShadow = qualityUsesShadows(nextQuality);
+      const maximumTextureSize = renderer.capabilities.maxTextureSize || preset.sunShadowMapSize;
+      const shadowMapSize = Math.min(preset.sunShadowMapSize, maximumTextureSize);
+      if (sun.shadow.mapSize.width !== shadowMapSize) {
+        sun.shadow.map?.dispose();
+        sun.shadow.map = null;
+        sun.shadow.mapSize.set(shadowMapSize, shadowMapSize);
+        sun.shadow.needsUpdate = true;
+      }
+      sun.shadow.bias = nextQuality === "ultra" ? -0.00008 : -0.00015;
+      sun.shadow.normalBias = nextQuality === "ultra" ? 0.015 : 0.02;
       precipitation.points.geometry.setDrawRange(
         0,
-        nextQuality === "cinematic"
+        qualityUsesHighDetail(nextQuality)
           ? CINEMATIC_PRECIPITATION_POINTS
           : PERFORMANCE_PRECIPITATION_POINTS,
       );
@@ -524,6 +697,9 @@ export function createEnvironment(
       stars.material.dispose();
       precipitation.points.geometry.dispose();
       precipitation.points.material.dispose();
+      sun.shadow.map?.dispose();
+      sun.shadow.map = null;
+      sun.dispose();
     },
   };
 

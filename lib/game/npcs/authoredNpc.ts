@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { QualityLevel } from "../config";
+import { qualityUsesShadows, type QualityLevel } from "../config";
 import type { WorldTarget } from "../world/ChunkManager";
 import { SPAWN_BUILDING } from "../world/spawnBuilding";
 import { TWO_STORY_BUILDING } from "../world/twoStoryBuilding";
@@ -113,7 +113,7 @@ function bodyPart(
     geometry,
     new THREE.MeshStandardMaterial({ color, roughness: 0.88, flatShading: true }),
   );
-  part.castShadow = quality === "cinematic";
+  part.castShadow = qualityUsesShadows(quality);
   part.receiveShadow = true;
   return part;
 }

@@ -118,7 +118,7 @@ GPU cleanup. The browser boot contract also confirms that wildlife never appears
 interaction target registry.
 
 Field-equipment tests lock the phone light to a default-off state, one-press `L` routing,
-camera-world alignment, two fixed beams, the 48 m range, cinematic/performance shadow policy,
+camera-world alignment, two fixed beams, the 48 m range, performance/cinematic/Ultra shadow policy,
 compile prewarming, and idempotent cleanup. Browser coverage exercises both the accessible HUD
 toggle and keyboard path at night while exposing deterministic diagnostics through the test bridge.
 

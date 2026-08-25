@@ -33,10 +33,64 @@ export const STAMINA_REGEN_RATE = 0.18;
 export const STAMINA_REGEN_DELAY = 0.65;
 export const INTERACTION_DISTANCE = 6.25;
 
-export const MAX_PIXEL_RATIO = 1.75;
-export const SHADOW_MAP_SIZE = 2048;
+export type QualityLevel = "ultra" | "cinematic" | "performance";
 
-export type QualityLevel = "cinematic" | "performance";
+export interface QualityPreset {
+  label: string;
+  pixelRatioCap: number;
+  sunShadowMapSize: number;
+  flashlightShadowMapSize: number;
+  shadows: boolean;
+  highDetail: boolean;
+}
+
+/**
+ * Rendering budgets live in one table so every subsystem agrees on what a
+ * profile means. Ultra deliberately keeps the cinematic simulation budgets;
+ * its extra cost is limited to image quality and shadow resolution.
+ */
+export const QUALITY_PRESETS: Readonly<Record<QualityLevel, QualityPreset>> = {
+  ultra: {
+    label: "ULTRA",
+    pixelRatioCap: 2,
+    sunShadowMapSize: 4096,
+    flashlightShadowMapSize: 2048,
+    shadows: true,
+    highDetail: true,
+  },
+  cinematic: {
+    label: "CINEMATIC",
+    pixelRatioCap: 1.75,
+    sunShadowMapSize: 2048,
+    flashlightShadowMapSize: 1024,
+    shadows: true,
+    highDetail: true,
+  },
+  performance: {
+    label: "PERFORMANCE",
+    pixelRatioCap: 1,
+    sunShadowMapSize: 2048,
+    flashlightShadowMapSize: 1024,
+    shadows: false,
+    highDetail: false,
+  },
+} as const;
+
+export const QUALITY_LEVELS = ["performance", "cinematic", "ultra"] as const;
+export const MAX_PIXEL_RATIO = QUALITY_PRESETS.cinematic.pixelRatioCap;
+export const SHADOW_MAP_SIZE = QUALITY_PRESETS.cinematic.sunShadowMapSize;
+
+export function isQualityLevel(value: unknown): value is QualityLevel {
+  return value === "ultra" || value === "cinematic" || value === "performance";
+}
+
+export function qualityUsesShadows(quality: QualityLevel) {
+  return QUALITY_PRESETS[quality].shadows;
+}
+
+export function qualityUsesHighDetail(quality: QualityLevel) {
+  return QUALITY_PRESETS[quality].highDetail;
+}
 
 export type HorizonMode = "standard" | "extended" | "unlimited";
 

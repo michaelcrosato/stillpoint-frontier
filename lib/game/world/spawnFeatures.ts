@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { QualityLevel } from "../config";
+import { qualityUsesShadows, type QualityLevel } from "../config";
 import type { CraftingStationKind } from "../gameplay/crafting";
 import type { ContainerStates, LootTableId } from "../gameplay/loot";
 import type { RestSiteDefinition } from "../gameplay/resting";
@@ -529,7 +529,7 @@ export function createSpawnGameplayFeatures(
       material,
     );
     prop.position.y = placement.height * 0.5;
-    prop.castShadow = quality === "cinematic";
+    prop.castShadow = qualityUsesShadows(quality);
     prop.receiveShadow = true;
     group.add(prop);
     root.add(group);

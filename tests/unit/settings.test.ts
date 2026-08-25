@@ -22,7 +22,7 @@ describe("game settings", () => {
       masterVolume: 3,
       ambientVolume: -1,
       effectsVolume: Number.NaN,
-      quality: "ultra",
+      quality: "impossible",
       horizonMode: "infinite",
     }, "extended");
     expect(result.fov).toBe(95);
@@ -32,6 +32,10 @@ describe("game settings", () => {
     expect(result.effectsVolume).toBe(DEFAULT_GAME_SETTINGS.effectsVolume);
     expect(result.quality).toBe("cinematic");
     expect(result.horizonMode).toBe("extended");
+  });
+
+  it("accepts the opt-in Ultra rendering profile", () => {
+    expect(normalizeGameSettings({ quality: "ultra" }).quality).toBe("ultra");
   });
 
   it("swaps conflicting bindings instead of leaving an action unbound", () => {

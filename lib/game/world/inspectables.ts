@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { QualityLevel } from "../config";
+import { qualityUsesShadows, type QualityLevel } from "../config";
 import type { WorldTarget } from "./ChunkManager";
 import { sampleTerrainHeight } from "./terrain";
 
@@ -81,7 +81,7 @@ export function createInspectableTarget(
   );
   stripe.position.set(0, 1.55, 0.052);
   for (const mesh of [post, face]) {
-    mesh.castShadow = quality === "cinematic";
+    mesh.castShadow = qualityUsesShadows(quality);
     mesh.receiveShadow = true;
   }
   root.add(post, face, stripe);

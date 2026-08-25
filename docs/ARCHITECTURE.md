@@ -53,7 +53,7 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
   scene nodes; wildlife never enters dialogue, inventory, or save state.
 - `PlayerFlashlight` is a reusable field-equipment module rather than environment state.
   A camera-aligned 48 m warm core and short cool spill provide a phone-style beam; only the
-  core casts a 1K shadow, and only while enabled in cinematic quality. The spotlight shader
+  core casts a 1K cinematic or 2K Ultra shadow, and only while enabled in a shadowed quality. The spotlight shader
   path is prewarmed behind the boot screen so first activation cannot introduce a traversal
   hitch. `PlayerEquipmentSystem` consumes one edge-triggered `L` press during active play.
 - `PlayerConditionSystem` runs immediately after movement. It samples authored shelter and
@@ -202,12 +202,12 @@ The initial target is an RTX 3060-class machine at 1440p/60:
   remain smooth on 60 Hz and high-refresh displays. Performance mode reduces population
   density rather than motion cadence. Hard resident targets remain 5,000 and 2,200 visible
   citizens respectively, with no citizen shadows.
-- Wildlife is capped at 72 rigid instances in cinematic mode and 36 in performance mode,
+- Wildlife is capped at 72 rigid instances in cinematic/Ultra mode and 36 in performance mode,
   spread across no more than six candidates per chunk with no shadows, pathfinding, or
   persistent AI; each visible resident carries only a bounded four-mode reaction record.
-- One shadow-casting directional sun/moon key; 2K shadow map in cinematic mode. Dynamic
+- One shadow-casting directional sun/moon key; 2K shadow map in cinematic and 4K in Ultra. Dynamic
   weather changes palette, fog, exposure, and one shader-driven precipitation field.
-- Persistent field torches keep emissive markers while only the nearest 12 cinematic or six
+- Persistent field torches keep emissive markers while only the nearest 12 cinematic/Ultra or six
   performance lights activate at night, bounding renderer light growth as camps accumulate.
 - The optional phone light reuses two persistent spotlights across toggles. Its unshadowed
   spill is limited to 11 m to reduce light leaks; performance mode disables its single 1K
@@ -215,7 +215,14 @@ The initial target is an RTX 3060-class machine at 1440p/60:
 - Environmental audio reuses one gesture-unlocked context, four persistent procedural
   ambience loops, and short-lived one-shot footstep/cue nodes. Paused or blocked audio is a
   contained capability failure and never blocks simulation or rendering.
-- Pixel ratio capped at 1.75; performance mode forces DPR 1 and disables shadows.
+- Pixel ratio is capped at 1.75 in cinematic, 2 in opt-in Ultra, and 1 in performance;
+  performance disables shadows.
+- Detailed terrain and render-only horizon geometry use the same deterministic world-space
+  color sampler. Roads, settlement facades, and rocks use restrained category palettes with
+  no chunk- or instance-order inputs, preventing streaming seams and reload color changes.
+- A camera-centered procedural sky renders sun/moon discs, horizon glow, and multi-layer
+  wind-driven clouds without texture assets. One shared world-space water shader renders all
+  river and sea chunks with seamless ripples, Fresnel tinting, and weather-aware sun glint.
 - Renderer diagnostics expose FPS, active chunks, selected horizon, far tiles, far triangles,
   settlement proxies, and optical visibility to the HUD and tests. Weather remains the final
   visibility limit, with fog and storms restoring dense extinction in every profile.

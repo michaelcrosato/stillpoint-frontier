@@ -114,6 +114,17 @@ describe("biome vegetation catalog", () => {
     )).toBe(true);
     expect(decorativeMeshes.length).toBeGreaterThan(0);
     expect(decorativeMeshes.every((mesh) => mesh.castShadow === false)).toBe(true);
+    expect(decorativeMeshes.every((mesh) =>
+      mesh.count === mesh.userData.performanceCount,
+    )).toBe(true);
+    world.setQuality("ultra");
+    expect(decorativeMeshes.every((mesh) =>
+      mesh.count === mesh.userData.highDetailCount && mesh.castShadow === false,
+    )).toBe(true);
+    world.setQuality("performance");
+    expect(decorativeMeshes.every((mesh) =>
+      mesh.count === mesh.userData.performanceCount,
+    )).toBe(true);
     expect(world.targets.some((target) => target.id.includes("groundcover"))).toBe(false);
     expect(world.colliders.some((collider) => collider.id.includes("groundcover"))).toBe(false);
     world.dispose();

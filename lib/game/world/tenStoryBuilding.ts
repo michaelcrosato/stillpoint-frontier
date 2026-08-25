@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { QualityLevel } from "../config";
+import { qualityUsesShadows, type QualityLevel } from "../config";
 import type { PlanarCollider } from "../systems/collision";
 import {
   createAuthoredDoor,
@@ -606,7 +606,7 @@ export function createTenStoryBuilding(
     "walls",
     wallBoxes,
     materials.wall,
-    { castShadow: quality === "cinematic", receiveShadow: true },
+    { castShadow: qualityUsesShadows(quality), receiveShadow: true },
   );
   createInstanceBatch(
     root,
@@ -620,7 +620,7 @@ export function createTenStoryBuilding(
     "roof",
     roofBoxes,
     materials.roof,
-    { castShadow: quality === "cinematic", receiveShadow: true },
+    { castShadow: qualityUsesShadows(quality), receiveShadow: true },
   );
   createInstanceBatch(
     root,
@@ -656,7 +656,7 @@ export function createTenStoryBuilding(
     initialDoorOpen,
   );
   door.pivot.traverse((object) => {
-    if (object instanceof THREE.Mesh) object.castShadow = quality === "cinematic";
+    if (object instanceof THREE.Mesh) object.castShadow = qualityUsesShadows(quality);
   });
   root.add(door.pivot);
 

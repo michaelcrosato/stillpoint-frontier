@@ -205,6 +205,9 @@ describe("ambient citizen recipes", () => {
     expect(visibleCitizenCount(MAX_CITIZENS_PER_CHUNK, "cinematic") * CITIZEN_RESIDENT_CHUNKS).toBeLessThanOrEqual(
       MAX_RESIDENT_CITIZENS.cinematic,
     );
+    expect(visibleCitizenCount(MAX_CITIZENS_PER_CHUNK, "ultra")).toBe(
+      visibleCitizenCount(MAX_CITIZENS_PER_CHUNK, "cinematic"),
+    );
     expect(visibleCitizenCount(MAX_CITIZENS_PER_CHUNK, "performance") * CITIZEN_RESIDENT_CHUNKS).toBeLessThanOrEqual(
       MAX_RESIDENT_CITIZENS.performance,
     );

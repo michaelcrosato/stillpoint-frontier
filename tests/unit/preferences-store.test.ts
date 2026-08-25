@@ -22,7 +22,7 @@ describe("local preferences", () => {
       ...DEFAULT_GAME_SETTINGS,
       fov: 82,
       masterVolume: 0.44,
-      quality: "performance" as const,
+      quality: "ultra" as const,
       keyBindings: { ...DEFAULT_GAME_SETTINGS.keyBindings, flashlight: "KeyP" },
     };
     expect(store.save(settings)).toBe(true);

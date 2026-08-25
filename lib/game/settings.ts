@@ -1,4 +1,4 @@
-import type { HorizonMode, QualityLevel } from "./config";
+import { isQualityLevel, type HorizonMode, type QualityLevel } from "./config";
 
 export const GAME_ACTIONS = [
   "moveForward",
@@ -130,9 +130,7 @@ export function normalizeGameSettings(
     masterVolume: finiteClamp(source.masterVolume, DEFAULT_GAME_SETTINGS.masterVolume, 0, 1),
     ambientVolume: finiteClamp(source.ambientVolume, DEFAULT_GAME_SETTINGS.ambientVolume, 0, 1),
     effectsVolume: finiteClamp(source.effectsVolume, DEFAULT_GAME_SETTINGS.effectsVolume, 0, 1),
-    quality: source.quality === "performance" || source.quality === "cinematic"
-      ? source.quality
-      : DEFAULT_GAME_SETTINGS.quality,
+    quality: isQualityLevel(source.quality) ? source.quality : DEFAULT_GAME_SETTINGS.quality,
     horizonMode:
       source.horizonMode === "standard" ||
       source.horizonMode === "extended" ||

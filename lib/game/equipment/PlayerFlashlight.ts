@@ -1,5 +1,9 @@
 import * as THREE from "three";
-import type { QualityLevel } from "../config";
+import {
+  QUALITY_PRESETS,
+  qualityUsesShadows,
+  type QualityLevel,
+} from "../config";
 
 export const FLASHLIGHT_RANGE_METERS = 48;
 const CORE_INTENSITY = 190;
@@ -51,11 +55,8 @@ export class PlayerFlashlight {
     this.coreTarget.name = "player-phone-light:core-target";
     this.coreTarget.position.set(0, -0.025, -12);
     this.core.target = this.coreTarget;
-    this.core.shadow.mapSize.set(1024, 1024);
     this.core.shadow.camera.near = 0.12;
     this.core.shadow.camera.far = FLASHLIGHT_RANGE_METERS;
-    this.core.shadow.bias = -0.00018;
-    this.core.shadow.normalBias = 0.035;
     this.core.shadow.radius = 2;
 
     this.spill.name = "player-phone-light:spill";
@@ -87,6 +88,18 @@ export class PlayerFlashlight {
   setQuality(quality: QualityLevel) {
     if (this.disposed) return;
     this.quality = quality;
+    const preset = QUALITY_PRESETS[quality];
+    if (this.core.shadow.mapSize.width !== preset.flashlightShadowMapSize) {
+      this.core.shadow.map?.dispose();
+      this.core.shadow.map = null;
+      this.core.shadow.mapSize.set(
+        preset.flashlightShadowMapSize,
+        preset.flashlightShadowMapSize,
+      );
+      this.core.shadow.needsUpdate = true;
+    }
+    this.core.shadow.bias = quality === "ultra" ? -0.0001 : -0.00018;
+    this.core.shadow.normalBias = quality === "ultra" ? 0.025 : 0.035;
     this.applyRuntimeState();
   }
 
@@ -103,7 +116,7 @@ export class PlayerFlashlight {
   prepareForCompile() {
     if (this.disposed) return;
     this.root.visible = true;
-    this.core.castShadow = this.quality === "cinematic";
+    this.core.castShadow = qualityUsesShadows(this.quality);
     this.core.intensity = 0;
     this.spill.intensity = 0;
   }
@@ -125,6 +138,7 @@ export class PlayerFlashlight {
       beams: 2,
       rangeMeters: FLASHLIGHT_RANGE_METERS,
       shadowsEnabled: this.core.castShadow,
+      shadowMapSize: this.core.shadow.mapSize.width,
       quality: this.quality,
     } as const;
   }
@@ -141,6 +155,6 @@ export class PlayerFlashlight {
 
   private applyRuntimeState() {
     this.root.visible = this.enabled;
-    this.core.castShadow = this.enabled && this.quality === "cinematic";
+    this.core.castShadow = this.enabled && qualityUsesShadows(this.quality);
   }
 }

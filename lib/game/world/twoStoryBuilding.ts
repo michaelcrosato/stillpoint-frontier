@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { MAX_STEP_HEIGHT, type QualityLevel } from "../config";
+import { MAX_STEP_HEIGHT, qualityUsesShadows, type QualityLevel } from "../config";
 import type { PlanarCollider } from "../systems/collision";
 import {
   createAuthoredDoor,
@@ -293,7 +293,7 @@ export function createTwoStoryBuilding(
     );
     mesh.name = `two-story-building:${name}`;
     mesh.position.set(position[0], position[1], position[2]);
-    mesh.castShadow = quality === "cinematic" && materialKind !== "glass";
+    mesh.castShadow = qualityUsesShadows(quality) && materialKind !== "glass";
     mesh.receiveShadow = materialKind !== "glass";
     mesh.userData.shadow = materialKind !== "glass";
     mesh.userData.glass = materialKind === "glass";
@@ -631,7 +631,7 @@ export function createTwoStoryBuilding(
     initialDoorOpen,
   );
   door.pivot.traverse((object) => {
-    if (object instanceof THREE.Mesh) object.castShadow = quality === "cinematic";
+    if (object instanceof THREE.Mesh) object.castShadow = qualityUsesShadows(quality);
   });
   root.add(door.pivot);
 

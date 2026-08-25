@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   FLASHLIGHT_RANGE_METERS,
   PlayerFlashlight,
@@ -22,6 +22,7 @@ describe("player phone flashlight", () => {
       beams: 2,
       rangeMeters: FLASHLIGHT_RANGE_METERS,
       shadowsEnabled: false,
+      shadowMapSize: 1024,
       quality: "cinematic",
     });
 
@@ -56,6 +57,18 @@ describe("player phone flashlight", () => {
     expect(flashlight.diagnostics.quality).toBe("performance");
     flashlight.setQuality("cinematic");
     expect(core.castShadow).toBe(true);
+    const allocatedShadow = new THREE.WebGLRenderTarget(1024, 1024);
+    const disposeAllocatedShadow = vi.spyOn(allocatedShadow, "dispose");
+    core.shadow.map = allocatedShadow;
+    flashlight.setQuality("ultra");
+    expect(core.castShadow).toBe(true);
+    expect(core.shadow.mapSize.width).toBe(2048);
+    expect(core.shadow.map).toBeNull();
+    expect(disposeAllocatedShadow).toHaveBeenCalledTimes(1);
+    expect(core.shadow.bias).toBeCloseTo(-0.0001);
+    expect(core.shadow.normalBias).toBeCloseTo(0.025);
+    flashlight.setQuality("cinematic");
+    expect(core.shadow.mapSize.width).toBe(1024);
     expect(flashlight.toggle()).toBe(false);
     expect(root?.visible).toBe(false);
     flashlight.prepareForCompile();

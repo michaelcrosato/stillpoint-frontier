@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { HORIZON_PRESETS, type HorizonMode, type QualityLevel } from "../lib/game/config";
+import {
+  HORIZON_PRESETS,
+  QUALITY_LEVELS,
+  QUALITY_PRESETS,
+  type HorizonMode,
+  type QualityLevel,
+} from "../lib/game/config";
 import {
   GAME_ACTIONS,
   actionLabel,
@@ -129,11 +135,11 @@ export default function SettingsPanel({
             </label>
 
             <h3>RENDERING</h3>
-            <div className="settings-button-grid">
-              {(["cinematic", "performance"] as QualityLevel[]).map((quality) => (
+            <div className="settings-button-grid quality-grid">
+              {QUALITY_LEVELS.map((quality) => (
                 <button key={quality} type="button" className={snapshot.quality === quality ? "is-active" : ""} onClick={() => onSetQuality(quality)}>
-                  <span>{quality.toUpperCase()}</span>
-                  <small>{quality === "cinematic" ? "SHADOWS / HIGH DPR" : "LEAN GPU PROFILE"}</small>
+                  <span>{QUALITY_PRESETS[quality].label}</span>
+                  <small>{quality === "ultra" ? "4K SHADOWS / 2× DPR" : quality === "cinematic" ? "SHADOWS / HIGH DPR" : "LEAN GPU PROFILE"}</small>
                 </button>
               ))}
             </div>
