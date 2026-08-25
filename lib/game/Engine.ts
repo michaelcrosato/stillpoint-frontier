@@ -13,6 +13,7 @@ import {
   isHorizonMode,
 } from "./config";
 import { CitizenEngine } from "./citizens/CitizenEngine";
+import { AnimalEngine } from "./animals/AnimalEngine";
 import { SystemPipeline } from "./core/SystemPipeline";
 import { FeatureRegistry } from "./core/FeatureRegistry";
 import { createEnvironment, type EnvironmentRuntime } from "./environment";
@@ -33,6 +34,7 @@ import { applyGather, type EntityDiff } from "./gameplay/interactions";
 import { EMPTY_INVENTORY, type InventoryState } from "./gameplay/items";
 import { InteractionSystem } from "./systems/InteractionSystem";
 import { CitizenCrowdSystem } from "./systems/CitizenCrowdSystem";
+import { AmbientAnimalSystem } from "./systems/AmbientAnimalSystem";
 import { EnvironmentSystem } from "./systems/EnvironmentSystem";
 import { PlayerControllerSystem } from "./systems/PlayerControllerSystem";
 import { NavigationSystem } from "./systems/NavigationSystem";
@@ -88,6 +90,15 @@ export interface GameTestBridge {
     updateHz: number;
     activityMultiplier: number;
     ids: string[];
+  };
+  animals(): {
+    visible: number;
+    generated: number;
+    species: number;
+    chunks: number;
+    updateHz: number;
+    ids: string[];
+    bySpecies: Record<string, number | undefined>;
   };
   nightLighting(): {
     strength: number;
@@ -145,6 +156,7 @@ export class Engine {
   private readonly world: ChunkManager;
   private readonly horizon: HorizonRenderer;
   private readonly citizens: CitizenEngine;
+  private readonly animals: AnimalEngine;
   private readonly navigation = new NavigationService();
   private readonly environment: EnvironmentRuntime;
   private readonly pipeline = new SystemPipeline<GameRuntimeContext>();
@@ -261,6 +273,7 @@ export class Engine {
     );
     this.horizon = new HorizonRenderer(this.scene, this.horizonMode);
     this.citizens = new CitizenEngine(this.scene, this.quality);
+    this.animals = new AnimalEngine(this.scene, this.quality);
     this.environment = createEnvironment(
       this.scene,
       this.renderer,
@@ -285,6 +298,7 @@ export class Engine {
       world: this.world,
       horizon: this.horizon,
       citizens: this.citizens,
+      animals: this.animals,
       environment: this.environment,
       navigation: this.navigation,
       player: this.player,
@@ -328,6 +342,12 @@ export class Engine {
         install: (registry) => {
           registry.system(new CitizenCrowdSystem());
         },
+      })
+      .use({
+        id: "ambient-wildlife",
+        install: (registry) => {
+          registry.system(new AmbientAnimalSystem());
+        },
       });
   }
 
@@ -336,6 +356,7 @@ export class Engine {
     this.world.update(this.player.position.x, this.player.position.z);
     this.horizon.update(this.player.position.x, this.player.position.z);
     this.citizens.updateStreaming(this.player.position.x, this.player.position.z);
+    this.animals.updateStreaming(this.player.position.x, this.player.position.z);
     this.environment.sync(this.player.position, true);
     this.environment.present(this.player.position, 0);
     this.synchronizeTimeDependentWorld();
@@ -630,6 +651,7 @@ export class Engine {
     this.world.update(x, z);
     this.horizon.update(x, z);
     this.citizens.update(x, z, 0, true);
+    this.animals.update(x, z, 0, true);
     this.navigation.update(this.player.position);
     this.environment.sync(this.player.position, true);
     this.environment.present(this.player.position, 0);
@@ -663,6 +685,7 @@ export class Engine {
     this.pipeline.dispose();
     this.navigation.dispose();
     this.citizens.dispose();
+    this.animals.dispose();
     this.world.dispose();
     this.horizon.dispose();
     this.environment.dispose();
@@ -693,6 +716,14 @@ export class Engine {
 
       this.environment.present(this.player.position, delta);
       this.citizens.present(
+        this.started &&
+          !this.paused &&
+          !this.mapOpen &&
+          !this.developerPanelOpen
+          ? this.accumulator
+          : 0,
+      );
+      this.animals.present(
         this.started &&
           !this.paused &&
           !this.mapOpen &&
@@ -768,6 +799,8 @@ export class Engine {
       horizonSettlementInstances: horizon.settlementInstances,
       citizenCount: this.citizens.visibleCount,
       citizenActivity: this.citizens.activityMultiplier,
+      animalCount: this.animals.visibleCount,
+      animalSpecies: this.animals.visibleSpeciesCount,
       crowdDensity: this.citizens.density,
       triangles: this.renderer.info.render.triangles,
       geometries: this.renderer.info.memory.geometries,
@@ -916,6 +949,7 @@ export class Engine {
     this.environment.setQuality(this.quality);
     this.world.setQuality(this.quality);
     this.citizens.setQuality(this.quality);
+    this.animals.setQuality(this.quality);
     this.resize();
     this.emitSnapshot(true);
   }
@@ -1003,6 +1037,7 @@ export class Engine {
       groundHeight: (x, z, referenceY) =>
         this.world.sampleGroundHeight(x, z, referenceY),
       citizens: () => this.citizens.debugSnapshot(),
+      animals: () => this.animals.debugSnapshot(),
       nightLighting: () => this.world.nightLightingSnapshot,
       faceTarget: (id) => {
         const target = this.world.targets.find((candidate) => candidate.id === id);

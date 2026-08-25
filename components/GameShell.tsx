@@ -81,6 +81,8 @@ export default function GameShell() {
           loadedChunks: WORLD_RESIDENT_CHUNKS,
           citizenCount: fixture === "night" ? 88 : 486,
           citizenActivity: fixture === "night" ? 0.18 : 0.93,
+          animalCount: fixture === "night" ? 4 : 11,
+          animalSpecies: 3,
           crowdDensity: "ACTIVE",
           triangles: 48_620,
           geometries: 138,
@@ -337,6 +339,10 @@ export default function GameShell() {
                 <strong>{snapshot.citizenCount.toLocaleString()}</strong>
               </div>
               <div>
+                <span>ANIMALS</span>
+                <strong>{snapshot.animalCount.toLocaleString()}</strong>
+              </div>
+              <div>
                 <span>PROFILE</span>
                 <strong>{snapshot.quality === "cinematic" ? "CINE" : "PERF"}</strong>
               </div>
@@ -434,6 +440,7 @@ export default function GameShell() {
               <strong>{snapshot.crowdDensity} · {snapshot.citizenCount.toLocaleString()} VISIBLE</strong>
               <small>INSTANCED ROUTES · NO DIALOGUE STATE</small>
               <small>TIME DEMAND {Math.round(snapshot.citizenActivity * 100)}% · DIURNAL SCHEDULE</small>
+              <small>WILDLIFE {snapshot.animalCount} · {snapshot.animalSpecies} LOCAL SPECIES</small>
             </div>
           </aside>
 

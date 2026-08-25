@@ -27,7 +27,7 @@ DPR, locale, timezone, seed, and quality profile pinned before accepting golden 
 keeps the framebuffer readable for nonblank-pixel inspection, bypasses pointer-lock for
 automation, and exposes snapshot, teleport, fixed views, deterministic target descriptors,
 discrete interactions, discovery, waypoint and fast-travel commands, deterministic world-time
-controls, fixed headings, and WebGL context-loss operations. Normal gameplay does not depend
+controls, fixed headings, wildlife diagnostics, and WebGL context-loss operations. Normal gameplay does not depend
 on the bridge.
 
 Macro-world tests enforce the 9,216 km² area, biome coverage, settlement hierarchy,
@@ -70,6 +70,14 @@ non-interactivity, and a dedicated megacity crowd screenshot candidate.
 The WebGL-free citizen-engine regression test also proves that sub-tick presentation changes
 instance transforms, preventing a return to visibly throttled crowd motion.
 
+Vegetation tests enforce all seven biome profiles, twelve native woody species, unique
+ground-cover families, low-poly geometry limits, decorative non-interactivity, and exact
+tree target/collider parity. Wildlife tests sample the atlas for deterministic sparse habitat
+selection, legal species, empty-chunk prevalence, per-chunk and resident caps, finite analytic
+poses, sub-tick smoothness, quality thinning, stable return IDs, frustum bounds, and idempotent
+GPU cleanup. The browser boot contract also confirms that wildlife never appears in the
+interaction target registry.
+
 Each Playwright test retains traces, failure screenshots, and video on failure. Visual
 tests attach full-page candidate screenshots even when golden comparison is not enabled.
 Use a reviewed golden-update job; never update baselines automatically on every CI run.
@@ -79,7 +87,7 @@ warmup. Ordinary headless CI should gate deterministic state, draw-call/triangle
 budgets, resource plateaus, and screenshot stability rather than treating software-renderer
 FPS as representative hardware performance.
 
-The 9×9 full-detail world ring must remain 81 chunks while the citizen ring remains 25.
+The 9×9 full-detail world ring must remain 81 chunks while citizen and wildlife rings remain 25.
 Standard, Extended, and Unlimited only replace bounded HLOD geometry. Browser tests lock
 that separation so a future draw-distance change cannot inflate interaction or citizen
 work, and the resource plateau test cycles horizon modes during relocation to catch leaks.

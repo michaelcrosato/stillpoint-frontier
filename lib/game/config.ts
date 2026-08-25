@@ -9,8 +9,11 @@ export const WORLD_CHUNK_LOAD_RADIUS = 4;
 export const GAMEPLAY_CHUNK_RADIUS = 2;
 /** Ambient citizens remain independent from the expanded visual horizon. */
 export const CITIZEN_CHUNK_LOAD_RADIUS = 2;
+/** Sparse ambient wildlife uses its own render-only 5x5 simulation ring. */
+export const ANIMAL_CHUNK_LOAD_RADIUS = 2;
 export const WORLD_RESIDENT_CHUNKS = (WORLD_CHUNK_LOAD_RADIUS * 2 + 1) ** 2;
 export const CITIZEN_RESIDENT_CHUNKS = (CITIZEN_CHUNK_LOAD_RADIUS * 2 + 1) ** 2;
+export const ANIMAL_RESIDENT_CHUNKS = (ANIMAL_CHUNK_LOAD_RADIUS * 2 + 1) ** 2;
 export const DETAILED_TERRAIN_HALF_EXTENT =
   (WORLD_CHUNK_LOAD_RADIUS + 0.5) * CHUNK_SIZE;
 export const CAMERA_DRAW_DISTANCE = 1_840;

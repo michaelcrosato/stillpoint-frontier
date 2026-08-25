@@ -4,7 +4,8 @@ Stillpoint Frontier is intentionally built around low-animation gameplay. There 
 skeletal rigs, animation clips, `AnimationMixer` instances, or ambient-character state
 machines in the engine core. Variety comes from deterministic terrain, sightlines,
 discovery, lighting, navigation, state changes, and rigid instanced citizens translating
-along authored procedural lanes.
+along authored procedural lanes. Ambient animals use the same rigid analytic approach:
+they walk or glide without skeletons, clips, or pathfinding state.
 
 ## Runtime layers
 
@@ -33,6 +34,15 @@ along authored procedural lanes.
   low-poly figure and one instanced draw per populated chunk keep Vesper Crown's thousands
   of visible citizens within budget. Citizens never enter target, collider, dialogue, or
   persistence systems.
+- `AnimalEngine` independently streams another 5×5 render-only ring. Pure habitat recipes
+  select sparse biome-native groups outside settlement cores and roads. A handful of shared
+  rigid primitive models move along smooth analytic routes each rendered frame; wildlife
+  never enters collision, interaction, dialogue, inventory, or save state.
+- `world/vegetation` is the catalog and low-poly geometry factory for twelve woody species
+  and seven ground-cover families. `ChunkManager` preserves the original tree placement
+  stream and persistent IDs, selects tree appearance from a separate style seed, and batches
+  each species. Decorative reeds, ferns, heather, sage, succulents, dune grass, and meadow
+  plants are instanced, non-solid, and separately seeded so they cannot reshuffle resources.
 - `NavigationService` is an engine-level destination registry shared by player map pins,
   quest objectives, scripted routes, and system alerts. It owns activation, finite target
   validation, one-shot arrival events, and source metadata; `NavigationSystem` evaluates
@@ -109,16 +119,18 @@ The initial target is an RTX 3060-class machine at 1440p/60:
 - Far terrain: 16–64 frustum-cullable HLOD tiles, under 60,000 triangles and 200 settlement
   proxies. Standard reaches 1.84 km, Extended 12 km, and Unlimited the finite atlas horizon
   at 70 km, with reverse-depth used when the browser exposes `EXT_clip_control`.
-- Gameplay queries and ambient citizens: independent 25-chunk inner rings.
+- Gameplay queries, ambient citizens, and sparse wildlife: independent 25-chunk inner rings.
 - Collision broad phase: streamed 16 m spatial cells, followed by swept-circle narrow phase;
   city cost scales with nearby candidates rather than every solid in the gameplay ring.
 - Atlas territory: 9,216 km²; the full map is never resident.
-- Roads, settlement blocks, forest, rocks, water, ruins, and citizens use static or instanced
+- Roads, settlement blocks, biome flora, rocks, water, ruins, citizens, and animals use static or instanced
   meshes; no gameplay object requires an animation clip.
 - Citizen matrices present once per rendered frame with fixed-step interpolation, so they
   remain smooth on 60 Hz and high-refresh displays. Performance mode reduces population
   density rather than motion cadence. Hard resident targets remain 5,000 and 2,200 visible
   citizens respectively, with no citizen shadows.
+- Wildlife is capped at 72 rigid instances in cinematic mode and 36 in performance mode,
+  spread across no more than six candidates per chunk with no shadows or per-animal AI.
 - One shadow-casting directional sun/moon key; 2K shadow map in cinematic mode. Dynamic
   weather changes palette, fog, exposure, and one shader-driven precipitation field.
 - Pixel ratio capped at 1.75; performance mode forces DPR 1 and disables shadows.

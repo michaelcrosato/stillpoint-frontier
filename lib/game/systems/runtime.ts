@@ -1,4 +1,5 @@
 import type * as THREE from "three";
+import type { AnimalEngine } from "../animals/AnimalEngine";
 import type { BeaconId } from "../config";
 import type { CitizenEngine } from "../citizens/CitizenEngine";
 import type { EnvironmentRuntime } from "../environment";
@@ -27,6 +28,7 @@ export interface GameRuntimeContext {
   world: ChunkManager;
   horizon: HorizonRenderer;
   citizens: CitizenEngine;
+  animals: AnimalEngine;
   environment: EnvironmentRuntime;
   navigation: NavigationService;
   player: PlayerRuntime;

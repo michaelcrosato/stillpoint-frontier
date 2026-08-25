@@ -1,9 +1,11 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import {
+  ANIMAL_RESIDENT_CHUNKS,
   CITIZEN_RESIDENT_CHUNKS,
   HORIZON_PRESETS,
   WORLD_RESIDENT_CHUNKS,
 } from "../../lib/game/config";
+import { MAX_RESIDENT_ANIMALS } from "../../lib/game/animals/animalRecipes";
 import { getSettlement } from "../../lib/game/world/macroWorld";
 import { SPAWN_BUILDING } from "../../lib/game/world/spawnBuilding";
 import { TEN_STORY_BUILDING } from "../../lib/game/world/tenStoryBuilding";
@@ -68,6 +70,15 @@ test("boots WebGL2 without a blank frame", async ({ page }, testInfo) => {
   expect(state?.horizonTiles).toBe(HORIZON_PRESETS.standard.rings.length * 16);
   expect(state?.horizonTriangles ?? 0).toBeLessThan(60_000);
   expect(state?.triangles).toBeGreaterThan(1_000);
+  const wildlife = await page.evaluate(() => window.__STILLPOINT_TEST__?.animals());
+  expect(wildlife?.chunks).toBe(ANIMAL_RESIDENT_CHUNKS);
+  expect(wildlife?.visible ?? 0).toBeGreaterThan(0);
+  expect(wildlife?.visible ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+    MAX_RESIDENT_ANIMALS.cinematic,
+  );
+  expect(wildlife?.species ?? 0).toBeGreaterThan(1);
+  expect((await page.evaluate(() => window.__STILLPOINT_TEST__?.targets() ?? []))
+    .some((target) => target.id.startsWith("animal:"))).toBe(false);
   const pixels = await canvasVisualStats(page);
   expect(pixels.webgl2).toBe(true);
   expect(pixels.visibleSamples).toBeGreaterThan(3_000);

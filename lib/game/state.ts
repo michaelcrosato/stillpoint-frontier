@@ -90,6 +90,8 @@ export interface GameSnapshot {
   horizonSettlementInstances: number;
   citizenCount: number;
   citizenActivity: number;
+  animalCount: number;
+  animalSpecies: number;
   crowdDensity: "WILDERNESS" | "QUIET" | "LOCAL" | "ACTIVE" | "BUSY" | "SURGE";
   triangles: number;
   geometries: number;
@@ -147,6 +149,8 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
   horizonSettlementInstances: 0,
   citizenCount: 0,
   citizenActivity: 0,
+  animalCount: 0,
+  animalSpecies: 0,
   crowdDensity: "WILDERNESS",
   triangles: 0,
   geometries: 0,

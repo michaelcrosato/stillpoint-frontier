@@ -275,6 +275,7 @@ export default function WorldMap({
             <div><dt>LOCAL TIME</dt><dd>{String(snapshot.environment.hour).padStart(2, "0")}:{String(snapshot.environment.minute).padStart(2, "0")}</dd></div>
             <div><dt>WEATHER</dt><dd>{snapshot.environment.weatherLabel.toUpperCase()}</dd></div>
             <div><dt>AMBIENT CITIZENS</dt><dd>{snapshot.citizenCount.toLocaleString()} / {snapshot.crowdDensity}</dd></div>
+            <div><dt>LOCAL WILDLIFE</dt><dd>{snapshot.animalCount} / {snapshot.animalSpecies} SPECIES</dd></div>
             <div><dt>RECORDS</dt><dd>{snapshot.scanned.length} / {BEACONS.length}</dd></div>
             <div><dt>WORLD CHANGES</dt><dd>{snapshot.worldChanges}</dd></div>
           </dl>
