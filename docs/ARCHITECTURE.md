@@ -10,11 +10,19 @@ they walk or glide without skeletons, clips, or pathfinding state.
 ## Runtime layers
 
 - `Engine` owns the WebGL renderer, fixed 60 Hz simulation clock, lifecycle, diagnostics,
-  pause/context-loss behavior, and the narrow deterministic test bridge.
+  pause/context-loss behavior, save/load orchestration, player-facing overlays, and the
+  narrow deterministic test bridge.
+- `settings` defines the complete action catalog and normalized view, control, audio,
+  quality, horizon, and keybinding preferences. `PreferencesStore` keeps those local
+  preferences in a version-one slot separate from world progression, so resetting or
+  loading a game does not silently replace the player's controls. Rebinding swaps a
+  conflicting action instead of leaving duplicate or unbound controls, and `InputManager`
+  exposes actions rather than hard-coded keys to gameplay systems.
 - `FeatureRegistry` is the public extension seam. A new gameplay feature installs one or
   more ordered systems without editing the engine kernel.
 - `SystemPipeline` executes systems in stable phase order. The current feature contributes
-  player control, chunk streaming, and interaction systems.
+  player control, player condition, chunk streaming, location discovery, navigation,
+  interaction, equipment, environment, and environmental-audio systems.
 - `ChunkManager` maintains a 9×9 visual ring, creates deterministic chunk content from
   the world seed and integer chunk coordinates, and owns every render resource that must
   be disposed when a chunk leaves the ring. Collider and target caches remain limited to
@@ -43,6 +51,22 @@ they walk or glide without skeletons, clips, or pathfinding state.
   core casts a 1K shadow, and only while enabled in cinematic quality. The spotlight shader
   path is prewarmed behind the boot screen so first activation cannot introduce a traversal
   hitch. `PlayerEquipmentSystem` consumes one edge-triggered `L` press during active play.
+- `PlayerConditionSystem` runs immediately after movement. It samples authored shelter and
+  the deterministic atmosphere to advance wetness and cold stress, applies thresholded fall
+  damage from landing velocity, derives HUD tags, and pauses play on incapacitation. A
+  recovery action resets health, exposure, stamina, and position to the Field Unit Compound.
+  Inventory weight crosses an explicit encumbrance threshold and feeds back into locomotion.
+- `LocationDiscoverySystem` resolves the most specific current place in priority order:
+  settlement, Field Unit Compound, then biome. Its catalog uses stable IDs and descriptive
+  records, while the persisted discovered-ID set drives first-entry notifications and map
+  treatment without changing the immutable world atlas.
+- `EnvironmentalAudio` owns one lazily unlocked Web Audio graph. Procedural filtered-noise
+  beds react to wind, precipitation, wildlife activity, and nearby settlement density;
+  footsteps are selected from biome/shelter surfaces and emitted by distance traveled, and
+  short synthesized cues acknowledge collection, harvesting,
+  doors, records, inspection, discovery, damage, recovery, and saves. The graph has separate
+  master, ambient, and effects gains, stops dynamic beds while paused, and is disabled in
+  deterministic test mode; no downloaded audio asset or per-frame node churn is required.
 - `world/vegetation` is the catalog and low-poly geometry factory for twelve woody species
   and seven ground-cover families. `ChunkManager` preserves the original tree placement
   stream and persistent IDs, selects tree appearance from a separate style seed, and batches
@@ -67,9 +91,20 @@ they walk or glide without skeletons, clips, or pathfinding state.
   hierarchy of trunk, regional, and local roads. Chunks clip those features into local
   render recipes; the complete map is never resident as geometry.
 - Pure modules (`terrain`, `random`, `collision`, `locomotion`, `interactions`, and `state`) contain simulation rules that
-  are testable without React, a browser, or a GPU.
-- `GameShell` translates serializable engine snapshots into the HUD, map, pause, discovery,
-  and error interfaces. A separate tiny presentation store publishes heading, bearing,
+  are testable without React, a browser, or a GPU. The same rule applies to settings,
+  player-condition, interaction-prompt, audio-model, items, and location-discovery modules.
+- `InteractionSystem` performs one nearest-target selection pass and publishes a unified
+  `WorldTarget` contract for resources, pickups, doors, records, and inspectables. Prompt
+  copy is derived from target action plus current bindings. `world/inspectables` adds stable,
+  low-cost readable records at the starting compound; opening one pauses simulation and
+  presents its title, source, and body through the same interaction path.
+- `gameplay/items` is the inventory catalog and arithmetic seam. Every item has a stable ID,
+  category, description, and unit weight; gathering mutates counts through pure functions,
+  while the inventory overlay remains a projection of serialized engine state. This leaves
+  crafting, containers, equipment slots, and recipes free to consume the catalog later.
+- `GameShell` translates serializable engine snapshots into the HUD, map, pause, inventory,
+  settings, inspection, incapacitation, location-discovery, and error interfaces. A separate
+  tiny presentation store publishes heading, bearing,
   distance, and near-target screen projection once per rendered frame, so the scrolling
   compass remains smooth without repainting the entire shell at 60+ Hz. The renderer never
   reaches into React state.
@@ -95,8 +130,14 @@ Persistent resource IDs include the feature, recipe version, chunk coordinate, a
 index. Pickups, trees, and rock outcrops are reduced through a pure idempotent interaction
 function. Only a sparse `{hits, removed}` world delta is saved; generated chunks remain
 derivable. Inventory and its matching entity delta are written in the same save operation.
-The version-six envelope retains the player's manual map waypoint, total world minutes,
-door state, and horizon preference; versions one through five migrate in place.
+The version-seven envelope retains survey records, inventory, sparse entity and door state,
+the manual map waypoint, total world minutes, the last horizon mode, player position and
+look direction, health/wetness/cold stress, and discovered locations. Versions one through
+six migrate in place and every field is bounded and normalized independently. The engine
+autosaves during active play every 30 seconds and on material state changes, exposes explicit
+Save Now and Load Last Save actions, and rebuilds generated world state before relocating the
+player on load. Settings are also written immediately to the separate preferences slot; the
+saved horizon remains a legacy migration fallback only when no preference exists.
 Weather remains derived rather than stored. Quest destinations remain owned by quest state
 and can re-register with the navigation service after loading.
 
@@ -109,9 +150,12 @@ projected world marker.
 
 Movement treats player position as feet rather than camera position. The controller owns
 gravity, grounded state, jump velocity, crouch eye height, sprint state, stamina, and a
-recovery delay. Horizontal movement continuously sweeps the circular player footprint
-against circle and oriented-box colliders, resolves the earliest time of impact, slides along
-rounded corners, and deterministically depenetrates invalid streamed or saved positions.
+recovery delay. It adds a 120 ms jump buffer, 100 ms coyote window, smoothed crouch eye
+height, head-clearance checks before standing, settings-driven look sensitivity/inverted Y,
+and an encumbrance speed multiplier. Horizontal movement continuously sweeps the circular
+player footprint against circle and oriented-box colliders, resolves the earliest time of
+impact, slides along rounded corners, and deterministically depenetrates invalid streamed or
+saved positions.
 The current colliders are intentionally planar; this leaves a clean seam for obstacle height,
 slopes, climbing, or vehicles without coupling those ideas to React or world generation.
 
@@ -141,6 +185,9 @@ The initial target is an RTX 3060-class machine at 1440p/60:
 - The optional phone light reuses two persistent spotlights across toggles. Its unshadowed
   spill is limited to 11 m to reduce light leaks; performance mode disables its single 1K
   core shadow while preserving the beam.
+- Environmental audio reuses one gesture-unlocked context, four persistent procedural
+  ambience loops, and short-lived one-shot footstep/cue nodes. Paused or blocked audio is a
+  contained capability failure and never blocks simulation or rendering.
 - Pixel ratio capped at 1.75; performance mode forces DPR 1 and disables shadows.
 - Renderer diagnostics expose FPS, active chunks, selected horizon, far tiles, far triangles,
   settlement proxies, and optical visibility to the HUD and tests. Weather remains the final

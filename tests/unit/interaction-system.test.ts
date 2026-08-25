@@ -155,4 +155,20 @@ describe("interaction system routing", () => {
     expect(runtime.nearbyTarget).toBe(centered);
     expect(runtime.nearbyDistance).toBeCloseTo(3.8);
   });
+
+  it("selects centered inspectables through the same E interaction contract", () => {
+    const inspectable = target("inspect", {
+      id: "inspectable:test",
+      kind: "inspectable",
+      position: new THREE.Vector3(0, 1.4, -2.4),
+    });
+    const resource = target("harvest", {
+      id: "resource:edge",
+      position: new THREE.Vector3(1.5, 1, -1.4),
+    });
+    const runtime = context([resource, inspectable], ["KeyE"]);
+    new InteractionSystem().update(runtime);
+    expect(runtime.nearbyTarget).toBe(inspectable);
+    expect(runtime.performInteraction).toHaveBeenCalledWith(inspectable);
+  });
 });

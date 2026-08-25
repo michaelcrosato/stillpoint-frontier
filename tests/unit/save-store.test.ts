@@ -182,6 +182,47 @@ describe("versioned frontier saves", () => {
     expect(new SaveStore(storage).load().horizonMode).toBe("standard");
   });
 
+  it("sanitizes version-seven player state and location discoveries independently", () => {
+    const storage = new MemoryStorage();
+    storage.value = JSON.stringify({
+      version: 7,
+      player: {
+        x: 18,
+        y: 4,
+        z: -12,
+        yaw: Math.PI * 5,
+        pitch: 99,
+        health: 500,
+        wetness: -1,
+        coldStress: 0.5,
+      },
+      discoveredLocations: [
+        "settlement:dustmere",
+        "settlement:dustmere",
+        "settlement:invented",
+        42,
+      ],
+    });
+    const result = new SaveStore(storage).load();
+    expect(result.player).toMatchObject({
+      x: 18,
+      y: 4,
+      z: -12,
+      health: 100,
+      wetness: 0,
+      coldStress: 0.5,
+    });
+    expect(result.player?.yaw).toBeCloseTo(-Math.PI);
+    expect(result.player?.pitch).toBeCloseTo(Math.PI * 0.48);
+    expect(result.discoveredLocations).toEqual(["settlement:dustmere"]);
+
+    storage.value = JSON.stringify({
+      version: 7,
+      player: { x: 100_000, y: Number.NaN, z: 0, yaw: 0 },
+    });
+    expect(new SaveStore(storage).load().player).toBeNull();
+  });
+
   it.each(["not json", JSON.stringify({ version: 99, scanned: ["amber-relay"] })])(
     "recovers safely from invalid data: %s",
     (value) => {
@@ -206,6 +247,14 @@ describe("versioned frontier saves", () => {
     const store = new SaveStore(null);
     expect(store.load().version).toBe(7);
     expect(store.save(saveInput)).toBe(false);
+  });
+
+  it("reports whether a manual load slot exists", () => {
+    const storage = new MemoryStorage();
+    const store = new SaveStore(storage);
+    expect(store.hasSave()).toBe(false);
+    expect(store.save(saveInput)).toBe(true);
+    expect(store.hasSave()).toBe(true);
   });
 
   it("contains storage permission failures", () => {

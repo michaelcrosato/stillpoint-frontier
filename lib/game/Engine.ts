@@ -92,7 +92,6 @@ import {
 import {
   addLocationDiscovery,
   currentDiscoverableLocation,
-  getDiscoverableLocation,
   type DiscoverableLocation,
 } from "./world/locationDiscovery";
 import type { InspectionRecord } from "./world/inspectables";

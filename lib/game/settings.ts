@@ -94,17 +94,11 @@ export function normalizeKeyBindings(value: unknown): KeyBindings {
   const source = value && typeof value === "object" && !Array.isArray(value)
     ? value as Partial<Record<GameAction, unknown>>
     : {};
-  const result = { ...DEFAULT_KEY_BINDINGS };
-  const used = new Set<string>();
+  let result = { ...DEFAULT_KEY_BINDINGS };
   for (const action of GAME_ACTIONS) {
     const candidate = source[action];
-    if (isBindableCode(candidate) && !used.has(candidate)) {
-      result[action] = candidate;
-      used.add(candidate);
-      continue;
-    }
-    const fallback = DEFAULT_KEY_BINDINGS[action];
-    if (!used.has(fallback)) used.add(fallback);
+    if (!isBindableCode(candidate)) continue;
+    result = rebindAction(result, action, candidate) ?? result;
   }
   return result;
 }

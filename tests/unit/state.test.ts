@@ -16,6 +16,12 @@ describe("survey progression", () => {
     expect(INITIAL_SNAPSHOT.drawDistanceMeters).toBeGreaterThan(0);
     expect(INITIAL_SNAPSHOT.horizonTiles).toBe(0);
     expect(INITIAL_SNAPSHOT.flashlightOn).toBe(false);
+    expect(INITIAL_SNAPSHOT.health).toBe(100);
+    expect(INITIAL_SNAPSHOT.incapacitated).toBe(false);
+    expect(INITIAL_SNAPSHOT.conditions).toEqual([]);
+    expect(INITIAL_SNAPSHOT.inventoryOpen).toBe(false);
+    expect(INITIAL_SNAPSHOT.settingsOpen).toBe(false);
+    expect(INITIAL_SNAPSHOT.currentLocation.id).toBe("landmark:field-unit-compound");
   });
   it("adds each discovery exactly once", () => {
     const once = addDiscovery([], "amber-relay");

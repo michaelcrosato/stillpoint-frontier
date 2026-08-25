@@ -32,8 +32,12 @@ export class EnvironmentalAudio {
   private effects: GainNode | null = null;
   private windGain: GainNode | null = null;
   private weatherGain: GainNode | null = null;
+  private wildlifeGain: GainNode | null = null;
+  private settlementGain: GainNode | null = null;
   private windFilter: BiquadFilterNode | null = null;
   private weatherFilter: BiquadFilterNode | null = null;
+  private wildlifeFilter: BiquadFilterNode | null = null;
+  private settlementFilter: BiquadFilterNode | null = null;
   private noiseBuffer: AudioBuffer | null = null;
   private settings: GameSettings;
   private unlocked = false;
@@ -68,10 +72,21 @@ export class EnvironmentalAudio {
   }
 
   updateMix(mix: Readonly<AmbientMix>) {
-    if (!this.context || !this.windGain || !this.weatherGain || !this.windFilter) return;
+    if (
+      !this.context
+      || !this.windGain
+      || !this.weatherGain
+      || !this.wildlifeGain
+      || !this.settlementGain
+      || !this.windFilter
+    ) return;
     const now = this.context.currentTime;
     this.windGain.gain.setTargetAtTime(safeVolume(mix.wind) * 0.18, now, 0.45);
     this.weatherGain.gain.setTargetAtTime(safeVolume(mix.weather) * 0.24, now, 0.35);
+    // Broad, decorrelated filtered-noise beds suggest distant life without
+    // introducing looping samples or conspicuous synthetic tones.
+    this.wildlifeGain.gain.setTargetAtTime(safeVolume(mix.wildlife) * 0.022, now, 0.9);
+    this.settlementGain.gain.setTargetAtTime(safeVolume(mix.settlement) * 0.036, now, 0.75);
     this.windFilter.frequency.setTargetAtTime(
       Math.min(6_000, Math.max(200, mix.lowpassHz)),
       now,
@@ -156,8 +171,12 @@ export class EnvironmentalAudio {
     this.effects = null;
     this.windGain = null;
     this.weatherGain = null;
+    this.wildlifeGain = null;
+    this.settlementGain = null;
     this.windFilter = null;
     this.weatherFilter = null;
+    this.wildlifeFilter = null;
+    this.settlementFilter = null;
     this.noiseBuffer = null;
     void context?.close().catch(() => undefined);
   }
@@ -171,8 +190,12 @@ export class EnvironmentalAudio {
     const effects = context.createGain();
     const windGain = context.createGain();
     const weatherGain = context.createGain();
+    const wildlifeGain = context.createGain();
+    const settlementGain = context.createGain();
     const windFilter = context.createBiquadFilter();
     const weatherFilter = context.createBiquadFilter();
+    const wildlifeFilter = context.createBiquadFilter();
+    const settlementFilter = context.createBiquadFilter();
     const buffer = context.createBuffer(1, context.sampleRate * 3, context.sampleRate);
     const data = buffer.getChannelData(0);
     let previous = 0;
@@ -186,27 +209,41 @@ export class EnvironmentalAudio {
       source.buffer = buffer;
       source.loop = true;
       source.connect(filter).connect(gain).connect(ambient);
-      source.start();
+      source.start(context.currentTime, Math.random() * buffer.duration);
     };
     windFilter.type = "lowpass";
     windFilter.frequency.value = 1_800;
     weatherFilter.type = "highpass";
     weatherFilter.frequency.value = 1_200;
+    wildlifeFilter.type = "bandpass";
+    wildlifeFilter.frequency.value = 2_000;
+    wildlifeFilter.Q.value = 0.75;
+    settlementFilter.type = "bandpass";
+    settlementFilter.frequency.value = 280;
+    settlementFilter.Q.value = 0.5;
     windGain.gain.value = 0;
     weatherGain.gain.value = 0;
+    wildlifeGain.gain.value = 0;
+    settlementGain.gain.value = 0;
     ambient.connect(master);
     effects.connect(master);
     master.connect(context.destination);
     createLoop(windFilter, windGain);
     createLoop(weatherFilter, weatherGain);
+    createLoop(wildlifeFilter, wildlifeGain);
+    createLoop(settlementFilter, settlementGain);
     this.context = context;
     this.master = master;
     this.ambient = ambient;
     this.effects = effects;
     this.windGain = windGain;
     this.weatherGain = weatherGain;
+    this.wildlifeGain = wildlifeGain;
+    this.settlementGain = settlementGain;
     this.windFilter = windFilter;
     this.weatherFilter = weatherFilter;
+    this.wildlifeFilter = wildlifeFilter;
+    this.settlementFilter = settlementFilter;
     this.noiseBuffer = buffer;
     this.setSettings(this.settings);
   }

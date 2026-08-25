@@ -1,7 +1,7 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { JUMP_SPEED, MAX_STEP_HEIGHT } from "../../lib/game/config";
-import { stepStamina, stepVertical } from "../../lib/game/systems/locomotion";
+import { stepEyeHeight, stepStamina, stepVertical } from "../../lib/game/systems/locomotion";
 
 describe("locomotion math", () => {
   it("raises an airborne player, then lands exactly on terrain", () => {
@@ -66,5 +66,15 @@ describe("locomotion math", () => {
         },
       ),
     );
+  });
+
+  it("smoothly approaches crouch and standing eye heights without overshoot", () => {
+    const crouched = stepEyeHeight(1.72, 1.08, 1 / 60);
+    expect(crouched).toBeLessThan(1.72);
+    expect(crouched).toBeGreaterThan(1.08);
+    const standing = stepEyeHeight(crouched, 1.72, 1 / 60);
+    expect(standing).toBeGreaterThan(crouched);
+    expect(standing).toBeLessThanOrEqual(1.72);
+    expect(stepEyeHeight(Number.NaN, 1.72, 1 / 60)).toBe(1.72);
   });
 });

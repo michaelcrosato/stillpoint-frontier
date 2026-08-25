@@ -105,7 +105,10 @@ export function stepPlayerCondition(
     : 0;
   const coldRate = coldTarget > state.coldStress ? 0.035 : 0.045;
   const coldStress = finiteClamp(
-    state.coldStress + Math.sign(coldTarget - state.coldStress) * coldRate * delta,
+    state.coldStress + Math.sign(coldTarget - state.coldStress) * Math.min(
+      Math.abs(coldTarget - state.coldStress),
+      coldRate * delta,
+    ),
     0,
     0,
     1,

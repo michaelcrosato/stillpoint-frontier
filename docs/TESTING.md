@@ -27,13 +27,52 @@ DPR, locale, timezone, seed, and quality profile pinned before accepting golden 
 keeps the framebuffer readable for nonblank-pixel inspection, bypasses pointer-lock for
 automation, and exposes snapshot, teleport, fixed views, deterministic target descriptors,
 discrete interactions, discovery, waypoint and fast-travel commands, deterministic world-time
-controls, fixed headings, wildlife diagnostics, and WebGL context-loss operations. Normal gameplay does not depend
-on the bridge.
+controls, fixed headings, wildlife diagnostics, and WebGL context-loss operations. The
+essentials hooks additionally expose manual save/load, audio diagnostics, FOV and look
+sensitivity, invert Y, conflict-safe key rebinding, quality selection, direct health/fall
+impact/recovery controls, current-location discovery, and stable inspectable IDs. Snapshots
+include overlays, rebound prompts, settings, inventory weight/count, health and exposure,
+condition tags, save status, audio diagnostics, and current/discovered locations. Normal
+gameplay does not depend on the bridge, and environmental audio is intentionally disabled in
+test mode so Web Audio permissions cannot make deterministic automation flaky.
 
 Macro-world tests enforce the 9,216 km² area, biome coverage, settlement hierarchy,
 economic metadata, bounds, road connectivity, and river continuity. Gathering tests prove
 that partial work persists, final hits grant loot exactly once, and removed objects cannot
-duplicate inventory. Locomotion property tests constrain stamina and landing math.
+duplicate inventory. Item metadata supplies deterministic total count and carried weight for
+the inventory overlay and encumbrance rule.
+
+Settings tests clamp corrupt numeric preferences, reject invalid enums and key codes, keep
+every gameplay action bound exactly once, swap conflicts, and verify compact HUD labels.
+`PreferencesStore` tests round-trip view, sound, quality, horizon, and binding preferences;
+they also cover invalid versions, absent storage, and storage permission failures. Save-store
+tests migrate versions one through six into the version-seven envelope, round-trip player
+pose/condition and location discovery alongside prior world state, sanitize every new field,
+report slot availability, and recover safely from corrupt or blocked storage.
+
+Player-condition tests lock safe and damaging fall thresholds, monotonic bounded damage,
+health underflow protection, rain wetting, shelter drying, apparent-temperature response,
+cold stress, stable condition tags, delayed passive recovery, and full recovery reset. The
+system test confirms exposure only advances during active simulation and the rebound recover
+action is routed only while incapacitated. Locomotion tests additionally cover smoothed eye
+height, stamina, and landing math. The controller keeps jump buffering, coyote time, and
+standing head-clearance behind explicit state seams for focused integration coverage.
+
+Location-discovery tests enforce settlement/compound/biome priority, settlement boundary
+behavior, atlas-wide biome fallback, stable known IDs, duplicate suppression, and complete
+catalog copy. The system regression proves discovery checks run only during active play.
+
+Interaction-prompt tests cover every target action and prove prompts use current rebound
+interact/harvest keys rather than hard-coded UI text. Inspectable tests lock unique IDs,
+complete readable records, interaction range, quality-profile behavior, and a low primitive
+budget. Interaction-system coverage verifies inspectables flow through the same target
+selection and action path as doors, records, pickups, and harvestables.
+
+Environmental-audio model tests cover pause silence, weather-scaled wind and precipitation,
+storm-suppressed wildlife, proportional settlement ambience, biome/shelter surface selection,
+and distance-based walk/sprint/crouch cadence. The Web Audio wrapper is replaced by a seam in
+system tests, which verify ambient updates, grounded distance-triggered footsteps, and cadence
+reset while paused without requiring a browser audio device.
 
 Horizon tests enforce monotonic finite profiles, the invariant 81-chunk detailed ring,
 continuous concentric LOD definitions, atlas-edge clamping, deterministic settlement

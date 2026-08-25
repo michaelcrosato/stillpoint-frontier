@@ -542,6 +542,154 @@ test("restores a saved survey after reload", async ({ page }) => {
     .toEqual({ x: 1_250, z: -3_400 });
 });
 
+test("persists local view settings and a rebound control independently of the field save", async ({ page }) => {
+  await page.goto("/?test=1&storage=1", { waitUntil: "load" });
+  await page.evaluate(() => window.localStorage.clear());
+  await page.reload({ waitUntil: "load" });
+  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+
+  await page.getByRole("button", { name: /settings/i }).click();
+  await expect(page.getByTestId("settings-overlay")).toBeVisible();
+  const fov = page.locator("label").filter({ hasText: "FIELD OF VIEW" }).locator("input");
+  await fov.fill("82");
+  await expect
+    .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().settings.fov))
+    .toBe(82);
+
+  const forwardBinding = page.getByRole("button", { name: "Rebind Move forward" });
+  await forwardBinding.click();
+  await expect(forwardBinding).toContainText("PRESS KEY");
+  await page.keyboard.press("KeyZ");
+  await expect(forwardBinding).toContainText("Z");
+  await expect
+    .poll(() => page.evaluate(
+      () => window.__STILLPOINT_TEST__?.snapshot().settings.keyBindings.moveForward,
+    ))
+    .toBe("KeyZ");
+
+  await page.getByTestId("settings-overlay").getByRole("button", { name: /close/i }).last().click();
+  await expect(page.getByTestId("settings-overlay")).toBeHidden();
+  await page.reload({ waitUntil: "load" });
+  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  const restored = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
+  expect(restored?.settings.fov).toBe(82);
+  expect(restored?.settings.keyBindings.moveForward).toBe("KeyZ");
+  expect(restored?.saveStatus).toBe("unsaved");
+});
+
+test("opens the material ledger through its bound action and reports carried load", async ({ page }, testInfo) => {
+  await openDeterministicWorld(page);
+  await page.getByTestId("enter-frontier").click();
+  const pickup = (await page.evaluate(() => window.__STILLPOINT_TEST__?.targets() ?? []))
+    .find((target) => target.kind === "pickup");
+  expect(pickup).toBeTruthy();
+  if (!pickup) return;
+  await page.evaluate((id) => window.__STILLPOINT_TEST__?.interactTarget(id), pickup.id);
+
+  await page.keyboard.press("KeyI");
+  await expect(page.getByTestId("inventory-overlay")).toBeVisible();
+  await expect(page.getByTestId("inventory-overlay")).toContainText("MATERIAL LEDGER");
+  await expect(page.getByTestId("inventory-overlay").locator(".inventory-summary")).toContainText(
+    /ITEMS\s*1/,
+  );
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().inventoryOpen)).toBe(true);
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().inventoryItemCount)).toBe(1);
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().inventoryWeight ?? 0))
+    .toBeGreaterThan(0);
+  await attachScreenshot(page, testInfo, "inventory-ledger");
+
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("inventory-overlay")).toBeHidden();
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().inventoryOpen)).toBe(false);
+});
+
+test("uses the unified interaction prompt to inspect authored field records", async ({ page }, testInfo) => {
+  await openDeterministicWorld(page);
+  await page.getByTestId("enter-frontier").click();
+  const ids = await page.evaluate(() => window.__STILLPOINT_TEST__?.inspectableIds() ?? []);
+  expect(ids).toHaveLength(3);
+  const standingOrders = ids.find((id) => id.includes("field-unit-noticeboard"));
+  expect(standingOrders).toBeTruthy();
+  if (!standingOrders) return;
+
+  await page.evaluate((id) => window.__STILLPOINT_TEST__?.faceTarget(id), standingOrders);
+  await expect(page.getByTestId("interaction-prompt")).toContainText("READ / INSPECT");
+  await expect(page.getByTestId("interaction-prompt")).toContainText("Field Unit Standing Orders");
+  await page.keyboard.press("KeyE");
+  await expect(page.getByTestId("inspection-overlay")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Field Unit Standing Orders" })).toBeVisible();
+  await expect(page.getByTestId("inspection-overlay")).toContainText("Greywater Survey Authority");
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().inspectionOpen)).toBe(true);
+  await attachScreenshot(page, testInfo, "field-record-inspection");
+
+  await page.getByRole("button", { name: /return to field/i }).click();
+  await expect(page.getByTestId("inspection-overlay")).toBeHidden();
+});
+
+test("surfaces critical health, incapacitates on a fatal fall, and recovers safely", async ({ page }) => {
+  await openDeterministicWorld(page);
+  await page.getByTestId("enter-frontier").click();
+  await page.evaluate(() => window.__STILLPOINT_TEST__?.setPlayerHealth(20));
+  await expect(page.getByTestId("health-readout")).toContainText("20");
+  await expect(page.getByTestId("condition-strip")).toContainText("CRITICAL");
+
+  const damage = await page.evaluate(() => window.__STILLPOINT_TEST__?.applyFallImpact(34));
+  expect(damage).toBe(20);
+  await expect(page.getByTestId("incapacitated-panel")).toBeVisible();
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().incapacitated)).toBe(true);
+
+  await page.getByTestId("incapacitated-panel").getByRole("button", {
+    name: /recover at field unit/i,
+  }).click();
+  await expect(page.getByTestId("incapacitated-panel")).toBeHidden();
+  const recovered = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
+  expect(recovered?.health).toBe(100);
+  expect(recovered?.position.x).toBeCloseTo(0, 4);
+  expect(recovered?.position.z).toBeCloseTo(8, 4);
+  expect(recovered?.incapacitated).toBe(false);
+});
+
+test("saves and restores player pose, condition, and discovered locations", async ({ page }) => {
+  await page.goto("/?test=1&storage=1", { waitUntil: "load" });
+  await page.evaluate(() => window.localStorage.clear());
+  await page.reload({ waitUntil: "load" });
+  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  await page.getByTestId("enter-frontier").click();
+  await expect
+    .poll(() => page.evaluate(
+      () => window.__STILLPOINT_TEST__?.snapshot().discoveredLocationIds,
+    ))
+    .toContain("landmark:field-unit-compound");
+  await expect(page.getByTestId("location-discovery-card")).toContainText("Field Unit Compound");
+
+  const savedFieldState = await page.evaluate(() => {
+    window.__STILLPOINT_TEST__?.teleport(130, 210);
+    window.__STILLPOINT_TEST__?.setPlayerHealth(54);
+    window.__STILLPOINT_TEST__?.discoverCurrentLocation();
+    return window.__STILLPOINT_TEST__?.snapshot();
+  });
+  const savedLocationId = savedFieldState?.currentLocation.id;
+  expect(savedLocationId).toBeTruthy();
+  expect(savedFieldState?.discoveredLocationIds).toContain(savedLocationId);
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.saveNow())).toBe(true);
+
+  await page.evaluate(() => {
+    window.__STILLPOINT_TEST__?.teleport(-850, -920);
+    window.__STILLPOINT_TEST__?.setPlayerHealth(7);
+  });
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.loadGame())).toBe(true);
+  const restored = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
+  expect(restored?.position.x).toBeCloseTo(130, 4);
+  expect(restored?.position.z).toBeCloseTo(210, 4);
+  expect(restored?.health).toBe(54);
+  expect(restored?.discoveredLocationIds).toContain("landmark:field-unit-compound");
+  expect(restored?.currentLocation.id).toBe(savedLocationId);
+  expect(restored?.saveStatus).toBe("saved");
+});
+
 test("supports sprint, crouch, and a complete jump arc", async ({ page }) => {
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
