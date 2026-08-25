@@ -24,6 +24,13 @@ import {
   type GraphicsDiagnostics,
 } from "./rendering/RenderPipeline";
 import { WorldMaterialLibrary } from "./rendering/WorldMaterialLibrary";
+import {
+  DEFAULT_GRAPHICS_FEATURES,
+  isGraphicsFeatureId,
+  setGraphicsFeatureState,
+  type GraphicsFeatureId,
+  type GraphicsFeatureState,
+} from "./rendering/GraphicsFeatures";
 import { SystemPipeline } from "./core/SystemPipeline";
 import { FeatureRegistry } from "./core/FeatureRegistry";
 import { createEnvironment, type EnvironmentRuntime } from "./environment";
@@ -239,6 +246,8 @@ export interface GameTestBridge {
   };
   audio(): EnvironmentalAudio["diagnostics"];
   graphics(): GraphicsDiagnostics;
+  graphicsFeatures(): GraphicsFeatureState;
+  setGraphicsFeature(id: GraphicsFeatureId, enabled: boolean): boolean;
   graphicsBenchmark(): GraphicsBenchmarkSnapshot;
   forestStress(): ForestStressDiagnostics;
   setGraphicsBenchmarkTarget(target: number): boolean;
@@ -324,6 +333,9 @@ export class Engine {
   private readonly navigation = new NavigationService();
   private readonly environment: EnvironmentRuntime;
   private readonly graphicsBenchmark = new GraphicsBenchmark();
+  private graphicsFeatures: GraphicsFeatureState = {
+    ...DEFAULT_GRAPHICS_FEATURES,
+  };
   private readonly pipeline = new SystemPipeline<GameRuntimeContext>();
   private readonly onSnapshot: (snapshot: GameSnapshot) => void;
   private readonly onPresentation: (presentation: GamePresentation) => void;
@@ -468,6 +480,8 @@ export class Engine {
     });
     this.renderer = this.renderPipeline.renderer;
     this.materialLibrary = new WorldMaterialLibrary();
+    this.materialLibrary.setQuality(this.quality);
+    this.materialLibrary.setFeatures(this.graphicsFeatures);
 
     this.input = new InputManager(
       this.canvas,
@@ -509,6 +523,9 @@ export class Engine {
       this.renderer,
       this.quality,
       saved.worldMinutes,
+    );
+    this.environment.setShadowStabilization(
+      this.graphicsFeatures.shadowStabilization,
     );
     this.environment.setHorizonMode(this.horizonMode);
     if (!saved.player) {
@@ -1475,6 +1492,8 @@ export class Engine {
   setDeveloperMode(enabled: boolean) {
     if (!enabled) {
       this.graphicsBenchmark.invalidate("Developer mode disabled");
+      this.graphicsFeatures = { ...DEFAULT_GRAPHICS_FEATURES };
+      this.applyGraphicsFeatures();
     }
     this.environment.setDeveloperMode(enabled);
     this.refreshEnvironment();
@@ -1509,7 +1528,32 @@ export class Engine {
     this.environment.resetDeveloperOverrides();
     this.graphicsBenchmark.reset(60);
     this.forestStress.setLevel(2);
+    this.graphicsFeatures = { ...DEFAULT_GRAPHICS_FEATURES };
+    this.applyGraphicsFeatures();
     this.refreshEnvironment();
+  }
+
+  setGraphicsFeature(id: GraphicsFeatureId, enabled: boolean) {
+    if (
+      !this.environment.getDeveloperState().enabled ||
+      !isGraphicsFeatureId(id)
+    ) {
+      return false;
+    }
+    const next = setGraphicsFeatureState(this.graphicsFeatures, id, enabled);
+    if (next === this.graphicsFeatures) return false;
+    this.graphicsFeatures = next;
+    this.graphicsBenchmark.invalidate(`Graphics feature ${id} changed`);
+    this.applyGraphicsFeatures();
+    this.refreshEnvironment(false);
+    return true;
+  }
+
+  private applyGraphicsFeatures() {
+    this.materialLibrary.setFeatures(this.graphicsFeatures);
+    this.environment.setShadowStabilization(
+      this.graphicsFeatures.shadowStabilization,
+    );
   }
 
   setGraphicsBenchmarkTarget(target: number) {
@@ -1567,6 +1611,7 @@ export class Engine {
         precipitation: atmosphere.precipitation,
       },
       flashlightOn: this.flashlight.isEnabled,
+      graphicsFeatures: { ...this.graphicsFeatures },
       hardware: {
         userAgent: navigator.userAgent,
         hardwareConcurrency: Number.isFinite(navigator.hardwareConcurrency)
@@ -2325,6 +2370,7 @@ export class Engine {
         persistentWorldMinutes: this.environment.getPersistentWorldMinutes(),
         weatherOverride: developer.weatherOverride,
         weatherOptions: this.environment.getDeveloperWeatherOptions(),
+        graphicsFeatures: { ...this.graphicsFeatures },
       },
       contextStatus: this.contextStatus,
       position: {
@@ -2585,6 +2631,7 @@ export class Engine {
     this.quality = quality;
     this.renderPipeline.setQuality(quality);
     this.environment.setQuality(this.quality);
+    this.materialLibrary.setQuality(this.quality);
     this.world.setQuality(this.quality);
     this.forestStress.setQuality(this.quality);
     this.citizens.setQuality(this.quality);
@@ -2697,6 +2744,9 @@ export class Engine {
       flashlight: () => this.flashlight.diagnostics,
       audio: () => this.audio.diagnostics,
       graphics: () => this.renderPipeline.diagnostics,
+      graphicsFeatures: () => ({ ...this.graphicsFeatures }),
+      setGraphicsFeature: (id, enabled) =>
+        this.setGraphicsFeature(id, enabled),
       graphicsBenchmark: () => this.graphicsBenchmark.snapshot,
       forestStress: () => this.forestStress.diagnostics,
       setGraphicsBenchmarkTarget: (target) =>

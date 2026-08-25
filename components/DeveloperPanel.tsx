@@ -12,6 +12,10 @@ import {
   GRAPHICS_BENCHMARK_TARGETS,
 } from "../lib/game/developer/GraphicsBenchmark";
 import { CANOPY_BENCHMARK_LEVELS } from "../lib/game/world/benchmarkZone";
+import {
+  GRAPHICS_FEATURE_DEFINITIONS,
+  type GraphicsFeatureId,
+} from "../lib/game/rendering/GraphicsFeatures";
 
 interface DeveloperPanelProps {
   snapshot: GameSnapshot;
@@ -30,6 +34,7 @@ interface DeveloperPanelProps {
   onSetGraphicsBenchmarkTarget(target: number): void;
   onStartGraphicsBenchmark(): void;
   onCancelGraphicsBenchmark(): void;
+  onSetGraphicsFeature(id: GraphicsFeatureId, enabled: boolean): void;
   onReset(): void;
 }
 
@@ -73,6 +78,7 @@ export default function DeveloperPanel({
   onSetGraphicsBenchmarkTarget,
   onStartGraphicsBenchmark,
   onCancelGraphicsBenchmark,
+  onSetGraphicsFeature,
   onReset,
 }: DeveloperPanelProps) {
   const panelRef = useRef<HTMLElement>(null);
@@ -248,6 +254,36 @@ export default function DeveloperPanel({
             Weather remains the final visibility limit. Distant terrain and settlement silhouettes
             carry no interiors, objects, collision, citizens, or shadows.
           </p>
+        </fieldset>
+
+        <fieldset
+          className="dev-graphics-features"
+          disabled={!snapshot.devTools.enabled}
+        >
+          <legend>GRAPHICS MODULES / SESSION A-B</legend>
+          <p className="dev-horizon-note">
+            Toggle one module at a time, close the panel, and compare the same
+            viewpoint. Captures record the active module state.
+          </p>
+          <div className="dev-feature-grid">
+            {GRAPHICS_FEATURE_DEFINITIONS.map((feature) => {
+              const enabled = snapshot.devTools.graphicsFeatures[feature.id];
+              return (
+                <button
+                  type="button"
+                  key={feature.id}
+                  className={enabled ? "is-active" : ""}
+                  aria-pressed={enabled}
+                  data-testid={`graphics-feature-${feature.id}`}
+                  onClick={() => onSetGraphicsFeature(feature.id, !enabled)}
+                >
+                  <span>{feature.label}</span>
+                  <strong>{enabled ? "ON" : "OFF"}</strong>
+                  <small>{feature.description}</small>
+                </button>
+              );
+            })}
+          </div>
         </fieldset>
 
         <fieldset className="dev-performance" disabled={!snapshot.devTools.enabled}>

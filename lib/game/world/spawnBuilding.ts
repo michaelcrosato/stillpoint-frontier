@@ -187,16 +187,22 @@ export function createSpawnBuilding(
   root.userData.floorCount = definition.floorCount;
   root.userData.roofAccess = true;
 
-  const wallTemplate = new THREE.MeshStandardMaterial({
-    color: 0x777166,
-    roughness: 0.9,
-    metalness: 0.04,
-  });
-  const floorTemplate = new THREE.MeshStandardMaterial({
-    color: 0x4d4b45,
-    roughness: 0.86,
-    metalness: 0.08,
-  });
+  const wallTemplate = tagWorldMaterial(
+    new THREE.MeshStandardMaterial({
+      color: 0x777166,
+      roughness: 0.9,
+      metalness: 0.04,
+    }),
+    { role: "building", weatherExposure: 0, environmentScale: 0.78 },
+  );
+  const floorTemplate = tagWorldMaterial(
+    new THREE.MeshStandardMaterial({
+      color: 0x4d4b45,
+      roughness: 0.86,
+      metalness: 0.08,
+    }),
+    { role: "building", weatherExposure: 0, environmentScale: 0.72 },
+  );
   const roofTemplate = tagWorldMaterial(
     new THREE.MeshStandardMaterial({
       color: 0x343735,
@@ -211,11 +217,14 @@ export function createSpawnBuilding(
       wetReflectionBoost: 0.5,
     },
   );
-  const trimTemplate = new THREE.MeshStandardMaterial({
-    color: 0x252826,
-    roughness: 0.72,
-    metalness: 0.3,
-  });
+  const trimTemplate = tagWorldMaterial(
+    new THREE.MeshStandardMaterial({
+      color: 0x252826,
+      roughness: 0.72,
+      metalness: 0.3,
+    }),
+    { role: "metal", weatherExposure: 0, environmentScale: 0.92 },
+  );
   const glassTemplate = new THREE.MeshPhysicalMaterial({
     color: 0x8fbfc8,
     roughness: 0.12,

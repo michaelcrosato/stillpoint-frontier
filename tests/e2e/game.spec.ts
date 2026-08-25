@@ -542,6 +542,45 @@ test("opens developer tools from the keyboard while paused and protects form inp
   await expect(page.getByTestId("developer-panel")).toBeHidden();
 });
 
+test("toggles independent session-only graphics modules", async ({ page }) => {
+  await openDeterministicWorld(page);
+  await page.getByTestId("enter-frontier").click();
+  await page.getByTestId("developer-launcher").click();
+  await page.getByTestId("developer-mode-toggle").click();
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.graphicsFeatures()))
+    .toEqual({
+      shadowStabilization: true,
+      surfaceDetail: true,
+      vegetationWind: true,
+    });
+
+  const windToggle = page.getByTestId("graphics-feature-vegetationWind");
+  await expect(windToggle).toHaveAttribute("aria-pressed", "true");
+  await windToggle.click();
+  await expect(windToggle).toHaveAttribute("aria-pressed", "false");
+  expect(await page.evaluate(
+    () => window.__STILLPOINT_TEST__?.graphicsFeatures().vegetationWind,
+  )).toBe(false);
+
+  await page.getByRole("button", { name: /reset overrides/i }).click();
+  await expect(windToggle).toHaveAttribute("aria-pressed", "true");
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.graphicsFeatures()))
+    .toEqual({
+      shadowStabilization: true,
+      surfaceDetail: true,
+      vegetationWind: true,
+    });
+
+  await page.getByTestId("graphics-feature-surfaceDetail").click();
+  await page.getByTestId("developer-mode-toggle").click();
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.graphicsFeatures()))
+    .toEqual({
+      shadowStabilization: true,
+      surfaceDetail: true,
+      vegetationWind: true,
+    });
+});
+
 test("travels to the render-only canopy lab and scales graphics without simulation load", async ({ page }) => {
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();

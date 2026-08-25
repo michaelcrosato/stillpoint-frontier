@@ -1,4 +1,5 @@
 import type { GpuFrameTimingSample } from "../rendering/GpuFrameTimer";
+import type { GraphicsFeatureState } from "../rendering/GraphicsFeatures";
 
 export const GRAPHICS_BENCHMARK_TARGETS = [60, 90, 120, 144, 165, 240] as const;
 export type GraphicsBenchmarkTarget =
@@ -62,6 +63,7 @@ export interface GraphicsBenchmarkContext {
     precipitation: string;
   };
   flashlightOn: boolean;
+  graphicsFeatures: GraphicsFeatureState;
   hardware: {
     userAgent: string;
     hardwareConcurrency: number | null;

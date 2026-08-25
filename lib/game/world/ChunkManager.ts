@@ -1492,6 +1492,7 @@ export class ChunkManager {
       trees.name = `forest:${key}:${species.id}`;
       trees.userData.vegetationLayer = "woody";
       trees.userData.speciesId = species.id;
+      trees.userData.shadowCandidate = true;
       trees.castShadow = qualityUsesShadows(this.quality);
       trees.receiveShadow = true;
       group.forEach((tree, instanceIndex) => {
@@ -1549,7 +1550,7 @@ export class ChunkManager {
       );
       const groundcover = new THREE.InstancedMesh(
         createGroundcoverGeometry(profile),
-        vegetationMaterial(),
+        vegetationMaterial("groundcover"),
         maximumDecorativeCount,
       );
       groundcover.name = `groundcover:${key}:${profile.groundcover}`;

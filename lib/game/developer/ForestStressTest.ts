@@ -8,6 +8,7 @@ import {
   tagWorldMaterial,
   type WorldMaterialLibrary,
 } from "../rendering/WorldMaterialLibrary";
+import { prepareVegetationGeometry } from "../rendering/VegetationWind";
 import {
   CANOPY_BENCHMARK_LEVELS,
   CANOPY_BENCHMARK_ZONE,
@@ -121,7 +122,7 @@ function createMidTreeGeometry(species: WoodySpeciesDefinition) {
     species.relativeHeight,
     species.relativeWidth,
   );
-  return geometry;
+  return prepareVegetationGeometry(geometry, 0.42);
 }
 
 function createFarTreeGeometry(species: WoodySpeciesDefinition) {
@@ -144,7 +145,7 @@ function createFarTreeGeometry(species: WoodySpeciesDefinition) {
   geometry.computeVertexNormals();
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
-  return geometry;
+  return prepareVegetationGeometry(geometry, 0.42);
 }
 
 function createReedGeometry() {
@@ -167,7 +168,7 @@ function createReedGeometry() {
   geometry.computeVertexNormals();
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
-  return geometry;
+  return prepareVegetationGeometry(geometry, 0.12);
 }
 
 function geometryTriangles(geometry: THREE.BufferGeometry) {
@@ -176,7 +177,10 @@ function geometryTriangles(geometry: THREE.BufferGeometry) {
     : geometry.getAttribute("position").count / 3;
 }
 
-function makeVegetationMaterial(side: THREE.Side = THREE.FrontSide) {
+function makeVegetationMaterial(
+  layer: "woody" | "groundcover",
+  side: THREE.Side = THREE.FrontSide,
+) {
   return tagWorldMaterial(
     new THREE.MeshStandardMaterial({
       color: 0xffffff,
@@ -192,6 +196,8 @@ function makeVegetationMaterial(side: THREE.Side = THREE.FrontSide) {
       wetRoughness: 0.62,
       environmentScale: 0.5,
       wetReflectionBoost: 0.18,
+      detail: false,
+      windAmplitude: layer === "woody" ? 0.42 : 0.12,
     },
   );
 }
@@ -218,10 +224,16 @@ export class ForestStressTest {
   );
   private readonly rockGeometry = new THREE.DodecahedronGeometry(1, 0);
   private readonly reedGeometry = createReedGeometry();
-  private readonly treeMaterial = makeVegetationMaterial();
-  private readonly farTreeMaterial = makeVegetationMaterial(THREE.DoubleSide);
-  private readonly groundcoverMaterial = makeVegetationMaterial();
-  private readonly reedMaterial = makeVegetationMaterial(THREE.DoubleSide);
+  private readonly treeMaterial = makeVegetationMaterial("woody");
+  private readonly farTreeMaterial = makeVegetationMaterial(
+    "woody",
+    THREE.DoubleSide,
+  );
+  private readonly groundcoverMaterial = makeVegetationMaterial("groundcover");
+  private readonly reedMaterial = makeVegetationMaterial(
+    "groundcover",
+    THREE.DoubleSide,
+  );
   private readonly rockMaterial = tagWorldMaterial(
     new THREE.MeshStandardMaterial({
       color: 0x4d5149,

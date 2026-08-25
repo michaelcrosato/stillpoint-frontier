@@ -235,16 +235,22 @@ export function createTwoStoryBuilding(
   root.userData.roofY = definition.roofY;
 
   const templates = {
-    wall: new THREE.MeshStandardMaterial({
-      color: 0x706c64,
-      roughness: 0.88,
-      metalness: 0.05,
-    }),
-    floor: new THREE.MeshStandardMaterial({
-      color: 0x454944,
-      roughness: 0.83,
-      metalness: 0.12,
-    }),
+    wall: tagWorldMaterial(
+      new THREE.MeshStandardMaterial({
+        color: 0x706c64,
+        roughness: 0.88,
+        metalness: 0.05,
+      }),
+      { role: "building", weatherExposure: 0, environmentScale: 0.8 },
+    ),
+    floor: tagWorldMaterial(
+      new THREE.MeshStandardMaterial({
+        color: 0x454944,
+        roughness: 0.83,
+        metalness: 0.12,
+      }),
+      { role: "building", weatherExposure: 0, environmentScale: 0.74 },
+    ),
     roof: tagWorldMaterial(
       new THREE.MeshStandardMaterial({
         color: 0x303633,
@@ -259,11 +265,14 @@ export function createTwoStoryBuilding(
         wetReflectionBoost: 0.5,
       },
     ),
-    trim: new THREE.MeshStandardMaterial({
-      color: 0x242927,
-      roughness: 0.68,
-      metalness: 0.34,
-    }),
+    trim: tagWorldMaterial(
+      new THREE.MeshStandardMaterial({
+        color: 0x242927,
+        roughness: 0.68,
+        metalness: 0.34,
+      }),
+      { role: "metal", weatherExposure: 0, environmentScale: 0.94 },
+    ),
     glass: new THREE.MeshPhysicalMaterial({
       color: 0x8ab9c4,
       roughness: 0.1,

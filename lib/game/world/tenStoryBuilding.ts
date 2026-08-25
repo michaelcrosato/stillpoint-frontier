@@ -254,16 +254,22 @@ export function createTenStoryBuilding(
   root.userData.roofY = definition.roofY;
 
   const materials = {
-    wall: new THREE.MeshStandardMaterial({
-      color: 0x5d625f,
-      roughness: 0.82,
-      metalness: 0.12,
-    }),
-    floor: new THREE.MeshStandardMaterial({
-      color: 0x3e4542,
-      roughness: 0.86,
-      metalness: 0.14,
-    }),
+    wall: tagWorldMaterial(
+      new THREE.MeshStandardMaterial({
+        color: 0x5d625f,
+        roughness: 0.82,
+        metalness: 0.12,
+      }),
+      { role: "building", weatherExposure: 0, environmentScale: 0.84 },
+    ),
+    floor: tagWorldMaterial(
+      new THREE.MeshStandardMaterial({
+        color: 0x3e4542,
+        roughness: 0.86,
+        metalness: 0.14,
+      }),
+      { role: "building", weatherExposure: 0, environmentScale: 0.76 },
+    ),
     roof: tagWorldMaterial(
       new THREE.MeshStandardMaterial({
         color: 0x282f2d,
@@ -278,11 +284,14 @@ export function createTenStoryBuilding(
         wetReflectionBoost: 0.52,
       },
     ),
-    trim: new THREE.MeshStandardMaterial({
-      color: 0x202725,
-      roughness: 0.62,
-      metalness: 0.44,
-    }),
+    trim: tagWorldMaterial(
+      new THREE.MeshStandardMaterial({
+        color: 0x202725,
+        roughness: 0.62,
+        metalness: 0.44,
+      }),
+      { role: "metal", weatherExposure: 0, environmentScale: 0.98 },
+    ),
     glass: new THREE.MeshPhysicalMaterial({
       color: 0x81b2bf,
       roughness: 0.1,

@@ -55,8 +55,50 @@ export interface EnvironmentRuntime {
   getDeveloperState(): DeveloperEnvironmentState;
   getDeveloperWeatherOptions(): DeveloperWeatherOption[];
   setQuality(quality: QualityLevel): void;
+  setShadowStabilization(enabled: boolean): void;
   setHorizonMode(mode: HorizonMode): void;
   dispose(): void;
+}
+
+export interface DirectionalShadowSnapScratch {
+  forward: THREE.Vector3;
+  right: THREE.Vector3;
+  up: THREE.Vector3;
+}
+
+/**
+ * Quantizes a moving directional-light anchor in the light's projection plane.
+ * The correction never changes the light direction or its along-ray position.
+ */
+export function stabilizeDirectionalShadowAnchor(
+  anchor: Readonly<THREE.Vector3>,
+  lightOffset: Readonly<THREE.Vector3>,
+  camera: Readonly<THREE.OrthographicCamera>,
+  mapSize: Readonly<THREE.Vector2>,
+  output = new THREE.Vector3(),
+  scratch: DirectionalShadowSnapScratch = {
+    forward: new THREE.Vector3(),
+    right: new THREE.Vector3(),
+    up: new THREE.Vector3(),
+  },
+) {
+  const width = Math.max(0.001, camera.right - camera.left);
+  const height = Math.max(0.001, camera.top - camera.bottom);
+  const texelX = width / Math.max(1, mapSize.x);
+  const texelY = height / Math.max(1, mapSize.y);
+  scratch.forward.copy(lightOffset).normalize();
+  scratch.right.set(0, 1, 0).cross(scratch.forward);
+  if (scratch.right.lengthSq() < 0.000001) scratch.right.set(1, 0, 0);
+  else scratch.right.normalize();
+  scratch.up.copy(scratch.forward).cross(scratch.right).normalize();
+  const projectedX = scratch.right.dot(anchor);
+  const projectedY = scratch.up.dot(anchor);
+  const correctionX = Math.round(projectedX / texelX) * texelX - projectedX;
+  const correctionY = Math.round(projectedY / texelY) * texelY - projectedY;
+  return output
+    .copy(anchor)
+    .addScaledVector(scratch.right, correctionX)
+    .addScaledVector(scratch.up, correctionY);
 }
 
 export interface EnvironmentVisualState {
@@ -408,6 +450,14 @@ export function createEnvironment(
   const temporaryColor = new THREE.Color();
   const sunDirection = new THREE.Vector3();
   const moonDirection = new THREE.Vector3();
+  const shadowAnchor = new THREE.Vector3();
+  const shadowLightOffset = new THREE.Vector3();
+  const shadowSnapScratch: DirectionalShadowSnapScratch = {
+    forward: new THREE.Vector3(),
+    right: new THREE.Vector3(),
+    up: new THREE.Vector3(),
+  };
+  let shadowStabilization = true;
   let surfaceWetness = 0;
   const visualState: EnvironmentVisualState = {
     effectSeconds,
@@ -484,8 +534,21 @@ export function createEnvironment(
     const keyY = useSun
       ? Math.max(7, keyDirection.y * 126)
       : Math.max(28, keyDirection.y * 96);
-    sun.position.set(position.x + keyX, position.y + keyY, position.z + keyZ);
-    sunTarget.position.set(position.x, position.y, position.z);
+    shadowLightOffset.set(keyX, keyY, keyZ);
+    if (shadowStabilization && sun.castShadow) {
+      stabilizeDirectionalShadowAnchor(
+        position,
+        shadowLightOffset,
+        sun.shadow.camera,
+        sun.shadow.mapSize,
+        shadowAnchor,
+        shadowSnapScratch,
+      );
+    } else {
+      shadowAnchor.copy(position);
+    }
+    sun.position.copy(shadowAnchor).add(shadowLightOffset);
+    sunTarget.position.copy(shadowAnchor);
     if (useSun) {
       temporaryColor.lerpColors(sunDay, sunDawn, displaySample.goldenHour * 0.86);
       sun.color.copy(temporaryColor);
@@ -698,6 +761,9 @@ export function createEnvironment(
           ? CINEMATIC_PRECIPITATION_POINTS
           : PERFORMANCE_PRECIPITATION_POINTS,
       );
+    },
+    setShadowStabilization(enabled) {
+      shadowStabilization = enabled;
     },
     setHorizonMode(mode) {
       horizonMode = mode;

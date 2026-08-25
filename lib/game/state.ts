@@ -43,6 +43,10 @@ import {
   type GraphicsBenchmarkSnapshot,
 } from "./developer/GraphicsBenchmark";
 import type { ForestStressDiagnostics } from "./developer/ForestStressTest";
+import {
+  DEFAULT_GRAPHICS_FEATURES,
+  type GraphicsFeatureState,
+} from "./rendering/GraphicsFeatures";
 
 export interface NearbyTargetSnapshot {
   id: string;
@@ -131,6 +135,7 @@ export interface DeveloperToolsSnapshot {
   persistentWorldMinutes: number;
   weatherOverride: WeatherId | null;
   weatherOptions: DeveloperWeatherOption[];
+  graphicsFeatures: GraphicsFeatureState;
 }
 
 export interface GameSnapshot {
@@ -254,6 +259,7 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
     persistentWorldMinutes: 450,
     weatherOverride: null,
     weatherOptions: developerWeatherOptions("grey_meadow"),
+    graphicsFeatures: { ...DEFAULT_GRAPHICS_FEATURES },
   },
   contextStatus: "ready",
   position: { x: 0, y: 0, z: 0 },

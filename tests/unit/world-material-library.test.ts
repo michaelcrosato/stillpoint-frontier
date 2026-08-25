@@ -81,4 +81,73 @@ describe("world material library", () => {
     material.dispose();
     clone.dispose();
   });
+
+  it("composes reversible surface detail and wind-matched shadow shaders", () => {
+    const material = tagWorldMaterial(
+      new THREE.MeshStandardMaterial({ roughness: 1 }),
+      {
+        role: "vegetation",
+        detail: false,
+        windAmplitude: 0.42,
+      },
+    );
+    const originalCompile = material.onBeforeCompile;
+    const geometry = new THREE.BoxGeometry();
+    const mesh = new THREE.InstancedMesh(geometry, material, 1);
+    mesh.castShadow = true;
+    const library = new WorldMaterialLibrary();
+    library.track(mesh);
+    expect(material.onBeforeCompile).not.toBe(originalCompile);
+    expect(mesh.customDepthMaterial).toBeInstanceOf(THREE.MeshDepthMaterial);
+    expect(mesh.customDistanceMaterial).toBeInstanceOf(
+      THREE.MeshDistanceMaterial,
+    );
+    library.present({
+      surfaceWetness: 0.5,
+      effectSeconds: 12,
+      windKph: 30,
+      windDirection: 90,
+    });
+    expect(library.diagnostics).toMatchObject({
+      vegetationWind: true,
+      windMaterials: 1,
+      windShadowMeshes: 1,
+    });
+    library.setFeatures({ surfaceDetail: false, vegetationWind: false });
+    expect(library.diagnostics).toMatchObject({
+      surfaceDetail: false,
+      vegetationWind: false,
+    });
+    library.untrack(mesh);
+    expect(material.onBeforeCompile).toBe(originalCompile);
+    expect(mesh.customDepthMaterial).toBeUndefined();
+    expect(mesh.customDistanceMaterial).toBeUndefined();
+    mesh.dispose();
+    geometry.dispose();
+    material.dispose();
+  });
+
+  it("installs role-default detail once across shared roots", () => {
+    const material = tagWorldMaterial(
+      new THREE.MeshStandardMaterial(),
+      { role: "terrain", weatherExposure: 1 },
+    );
+    const originalCompile = material.onBeforeCompile;
+    const first = new THREE.Mesh(new THREE.PlaneGeometry(), material);
+    const second = new THREE.Mesh(new THREE.PlaneGeometry(), material);
+    const library = new WorldMaterialLibrary();
+    library.track(first);
+    const installedCompile = material.onBeforeCompile;
+    library.track(second);
+    expect(installedCompile).not.toBe(originalCompile);
+    expect(material.onBeforeCompile).toBe(installedCompile);
+    expect(library.diagnostics.detailMaterials).toBe(1);
+    library.untrack(first);
+    expect(material.onBeforeCompile).toBe(installedCompile);
+    library.untrack(second);
+    expect(material.onBeforeCompile).toBe(originalCompile);
+    first.geometry.dispose();
+    second.geometry.dispose();
+    material.dispose();
+  });
 });

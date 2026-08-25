@@ -58,6 +58,12 @@ export interface QualityPreset {
     size: number;
     intensity: number;
   };
+  worldEffects: {
+    /** Shader-only breakup applied to tagged terrain and structure surfaces. */
+    surfaceDetailStrength: number;
+    /** Multiplier for weather-driven vegetation displacement. */
+    vegetationWindStrength: number;
+  };
 }
 
 /**
@@ -86,6 +92,10 @@ export const QUALITY_PRESETS: Readonly<Record<QualityLevel, QualityPreset>> = {
       ditherStrength: 0.55,
     },
     environmentMap: { size: 128, intensity: 0.82 },
+    worldEffects: {
+      surfaceDetailStrength: 1,
+      vegetationWindStrength: 1,
+    },
   },
   cinematic: {
     label: "CINEMATIC",
@@ -107,6 +117,10 @@ export const QUALITY_PRESETS: Readonly<Record<QualityLevel, QualityPreset>> = {
       ditherStrength: 0.42,
     },
     environmentMap: { size: 64, intensity: 0.68 },
+    worldEffects: {
+      surfaceDetailStrength: 0.78,
+      vegetationWindStrength: 1,
+    },
   },
   performance: {
     label: "PERFORMANCE",
@@ -128,6 +142,10 @@ export const QUALITY_PRESETS: Readonly<Record<QualityLevel, QualityPreset>> = {
       ditherStrength: 0,
     },
     environmentMap: { size: 32, intensity: 0.5 },
+    worldEffects: {
+      surfaceDetailStrength: 0.42,
+      vegetationWindStrength: 0.78,
+    },
   },
 } as const;
 

@@ -85,6 +85,9 @@ export default function GameShell() {
             persistentWorldMinutes: 450,
             weatherOverride: fixture === "dev" ? "rain" : null,
             weatherOptions: developerWeatherOptions("pine_forest"),
+            graphicsFeatures: {
+              ...INITIAL_SNAPSHOT.devTools.graphicsFeatures,
+            },
           },
           position: { x: 4_240, y: 8.4, z: -3_180 },
           heading: 42,
@@ -730,6 +733,8 @@ export default function GameShell() {
           onSetGraphicsBenchmarkTarget={(target) => engineRef.current?.setGraphicsBenchmarkTarget(target)}
           onStartGraphicsBenchmark={() => engineRef.current?.startGraphicsBenchmark()}
           onCancelGraphicsBenchmark={() => engineRef.current?.cancelGraphicsBenchmark()}
+          onSetGraphicsFeature={(id, enabled) =>
+            engineRef.current?.setGraphicsFeature(id, enabled)}
           onReset={() => engineRef.current?.resetDeveloperOverrides()}
         />
       )}

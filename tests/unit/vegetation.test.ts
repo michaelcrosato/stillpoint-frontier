@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import { ChunkManager } from "../../lib/game/world/ChunkManager";
+import { worldMaterialDescriptor } from "../../lib/game/rendering/WorldMaterialLibrary";
+import { VEGETATION_WIND_ATTRIBUTE } from "../../lib/game/rendering/VegetationWind";
 import { BIOMES, type BiomeId } from "../../lib/game/world/macroWorld";
 import {
   MAX_GROUNDCOVER_PER_CHUNK,
@@ -21,6 +23,10 @@ function expectFiniteGeometry(geometry: THREE.BufferGeometry) {
   expect(colors.count).toBe(positions.count);
   for (const value of positions.array) expect(Number.isFinite(value)).toBe(true);
   expect(geometry.boundingSphere?.radius ?? 0).toBeGreaterThan(0);
+  const windWeights = geometry.getAttribute(VEGETATION_WIND_ATTRIBUTE);
+  expect(windWeights.count).toBe(positions.count);
+  expect(Math.min(...windWeights.array)).toBe(0);
+  expect(Math.max(...windWeights.array)).toBe(1);
 }
 
 describe("biome vegetation catalog", () => {
@@ -114,6 +120,15 @@ describe("biome vegetation catalog", () => {
     )).toBe(true);
     expect(decorativeMeshes.length).toBeGreaterThan(0);
     expect(decorativeMeshes.every((mesh) => mesh.castShadow === false)).toBe(true);
+    expect(woodyMeshes.every((mesh) =>
+      worldMaterialDescriptor(mesh.material as THREE.Material)?.windAmplitude === 0.42,
+    )).toBe(true);
+    expect(woodyMeshes.every((mesh) =>
+      mesh.customDepthMaterial instanceof THREE.MeshDepthMaterial,
+    )).toBe(true);
+    expect(decorativeMeshes.every((mesh) =>
+      worldMaterialDescriptor(mesh.material as THREE.Material)?.windAmplitude === 0.12,
+    )).toBe(true);
     expect(decorativeMeshes.every((mesh) =>
       mesh.count === mesh.userData.performanceCount,
     )).toBe(true);

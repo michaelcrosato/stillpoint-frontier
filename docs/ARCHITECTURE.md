@@ -244,9 +244,18 @@ The initial target is an RTX 3060-class machine at 1440p/60:
   contained capability failure and never blocks simulation or rendering.
 - Pixel ratio is capped at 1.75 in cinematic, 2 in opt-in Ultra, and 1 in performance;
   performance disables shadows.
+- The sun/moon shadow anchor is quantized in its light plane at the active shadow-map
+  texel size. The light and target move together, preserving direction while preventing
+  sub-texel shadow crawling; a session-only developer switch exposes the unstabilized path.
 - Detailed terrain and render-only horizon geometry use the same deterministic world-space
   color sampler. Roads, settlement facades, and rocks use restrained category palettes with
   no chunk- or instance-order inputs, preventing streaming seams and reload color changes.
+- `WorldMaterialLibrary` composes tagged PBR policies with two reversible shader modules:
+  periodic, distance-faded surface micro-detail for terrain and structures, and weather-driven
+  GPU vegetation bending. Wind uses one flexibility attribute per geometry, coherent
+  world-position phase, expanded culling bounds, and matching shared depth/distance materials
+  for shadow casters. Quality strengths live in `QUALITY_PRESETS`; developer A/B switches are
+  session-only and benchmark captures record their state.
 - A camera-centered procedural sky renders sun/moon discs, horizon glow, and multi-layer
   wind-driven clouds without texture assets. One shared world-space water shader renders all
   river and sea chunks with seamless ripples, Fresnel tinting, and weather-aware sun glint.

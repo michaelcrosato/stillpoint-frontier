@@ -1547,6 +1547,76 @@ kbd {
   font: 7px/1.5 var(--mono);
 }
 
+.dev-graphics-features {
+  display: grid;
+  gap: 12px;
+  margin: 21px 28px 0;
+  padding: 20px 0 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.dev-graphics-features:disabled {
+  opacity: 0.38;
+}
+
+.dev-graphics-features legend {
+  padding: 0 12px 0 0;
+  color: var(--signal);
+  font: 700 9px/1 var(--mono);
+  letter-spacing: 0.16em;
+}
+
+.dev-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.dev-feature-grid button {
+  display: grid;
+  min-height: 100px;
+  grid-template-columns: 1fr auto;
+  gap: 7px;
+  align-content: start;
+  padding: 10px;
+  border: 1px solid rgba(232, 226, 214, 0.18);
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--paper-muted);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--mono);
+}
+
+.dev-feature-grid button > span {
+  color: var(--paper);
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0.08em;
+}
+
+.dev-feature-grid button > strong {
+  color: var(--paper-muted);
+  font-size: 8px;
+}
+
+.dev-feature-grid button > small {
+  grid-column: 1 / -1;
+  color: rgba(232, 226, 214, 0.42);
+  font-size: 6px;
+  line-height: 1.45;
+}
+
+.dev-feature-grid button.is-active {
+  border-color: rgba(153, 194, 163, 0.72);
+  background: rgba(153, 194, 163, 0.08);
+}
+
+.dev-feature-grid button.is-active > strong {
+  color: var(--signal);
+}
+
 .dev-performance {
   display: grid;
   gap: 12px;
@@ -2890,6 +2960,8 @@ kbd {
 
   .dev-session-notice,
   .dev-master,
+  .dev-rendering,
+  .dev-graphics-features,
   .dev-performance,
   .dev-environment {
     margin-right: 20px;

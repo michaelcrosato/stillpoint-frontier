@@ -1,5 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { tagWorldMaterial } from "../rendering/WorldMaterialLibrary";
+import { prepareVegetationGeometry } from "../rendering/VegetationWind";
 import type { BiomeId } from "./macroWorld";
 
 export type WoodySpeciesId =
@@ -334,7 +336,7 @@ export function createWoodyGeometry(species: WoodySpeciesDefinition) {
 
   const geometry = mergeColored(parts);
   geometry.scale(species.relativeWidth, species.relativeHeight, species.relativeWidth);
-  return geometry;
+  return prepareVegetationGeometry(geometry, 0.42);
 }
 
 export function createGroundcoverGeometry(profile: VegetationProfile) {
@@ -394,15 +396,30 @@ export function createGroundcoverGeometry(profile: VegetationProfile) {
       break;
   }
 
-  return mergeColored(parts);
+  return prepareVegetationGeometry(mergeColored(parts), 0.12);
 }
 
-export function vegetationMaterial() {
-  return new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    roughness: 1,
-    metalness: 0,
-    flatShading: true,
-    vertexColors: true,
-  });
+export function vegetationMaterial(
+  layer: "woody" | "groundcover" = "woody",
+  side: THREE.Side = THREE.FrontSide,
+) {
+  return tagWorldMaterial(
+    new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 1,
+      metalness: 0,
+      flatShading: true,
+      vertexColors: true,
+      side,
+    }),
+    {
+      role: "vegetation",
+      weatherExposure: 0.82,
+      wetRoughness: 0.62,
+      environmentScale: 0.5,
+      wetReflectionBoost: 0.18,
+      detail: false,
+      windAmplitude: layer === "woody" ? 0.42 : 0.12,
+    },
+  );
 }

@@ -19,6 +19,10 @@ describe("quality profiles", () => {
       expect(Math.log2(preset.flashlightShadowMapSize) % 1).toBe(0);
       expect([32, 64, 128]).toContain(preset.environmentMap.size);
       expect(preset.environmentMap.intensity).toBeGreaterThan(0);
+      expect(preset.worldEffects.surfaceDetailStrength).toBeGreaterThanOrEqual(0);
+      expect(preset.worldEffects.surfaceDetailStrength).toBeLessThanOrEqual(1);
+      expect(preset.worldEffects.vegetationWindStrength).toBeGreaterThanOrEqual(0);
+      expect(preset.worldEffects.vegetationWindStrength).toBeLessThanOrEqual(1);
       expect(preset.postProcessing.msaaSamples).toBeGreaterThanOrEqual(0);
       expect(preset.postProcessing.gtaoResolutionScale).toBeGreaterThan(0);
       expect(preset.postProcessing.gtaoResolutionScale).toBeLessThanOrEqual(1);

@@ -33,6 +33,11 @@ function captureContext(): GraphicsBenchmarkContext {
       precipitation: "none",
     },
     flashlightOn: false,
+    graphicsFeatures: {
+      shadowStabilization: true,
+      surfaceDetail: true,
+      vegetationWind: true,
+    },
     hardware: {
       userAgent: "test-browser",
       hardwareConcurrency: 8,
