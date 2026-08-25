@@ -184,6 +184,15 @@ export default function GameShell() {
     const testMode = parameters.get("test") === "1";
     const storageEnabled =
       !testMode || parameters.get("storage") === "1";
+    const reportRendererError = (error: unknown) => {
+      console.error("Stillpoint renderer failure", error);
+      if (!active) return;
+      const failedEngine = engineRef.current;
+      engineRef.current = null;
+      failedEngine?.dispose();
+      const message = error instanceof Error ? error.message : "Unknown renderer error";
+      setEngineError(message);
+    };
 
     try {
       const engine = new Engine({
@@ -196,14 +205,11 @@ export default function GameShell() {
         onPresentation: (presentation) => {
           if (active) presentationStore.publish(presentation);
         },
+        onRendererError: reportRendererError,
       });
       engineRef.current = engine;
       void engine.initialize().catch((error: unknown) => {
-        engine.dispose();
-        if (engineRef.current === engine) engineRef.current = null;
-        if (!active) return;
-        const message = error instanceof Error ? error.message : "Unknown renderer error";
-        setEngineError(message);
+        reportRendererError(error);
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "WebGL could not start";

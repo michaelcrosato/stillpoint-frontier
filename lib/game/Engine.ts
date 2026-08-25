@@ -313,6 +313,7 @@ interface EngineOptions {
   storageEnabled?: boolean;
   onSnapshot: (snapshot: GameSnapshot) => void;
   onPresentation?: (presentation: GamePresentation) => void;
+  onRendererError?: (error: unknown) => void;
 }
 
 export class Engine {
@@ -339,6 +340,7 @@ export class Engine {
   private readonly pipeline = new SystemPipeline<GameRuntimeContext>();
   private readonly onSnapshot: (snapshot: GameSnapshot) => void;
   private readonly onPresentation: (presentation: GamePresentation) => void;
+  private readonly onRendererError: (error: unknown) => void;
   private readonly testMode: boolean;
   private readonly saveStore: SaveStore;
   private readonly preferencesStore: PreferencesStore;
@@ -419,6 +421,7 @@ export class Engine {
     this.testMode = options.testMode ?? false;
     this.onSnapshot = options.onSnapshot;
     this.onPresentation = options.onPresentation ?? (() => undefined);
+    this.onRendererError = options.onRendererError ?? (() => undefined);
     let browserStorage: Storage | null = null;
     const storageEnabled = options.storageEnabled ?? !this.testMode;
     if (storageEnabled) {
@@ -683,7 +686,6 @@ export class Engine {
     this.canvas.addEventListener("webglcontextlost", this.handleContextLost);
     this.canvas.addEventListener("webglcontextrestored", this.handleContextRestored);
 
-    this.animationFrame = requestAnimationFrame(this.frame);
     this.flashlight.prepareForCompile();
     try {
       await this.renderPipeline.compile();
@@ -695,6 +697,8 @@ export class Engine {
     this.renderPipeline.render(0);
     this.ready = true;
     this.emitSnapshot(true);
+    this.previousTime = performance.now();
+    this.animationFrame = requestAnimationFrame(this.frame);
 
     if (this.testMode) this.installTestBridge();
   }
@@ -2213,7 +2217,8 @@ export class Engine {
       : FIXED_STEP;
     this.previousTime = timestamp;
 
-    if (this.contextStatus === "ready") {
+    try {
+      if (this.contextStatus === "ready") {
       this.accumulator += delta;
       let steps = 0;
       while (this.accumulator >= FIXED_STEP && steps < 5) {
@@ -2306,7 +2311,12 @@ export class Engine {
         gpuQuerySubmitted: renderMetrics.gpuQuerySubmitted,
         hidden: document.hidden,
       });
-      this.emitSnapshot(timestamp - this.lastSnapshotTime > 140);
+        this.emitSnapshot(timestamp - this.lastSnapshotTime > 140);
+      }
+    } catch (error) {
+      this.ready = false;
+      this.onRendererError(error);
+      return;
     }
     this.animationFrame = requestAnimationFrame(this.frame);
   };

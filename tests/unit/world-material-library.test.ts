@@ -82,7 +82,7 @@ describe("world material library", () => {
     clone.dispose();
   });
 
-  it("composes reversible surface detail and wind-matched shadow shaders", () => {
+  it("composes reversible wind without replacing stable shadow materials", () => {
     const material = tagWorldMaterial(
       new THREE.MeshStandardMaterial({ roughness: 1 }),
       {
@@ -98,10 +98,8 @@ describe("world material library", () => {
     const library = new WorldMaterialLibrary();
     library.track(mesh);
     expect(material.onBeforeCompile).not.toBe(originalCompile);
-    expect(mesh.customDepthMaterial).toBeInstanceOf(THREE.MeshDepthMaterial);
-    expect(mesh.customDistanceMaterial).toBeInstanceOf(
-      THREE.MeshDistanceMaterial,
-    );
+    expect(mesh.customDepthMaterial).toBeUndefined();
+    expect(mesh.customDistanceMaterial).toBeUndefined();
     library.present({
       surfaceWetness: 0.5,
       effectSeconds: 12,
@@ -111,7 +109,6 @@ describe("world material library", () => {
     expect(library.diagnostics).toMatchObject({
       vegetationWind: true,
       windMaterials: 1,
-      windShadowMeshes: 1,
     });
     library.setFeatures({ surfaceDetail: false, vegetationWind: false });
     expect(library.diagnostics).toMatchObject({
@@ -120,8 +117,6 @@ describe("world material library", () => {
     });
     library.untrack(mesh);
     expect(material.onBeforeCompile).toBe(originalCompile);
-    expect(mesh.customDepthMaterial).toBeUndefined();
-    expect(mesh.customDistanceMaterial).toBeUndefined();
     mesh.dispose();
     geometry.dispose();
     material.dispose();

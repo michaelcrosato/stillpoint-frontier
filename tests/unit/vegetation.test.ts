@@ -123,9 +123,7 @@ describe("biome vegetation catalog", () => {
     expect(woodyMeshes.every((mesh) =>
       worldMaterialDescriptor(mesh.material as THREE.Material)?.windAmplitude === 0.42,
     )).toBe(true);
-    expect(woodyMeshes.every((mesh) =>
-      mesh.customDepthMaterial instanceof THREE.MeshDepthMaterial,
-    )).toBe(true);
+    expect(woodyMeshes.every((mesh) => mesh.customDepthMaterial === undefined)).toBe(true);
     expect(decorativeMeshes.every((mesh) =>
       worldMaterialDescriptor(mesh.material as THREE.Material)?.windAmplitude === 0.12,
     )).toBe(true);

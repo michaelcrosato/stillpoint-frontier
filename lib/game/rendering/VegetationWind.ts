@@ -1,6 +1,7 @@
 import * as THREE from "three";
 
 export const VEGETATION_WIND_ATTRIBUTE = "stillpointWindWeight";
+const vegetationWindInstallGenerations = new WeakMap<THREE.Material, number>();
 
 export interface VegetationWindUniforms {
   uStillpointWindEnabled: { value: number };
@@ -12,12 +13,6 @@ export interface VegetationWindUniforms {
 
 export interface InstalledVegetationWind {
   uniforms: VegetationWindUniforms;
-  dispose(): void;
-}
-
-export interface VegetationShadowMaterials {
-  depth: THREE.MeshDepthMaterial;
-  distance: THREE.MeshDistanceMaterial;
   dispose(): void;
 }
 
@@ -183,13 +178,16 @@ function installWindShader(
 ) {
   const previousCompile = material.onBeforeCompile;
   const previousCacheKey = material.customProgramCacheKey;
+  const installGeneration =
+    (vegetationWindInstallGenerations.get(material) ?? 0) + 1;
+  vegetationWindInstallGenerations.set(material, installGeneration);
   const compile: THREE.Material["onBeforeCompile"] = (shader, renderer) => {
     previousCompile.call(material, shader, renderer);
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = patchWindVertexShader(shader.vertexShader);
   };
   const cacheKey = () =>
-    `${previousCacheKey.call(material)}|stillpoint-vegetation-wind-v1`;
+    `${previousCacheKey.call(material)}|stillpoint-vegetation-wind-v1-${installGeneration}`;
   material.onBeforeCompile = compile;
   material.customProgramCacheKey = cacheKey;
   material.needsUpdate = true;
@@ -211,26 +209,11 @@ export function installVegetationWind(
   material: THREE.MeshStandardMaterial,
   amplitude: number,
 ): InstalledVegetationWind {
+  // Keep deformation on the beauty material. Three's auxiliary custom-depth
+  // path is deliberately not installed here: a failed shadow variant can make
+  // the entire renderer unavailable, while a static vegetation shadow is a
+  // safe visual fallback and preserves the gameplay-facing wind effect.
   const uniforms = createUniforms(amplitude);
   const uninstall = installWindShader(material, uniforms);
   return { uniforms, dispose: uninstall };
-}
-
-export function createVegetationShadowMaterials(
-  uniforms: VegetationWindUniforms,
-): VegetationShadowMaterials {
-  const depth = new THREE.MeshDepthMaterial();
-  const distance = new THREE.MeshDistanceMaterial();
-  const uninstallDepth = installWindShader(depth, uniforms);
-  const uninstallDistance = installWindShader(distance, uniforms);
-  return {
-    depth,
-    distance,
-    dispose() {
-      uninstallDistance();
-      uninstallDepth();
-      distance.dispose();
-      depth.dispose();
-    },
-  };
 }

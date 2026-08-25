@@ -8,11 +8,9 @@ import {
   type ProceduralSurfaceDetailProfile,
 } from "./ProceduralSurfaceDetail";
 import {
-  createVegetationShadowMaterials,
   installVegetationWind,
   vegetationWindStrength,
   type InstalledVegetationWind,
-  type VegetationShadowMaterials,
 } from "./VegetationWind";
 
 export type WorldMaterialRole =
@@ -61,19 +59,10 @@ interface TrackedMaterial {
   references: number;
   surfaceDetail: InstalledSurfaceDetail | null;
   vegetationWind: InstalledVegetationWind | null;
-  shadowMaterials: VegetationShadowMaterials | null;
-}
-
-interface WindShadowBinding {
-  mesh: THREE.Mesh;
-  previousDepth: THREE.Material | undefined;
-  previousDistance: THREE.Material | undefined;
-  materials: VegetationShadowMaterials;
 }
 
 interface TrackedRoot {
   materials: Set<THREE.Material>;
-  windShadows: WindShadowBinding[];
 }
 
 export interface WorldMaterialFeatureState {
@@ -153,7 +142,7 @@ export function worldMaterialDescriptor(
 /**
  * A non-owning registry for world-surface policy. Geometry factories continue
  * to own and dispose their materials. The library owns only reversible shader
- * hooks and the auxiliary depth materials required to match wind deformation.
+ * hooks; shadow rendering deliberately stays on Three's native depth path.
  */
 export class WorldMaterialLibrary {
   private readonly tracked = new Map<THREE.Material, TrackedMaterial>();
@@ -172,10 +161,6 @@ export class WorldMaterialLibrary {
   track(root: THREE.Object3D) {
     if (this.disposed || this.roots.has(root)) return;
     const materials = new Set<THREE.Material>();
-    const windMeshes: Array<{
-      mesh: THREE.Mesh;
-      material: THREE.MeshStandardMaterial;
-    }> = [];
     root.traverse((object) => {
       if (!(object instanceof THREE.Mesh)) return;
       const candidates = Array.isArray(object.material)
@@ -187,37 +172,11 @@ export class WorldMaterialLibrary {
           continue;
         }
         materials.add(material);
-        if (
-          candidates.length === 1 &&
-          descriptor.windAmplitude > 0 &&
-          (object.castShadow || object.userData.shadowCandidate === true)
-        ) {
-          windMeshes.push({ mesh: object, material });
-        }
       }
     });
 
     for (const material of materials) this.retainMaterial(material);
-
-    const windShadows: WindShadowBinding[] = [];
-    for (const { mesh, material } of windMeshes) {
-      const tracked = this.tracked.get(material);
-      const wind = tracked?.vegetationWind;
-      if (!wind) continue;
-      const shadowMaterials = tracked.shadowMaterials;
-      if (!shadowMaterials) continue;
-      const previousDepth = mesh.customDepthMaterial;
-      const previousDistance = mesh.customDistanceMaterial;
-      mesh.customDepthMaterial = shadowMaterials.depth;
-      mesh.customDistanceMaterial = shadowMaterials.distance;
-      windShadows.push({
-        mesh,
-        previousDepth,
-        previousDistance,
-        materials: shadowMaterials,
-      });
-    }
-    this.roots.set(root, { materials, windShadows });
+    this.roots.set(root, { materials });
     this.apply();
   }
 
@@ -225,7 +184,6 @@ export class WorldMaterialLibrary {
     const trackedRoot = this.roots.get(root);
     if (!trackedRoot) return;
     this.roots.delete(root);
-    this.releaseWindShadows(trackedRoot.windShadows);
     for (const material of trackedRoot.materials) this.releaseMaterial(material);
   }
 
@@ -262,10 +220,6 @@ export class WorldMaterialLibrary {
       if (tracked.surfaceDetail) detailMaterials += 1;
       if (tracked.vegetationWind) windMaterials += 1;
     }
-    let windShadowMeshes = 0;
-    for (const root of this.roots.values()) {
-      windShadowMeshes += root.windShadows.length;
-    }
     return {
       trackedMaterials: this.tracked.size,
       wetness: this.wetness,
@@ -273,16 +227,12 @@ export class WorldMaterialLibrary {
       detailMaterials,
       vegetationWind: this.features.vegetationWind,
       windMaterials,
-      windShadowMeshes,
     };
   }
 
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
-    for (const root of this.roots.values()) {
-      this.releaseWindShadows(root.windShadows);
-    }
     this.roots.clear();
     for (const tracked of this.tracked.values()) this.restoreMaterial(tracked);
     this.tracked.clear();
@@ -303,9 +253,6 @@ export class WorldMaterialLibrary {
     const vegetationWind = descriptor.windAmplitude > 0
       ? installVegetationWind(material, descriptor.windAmplitude)
       : null;
-    const shadowMaterials = vegetationWind
-      ? createVegetationShadowMaterials(vegetationWind.uniforms)
-      : null;
     this.tracked.set(material, {
       material,
       descriptor,
@@ -314,7 +261,6 @@ export class WorldMaterialLibrary {
       references: 1,
       surfaceDetail,
       vegetationWind,
-      shadowMaterials,
     });
   }
 
@@ -328,22 +274,10 @@ export class WorldMaterialLibrary {
   }
 
   private restoreMaterial(tracked: TrackedMaterial) {
-    tracked.shadowMaterials?.dispose();
     tracked.vegetationWind?.dispose();
     tracked.surfaceDetail?.dispose();
     tracked.material.roughness = tracked.dryRoughness;
     tracked.material.envMapIntensity = tracked.dryEnvironmentIntensity;
-  }
-
-  private releaseWindShadows(bindings: readonly WindShadowBinding[]) {
-    for (const binding of bindings) {
-      if (binding.mesh.customDepthMaterial === binding.materials.depth) {
-        binding.mesh.customDepthMaterial = binding.previousDepth;
-      }
-      if (binding.mesh.customDistanceMaterial === binding.materials.distance) {
-        binding.mesh.customDistanceMaterial = binding.previousDistance;
-      }
-    }
   }
 
   private apply() {

@@ -2,7 +2,6 @@ import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import {
   VEGETATION_WIND_ATTRIBUTE,
-  createVegetationShadowMaterials,
   installVegetationWind,
   prepareVegetationGeometry,
   vegetationWindStrength,
@@ -56,24 +55,27 @@ describe("vegetation wind", () => {
     geometry.dispose();
   });
 
-  it("shares live deformation uniforms with beauty and shadow shaders", () => {
+  it("installs live deformation uniforms on the visible material", () => {
     const material = new THREE.MeshStandardMaterial();
     const wind = installVegetationWind(material, 0.42);
-    const shadows = createVegetationShadowMaterials(wind.uniforms);
+    const cacheKey = material.customProgramCacheKey();
     const beautyShader = compileMaterial(material);
-    const depthShader = compileMaterial(shadows.depth);
-    const distanceShader = compileMaterial(shadows.distance);
-    for (const shader of [beautyShader, depthShader, distanceShader]) {
-      expect(shader.vertexShader).toContain("stillpointWindWeight");
-      expect(shader.vertexShader).toContain("stillpointWorldOrigin");
-      expect(shader.vertexShader).toContain("stillpointAxisXLength");
-      expect(shader.vertexShader).not.toContain("inverse(mat3");
-      expect(shader.uniforms.uStillpointWindTime).toBe(
-        wind.uniforms.uStillpointWindTime,
-      );
-    }
-    shadows.dispose();
+    expect(beautyShader.vertexShader).toContain("stillpointWindWeight");
+    expect(beautyShader.vertexShader).toContain("stillpointWorldOrigin");
+    expect(beautyShader.vertexShader).toContain("stillpointAxisXLength");
+    expect(beautyShader.vertexShader).not.toContain("inverse(mat3");
+    expect(beautyShader.uniforms.uStillpointWindTime).toBe(
+      wind.uniforms.uStillpointWindTime,
+    );
+    const peerMaterial = new THREE.MeshStandardMaterial();
+    const peerWind = installVegetationWind(peerMaterial, 0.42);
+    expect(peerMaterial.customProgramCacheKey()).toBe(cacheKey);
     wind.dispose();
+    const reinstalled = installVegetationWind(material, 0.42);
+    expect(material.customProgramCacheKey()).not.toBe(cacheKey);
+    reinstalled.dispose();
+    peerWind.dispose();
+    peerMaterial.dispose();
     material.dispose();
   });
 });

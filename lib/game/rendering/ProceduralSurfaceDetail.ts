@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { WorldMaterialRole } from "./WorldMaterialLibrary";
 
 export const SURFACE_DETAIL_PERIOD_METERS = 256;
+const surfaceDetailInstallGenerations = new WeakMap<THREE.Material, number>();
 
 export interface ProceduralSurfaceDetailProfile {
   frequency: number;
@@ -310,13 +311,16 @@ export function installProceduralSurfaceDetail(
   const uniforms = createUniforms(profile);
   const previousCompile = material.onBeforeCompile;
   const previousCacheKey = material.customProgramCacheKey;
+  const installGeneration =
+    (surfaceDetailInstallGenerations.get(material) ?? 0) + 1;
+  surfaceDetailInstallGenerations.set(material, installGeneration);
   const compile: THREE.Material["onBeforeCompile"] = (shader, renderer) => {
     previousCompile.call(material, shader, renderer);
     Object.assign(shader.uniforms, uniforms);
     shader.fragmentShader = patchFragmentShader(shader.fragmentShader);
   };
   const cacheKey = () =>
-    `${previousCacheKey.call(material)}|stillpoint-surface-detail-v1`;
+    `${previousCacheKey.call(material)}|stillpoint-surface-detail-v1-${installGeneration}`;
   material.onBeforeCompile = compile;
   material.customProgramCacheKey = cacheKey;
   material.needsUpdate = true;

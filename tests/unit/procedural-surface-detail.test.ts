@@ -67,6 +67,7 @@ describe("procedural surface detail", () => {
       material,
       surfaceDetailProfile("terrain")!,
     );
+    const cacheKey = material.customProgramCacheKey();
     const shader = compileMaterial(material);
     expect(previousCompile).toHaveBeenCalledOnce();
     expect(shader.vertexShader).toBe(
@@ -90,6 +91,12 @@ describe("procedural surface detail", () => {
     installed.dispose();
     expect(material.onBeforeCompile).toBe(previousCompile);
     expect(material.customProgramCacheKey).toBe(previousCacheKey);
+    const reinstalled = installProceduralSurfaceDetail(
+      material,
+      surfaceDetailProfile("terrain")!,
+    );
+    expect(material.customProgramCacheKey()).not.toBe(cacheKey);
+    reinstalled.dispose();
     material.dispose();
   });
 });
