@@ -1,22 +1,15 @@
-const GAME_KEYS = new Set([
-  "KeyW",
-  "KeyA",
-  "KeyS",
-  "KeyD",
-  "KeyE",
-  "KeyF",
-  "KeyL",
-  "KeyC",
-  "KeyM",
-  "KeyQ",
-  "ShiftLeft",
-  "ShiftRight",
-  "Space",
-  "ControlLeft",
-  "ControlRight",
-  "Backquote",
-  "Escape",
-]);
+import {
+  DEFAULT_KEY_BINDINGS,
+  type GameAction,
+  type KeyBindings,
+} from "../settings";
+
+const CORE_GAME_KEYS = new Set(["Backquote", "Escape", "KeyC", "ShiftRight", "ControlRight"]);
+const ACTION_ALTERNATES: Partial<Record<GameAction, readonly string[]>> = {
+  sprint: ["ShiftRight"],
+  crouch: ["ControlRight", "KeyC"],
+  harvest: ["Mouse0"],
+};
 
 function isEditableTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
@@ -31,12 +24,15 @@ export class InputManager {
   private pressed = new Set<string>();
   private lookDelta = { x: 0, y: 0 };
   private onPointerLockChange?: (locked: boolean) => void;
+  private bindings: KeyBindings;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
     onPointerLockChange?: (locked: boolean) => void,
+    bindings: Readonly<KeyBindings> = DEFAULT_KEY_BINDINGS,
   ) {
     this.onPointerLockChange = onPointerLockChange;
+    this.bindings = { ...bindings };
     window.addEventListener("keydown", this.handleKeyDown);
     window.addEventListener("keyup", this.handleKeyUp);
     window.addEventListener("blur", this.handleBlur);
@@ -65,10 +61,27 @@ export class InputManager {
     return this.held.has(code);
   }
 
+  isActionDown(action: GameAction) {
+    return [this.bindings[action], ...(ACTION_ALTERNATES[action] ?? [])]
+      .some((code) => this.held.has(code));
+  }
+
   consumePressed(code: string) {
     const wasPressed = this.pressed.has(code);
     this.pressed.delete(code);
     return wasPressed;
+  }
+
+  consumeActionPressed(action: GameAction) {
+    const codes = [this.bindings[action], ...(ACTION_ALTERNATES[action] ?? [])];
+    const wasPressed = codes.some((code) => this.pressed.has(code));
+    for (const code of codes) this.pressed.delete(code);
+    return wasPressed;
+  }
+
+  setBindings(bindings: Readonly<KeyBindings>) {
+    this.bindings = { ...bindings };
+    this.reset();
   }
 
   consumeLookDelta() {
@@ -97,7 +110,12 @@ export class InputManager {
 
   private handleKeyDown = (event: KeyboardEvent) => {
     if (isEditableTarget(event.target) && event.code !== "Escape") return;
-    if (GAME_KEYS.has(event.code)) event.preventDefault();
+    if (
+      CORE_GAME_KEYS.has(event.code) ||
+      Object.values(this.bindings).includes(event.code)
+    ) {
+      event.preventDefault();
+    }
     if (!event.repeat) this.pressed.add(event.code);
     this.held.add(event.code);
   };

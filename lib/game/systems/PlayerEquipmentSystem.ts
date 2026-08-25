@@ -6,7 +6,7 @@ export class PlayerEquipmentSystem implements GameSystem<GameRuntimeContext> {
   readonly order = 12;
 
   update(context: GameRuntimeContext) {
-    const togglePressed = context.input.consumePressed("KeyL");
+    const togglePressed = context.input.consumeActionPressed("flashlight");
     if (togglePressed && context.started && !context.paused) {
       context.toggleFlashlight();
     }

@@ -33,9 +33,17 @@ function context(
   camera.position.set(0, 1.72, 0);
   camera.updateMatrixWorld(true);
   const pressedSet = new Set(pressed);
+  const actionCodes: Record<string, string> = {
+    map: "KeyM",
+    inventory: "KeyI",
+    quality: "KeyQ",
+    interact: "KeyE",
+    harvest: "KeyF",
+  };
   return {
     input: {
       consumePressed: vi.fn((code: string) => pressedSet.has(code)),
+      consumeActionPressed: vi.fn((action: string) => pressedSet.has(actionCodes[action])),
     },
     camera,
     world: { targets: Array.isArray(worldTarget) ? worldTarget : [worldTarget] },
@@ -47,6 +55,7 @@ function context(
     performInteraction: vi.fn(),
     toggleDeveloperPanel: vi.fn(),
     toggleMap: vi.fn(),
+    toggleInventory: vi.fn(),
     toggleQuality: vi.fn(),
     ...overrides,
   } as unknown as GameRuntimeContext;

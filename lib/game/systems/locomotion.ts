@@ -10,6 +10,21 @@ export interface StaminaStep {
   recoveryDelay: number;
 }
 
+export const JUMP_BUFFER_SECONDS = 0.12;
+export const COYOTE_TIME_SECONDS = 0.1;
+
+export function stepEyeHeight(
+  current: number,
+  target: number,
+  deltaSeconds: number,
+  response = 12,
+) {
+  if (!Number.isFinite(current) || !Number.isFinite(target)) return target;
+  const delta = Math.min(0.25, Math.max(0, deltaSeconds));
+  const amount = 1 - Math.exp(-Math.max(0, response) * delta);
+  return current + (target - current) * amount;
+}
+
 export function stepStamina(
   stamina: number,
   recoveryDelay: number,

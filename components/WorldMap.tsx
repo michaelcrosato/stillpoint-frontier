@@ -196,7 +196,7 @@ export default function WorldMap({
             <button
               type="button"
               key={settlement.id}
-              className={`map-settlement map-fast-travel-marker is-${settlement.tier} ${snapshot.lastFastTravel?.id === `settlement:${settlement.id}` ? "is-current" : ""}`}
+              className={`map-settlement map-fast-travel-marker is-${settlement.tier} ${snapshot.discoveredLocationIds.includes(`settlement:${settlement.id}`) ? "is-discovered" : ""} ${snapshot.lastFastTravel?.id === `settlement:${settlement.id}` ? "is-current" : ""}`}
               style={{ left: `${mapPercent(settlement.x)}%`, top: `${mapPercent(settlement.z)}%` }}
               title={`${settlement.name}: ${settlement.economy}`}
               data-testid={`fast-travel-marker-settlement:${settlement.id}`}
@@ -277,6 +277,7 @@ export default function WorldMap({
             <div><dt>AMBIENT CITIZENS</dt><dd>{snapshot.citizenCount.toLocaleString()} / {snapshot.crowdDensity}</dd></div>
             <div><dt>LOCAL WILDLIFE</dt><dd>{snapshot.animalCount} / {snapshot.animalSpecies} SPECIES</dd></div>
             <div><dt>RECORDS</dt><dd>{snapshot.scanned.length} / {BEACONS.length}</dd></div>
+            <div><dt>LOCATIONS LOGGED</dt><dd>{snapshot.discoveredLocationIds.length}</dd></div>
             <div><dt>WORLD CHANGES</dt><dd>{snapshot.worldChanges}</dd></div>
           </dl>
           <small>

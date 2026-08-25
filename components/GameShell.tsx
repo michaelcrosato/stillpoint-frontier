@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CompassTape, WaypointGuide } from "./NavigationDisplay";
 import DeveloperPanel from "./DeveloperPanel";
+import InventoryPanel from "./InventoryPanel";
+import InspectionPanel from "./InspectionPanel";
+import SettingsPanel from "./SettingsPanel";
 import WorldClock from "./WorldClock";
 import WorldMap from "./WorldMap";
 import {
@@ -17,6 +20,7 @@ import { developerWeatherOptions } from "../lib/game/developer/environmentState"
 import { ITEM_DEFINITIONS, type ItemId } from "../lib/game/gameplay/items";
 import { clamp } from "../lib/game/navigation/math";
 import { GamePresentationStore } from "../lib/game/navigation/presentation";
+import { keyLabel } from "../lib/game/settings";
 import { INITIAL_SNAPSHOT, nextUnscannedBeacon, type GameSnapshot } from "../lib/game/state";
 
 function beaconById(id: BeaconId | null) {
@@ -206,6 +210,16 @@ export default function GameShell() {
     ? ITEM_DEFINITIONS[snapshot.lastGather.item]
     : null;
   const surveyComplete = snapshot.scanned.length === BEACONS.length;
+  const interactionPrompt = snapshot.interactionPrompt;
+  const conditionLabels: Record<(typeof snapshot.conditions)[number], string> = {
+    sheltered: "SHELTERED",
+    wet: "WET",
+    cold: "COLD",
+    exhausted: "EXHAUSTED",
+    injured: "INJURED",
+    critical: "CRITICAL",
+    encumbered: "ENCUMBERED",
+  };
   return (
     <main className="game-shell" data-testid="game-shell">
       <canvas
@@ -218,6 +232,10 @@ export default function GameShell() {
             snapshot.started &&
             snapshot.paused &&
             !snapshot.mapOpen &&
+            !snapshot.inventoryOpen &&
+            !snapshot.settingsOpen &&
+            !snapshot.inspectionOpen &&
+            !snapshot.incapacitated &&
             !snapshot.devTools.panelOpen
           ) {
             engineRef.current?.resume();
@@ -288,6 +306,13 @@ export default function GameShell() {
             >
               <span>ENTER FRONTIER</span>
               <span aria-hidden="true">↗</span>
+            </button>
+            <button
+              type="button"
+              className="entry-settings-button"
+              onClick={() => engineRef.current?.setSettingsOpen(true)}
+            >
+              SETTINGS <span aria-hidden="true">⌁</span>
             </button>
             <p className="entry-note">
               Click to capture the mouse · Headphones recommended
@@ -452,30 +477,19 @@ export default function GameShell() {
           <WaypointGuide store={presentationStore} />
 
           {nearbyTarget &&
+            interactionPrompt &&
             !(nearbyTarget.beaconId && snapshot.scanned.includes(nearbyTarget.beaconId)) && (
             <div className="interaction-prompt" data-testid="interaction-prompt">
-              <kbd>{nearbyTarget.action === "harvest" ? "F" : "E"}</kbd>
+              <kbd>{keyLabel(interactionPrompt.keyCode)}</kbd>
               <div>
-                <span>
-                  {nearbyTarget.action === "harvest"
-                    ? "HARVEST RESOURCE"
-                    : nearbyTarget.action === "toggle"
-                      ? nearbyTarget.open
-                        ? "CLOSE DOOR"
-                        : "OPEN DOOR"
-                    : nearbyTarget.action === "collect"
-                      ? "COLLECT"
-                      : "RECOVER RECORD"}
-                </span>
+                <span>{interactionPrompt.verb}</span>
                 <strong>
                   {nearbyTarget.beaconId && nearbyBeacon?.code ? `${nearbyBeacon.code} / ` : ""}
                   {nearbyTarget.name}
                 </strong>
               </div>
               <small>
-                {nearbyTarget.action === "harvest"
-                  ? `${Math.max(1, nearbyTarget.hitsRequired - nearbyTarget.hits)} HITS · `
-                  : ""}
+                {interactionPrompt.detail ? `${interactionPrompt.detail} · ` : ""}
                 {snapshot.nearbyDistance?.toFixed(1)}M
               </small>
             </div>
@@ -492,6 +506,11 @@ export default function GameShell() {
           )}
 
           <div className="survival-readout" data-testid="movement-readout">
+            <div className={`health-line ${snapshot.health < 25 ? "is-critical" : ""}`} data-testid="health-readout">
+              <span>VITALS</span>
+              <i><b style={{ width: `${snapshot.health}%` }} /></i>
+              <strong>{Math.ceil(snapshot.health)}</strong>
+            </div>
             <div className="stamina-line">
               <span>
                 {snapshot.crouching ? "CROUCHED" : snapshot.sprinting ? "SPRINTING" : snapshot.grounded ? "READY" : "AIRBORNE"}
@@ -499,6 +518,15 @@ export default function GameShell() {
               <i><b style={{ width: `${snapshot.stamina * 100}%` }} /></i>
               <strong>{Math.round(snapshot.stamina * 100)}</strong>
             </div>
+            {snapshot.conditions.length > 0 && (
+              <div className="condition-strip" aria-live="polite" data-testid="condition-strip">
+                {snapshot.conditions.map((condition) => (
+                  <span key={condition} className={`condition-${condition}`}>
+                    {conditionLabels[condition]}
+                  </span>
+                ))}
+              </div>
+            )}
             <div className="inventory-belt" data-testid="inventory-belt">
               {(Object.keys(ITEM_DEFINITIONS) as ItemId[]).map((item) => (
                 <span key={item} className={snapshot.inventory[item] > 0 ? "has-item" : ""}>
@@ -511,25 +539,33 @@ export default function GameShell() {
 
           <footer className="hud-footer">
             <div className="controls-strip">
-              <span><kbd>WASD</kbd> MOVE</span>
-              <span><kbd>SHIFT</kbd> SPRINT</span>
-              <span><kbd>SPACE</kbd> JUMP</span>
-              <span><kbd>CTRL/C</kbd> CROUCH</span>
-              <span><kbd>E</kbd> USE</span>
-              <span><kbd>F/CLICK</kbd> HARVEST</span>
+              <span><kbd>{[
+                snapshot.settings.keyBindings.moveForward,
+                snapshot.settings.keyBindings.moveLeft,
+                snapshot.settings.keyBindings.moveBackward,
+                snapshot.settings.keyBindings.moveRight,
+              ].map(keyLabel).join("")}</kbd> MOVE</span>
+              <span><kbd>{keyLabel(snapshot.settings.keyBindings.sprint)}</kbd> SPRINT</span>
+              <span><kbd>{keyLabel(snapshot.settings.keyBindings.jump)}</kbd> JUMP</span>
+              <span><kbd>{keyLabel(snapshot.settings.keyBindings.crouch)}</kbd> CROUCH</span>
+              <span><kbd>{keyLabel(snapshot.settings.keyBindings.interact)}</kbd> USE</span>
+              <span><kbd>{keyLabel(snapshot.settings.keyBindings.harvest)}/CLICK</kbd> HARVEST</span>
               <button
                 type="button"
                 className={snapshot.flashlightOn ? "is-active" : ""}
                 data-testid="flashlight-toggle"
                 aria-pressed={snapshot.flashlightOn}
-                aria-keyshortcuts="L"
+                aria-keyshortcuts={keyLabel(snapshot.settings.keyBindings.flashlight)}
                 aria-label="Phone flashlight"
                 onClick={() => engineRef.current?.toggleFlashlight()}
               >
-                <kbd>L</kbd> PHONE LIGHT {snapshot.flashlightOn ? "ON" : "OFF"}
+                <kbd>{keyLabel(snapshot.settings.keyBindings.flashlight)}</kbd> PHONE LIGHT {snapshot.flashlightOn ? "ON" : "OFF"}
               </button>
               <button type="button" onClick={() => engineRef.current?.setMapOpen(true)}>
-                <kbd>M</kbd> MAP
+                <kbd>{keyLabel(snapshot.settings.keyBindings.map)}</kbd> MAP
+              </button>
+              <button type="button" onClick={() => engineRef.current?.setInventoryOpen(true)}>
+                <kbd>{keyLabel(snapshot.settings.keyBindings.inventory)}</kbd> KIT
               </button>
               <button type="button" onClick={() => engineRef.current?.setDeveloperPanelOpen(true)}>
                 <kbd>`</kbd> DEV
@@ -545,7 +581,7 @@ export default function GameShell() {
         </div>
       )}
 
-      {snapshot.started && snapshot.paused && !snapshot.mapOpen && !snapshot.devTools.panelOpen && snapshot.contextStatus === "ready" && (
+      {snapshot.started && snapshot.paused && !snapshot.mapOpen && !snapshot.inventoryOpen && !snapshot.settingsOpen && !snapshot.inspectionOpen && !snapshot.incapacitated && !snapshot.devTools.panelOpen && snapshot.contextStatus === "ready" && (
         <section className="pause-panel" data-testid="pause-panel">
           <p className="eyebrow">FIELD LINK SUSPENDED</p>
           <h2>The frontier is holding.</h2>
@@ -553,6 +589,23 @@ export default function GameShell() {
           <button type="button" onClick={() => engineRef.current?.resume()}>
             RESUME SURVEY <span>↗</span>
           </button>
+          <div className="pause-action-grid">
+            <button type="button" data-testid="save-now" onClick={() => engineRef.current?.saveNow()}>
+              SAVE NOW <span>{snapshot.saveStatus.toUpperCase()}</span>
+            </button>
+            <button type="button" data-testid="load-save" disabled={snapshot.saveStatus !== "saved"} onClick={() => engineRef.current?.loadGame()}>
+              LOAD LAST SAVE <span>RESTORE</span>
+            </button>
+            <button type="button" onClick={() => engineRef.current?.setInventoryOpen(true)}>
+              INVENTORY <span>{snapshot.inventoryItemCount} ITEMS</span>
+            </button>
+            <button type="button" onClick={() => engineRef.current?.setSettingsOpen(true)}>
+              SETTINGS <span>LOCAL</span>
+            </button>
+            <button type="button" onClick={() => engineRef.current?.recoverPlayer()}>
+              RECOVER AT FIELD UNIT <span>SAFE RETURN</span>
+            </button>
+          </div>
           <button
             type="button"
             className="pause-dev-button"
@@ -584,8 +637,54 @@ export default function GameShell() {
           onSetClockPaused={(paused) => engineRef.current?.setDeveloperClockPaused(paused)}
           onSetWeather={(weatherId) => engineRef.current?.setDeveloperWeather(weatherId)}
           onSetHorizonMode={(mode) => engineRef.current?.setHorizonMode(mode)}
+          onSetHealth={(health) => engineRef.current?.setPlayerHealth(health)}
+          onApplyFall={(speed) => engineRef.current?.applyFallImpact(speed)}
+          onRecover={() => engineRef.current?.recoverPlayer()}
           onReset={() => engineRef.current?.resetDeveloperOverrides()}
         />
+      )}
+
+      {snapshot.started && snapshot.inventoryOpen && (
+        <InventoryPanel
+          snapshot={snapshot}
+          onClose={() => engineRef.current?.resume()}
+        />
+      )}
+
+      {snapshot.settingsOpen && (
+        <SettingsPanel
+          snapshot={snapshot}
+          onClose={() => snapshot.started
+            ? engineRef.current?.resume()
+            : engineRef.current?.setSettingsOpen(false)}
+          onSetFov={(value) => engineRef.current?.setFov(value)}
+          onSetSensitivity={(value) => engineRef.current?.setLookSensitivity(value)}
+          onSetInvertY={(value) => engineRef.current?.setInvertY(value)}
+          onSetVolume={(channel, value) => engineRef.current?.setAudioVolume(channel, value)}
+          onSetQuality={(quality) => engineRef.current?.setQuality(quality)}
+          onSetHorizon={(mode) => engineRef.current?.setHorizonMode(mode)}
+          onRebind={(action, code) => engineRef.current?.setKeyBinding(action, code)}
+          onReset={() => engineRef.current?.resetSettings()}
+        />
+      )}
+
+      {snapshot.started && snapshot.activeInspection && (
+        <InspectionPanel
+          inspection={snapshot.activeInspection}
+          onClose={() => engineRef.current?.resume()}
+        />
+      )}
+
+      {snapshot.started && snapshot.incapacitated && snapshot.contextStatus === "ready" && (
+        <section className="incapacitated-panel" role="dialog" aria-modal="true" data-testid="incapacitated-panel">
+          <p className="eyebrow">FIELD UNIT / VITALS LOST</p>
+          <h2>You cannot continue from here.</h2>
+          <p>The survey state is intact. Recover at the Field Unit Compound to resume with full health.</p>
+          <button type="button" autoFocus onClick={() => engineRef.current?.recoverPlayer()}>
+            RECOVER AT FIELD UNIT <span>↗</span>
+          </button>
+          <small>{keyLabel(snapshot.settings.keyBindings.recover)} · QUICK RECOVERY</small>
+        </section>
       )}
 
       {snapshot.contextStatus === "lost" && (
@@ -609,6 +708,16 @@ export default function GameShell() {
           <h2>{discoveredBeacon.name}</h2>
           <blockquote>{discoveredBeacon.note}</blockquote>
           <small>{snapshot.scanned.length} OF {BEACONS.length} SIGNALS COHERENT</small>
+        </aside>
+      )}
+
+      {snapshot.lastLocationDiscovery && (
+        <aside className="location-discovery-card" data-testid="location-discovery-card" aria-live="polite">
+          <button type="button" aria-label="Dismiss location discovery" onClick={() => engineRef.current?.clearLocationDiscoveryNotice()}>×</button>
+          <p>LOCATION DISCOVERED / {snapshot.lastLocationDiscovery.kind.toUpperCase()}</p>
+          <h2>{snapshot.lastLocationDiscovery.name}</h2>
+          <blockquote>{snapshot.lastLocationDiscovery.note}</blockquote>
+          <small>{snapshot.lastLocationDiscovery.region} · {snapshot.discoveredLocationIds.length} LOCATIONS LOGGED</small>
         </aside>
       )}
 

@@ -11,7 +11,7 @@ function context({
     started,
     paused,
     input: {
-      consumePressed: vi.fn((code: string) => pressed && code === "KeyL"),
+      consumeActionPressed: vi.fn((action: string) => pressed && action === "flashlight"),
     },
     toggleFlashlight: vi.fn(),
   } as unknown as GameRuntimeContext;
@@ -21,7 +21,7 @@ describe("player equipment input", () => {
   it("uses a single L press to toggle the field light during active play", () => {
     const runtime = context();
     new PlayerEquipmentSystem().update(runtime);
-    expect(runtime.input.consumePressed).toHaveBeenCalledWith("KeyL");
+    expect(runtime.input.consumeActionPressed).toHaveBeenCalledWith("flashlight");
     expect(runtime.toggleFlashlight).toHaveBeenCalledTimes(1);
   });
 
@@ -32,7 +32,7 @@ describe("player equipment input", () => {
       context({ pressed: false }),
     ]) {
       new PlayerEquipmentSystem().update(runtime);
-      expect(runtime.input.consumePressed).toHaveBeenCalledWith("KeyL");
+      expect(runtime.input.consumeActionPressed).toHaveBeenCalledWith("flashlight");
       expect(runtime.toggleFlashlight).not.toHaveBeenCalled();
     }
   });

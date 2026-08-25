@@ -17,6 +17,9 @@ interface DeveloperPanelProps {
   onSetClockPaused(paused: boolean): void;
   onSetWeather(weatherId: WeatherId | null): void;
   onSetHorizonMode(mode: HorizonMode): void;
+  onSetHealth(health: number): void;
+  onApplyFall(speed: number): void;
+  onRecover(): void;
   onReset(): void;
 }
 
@@ -52,6 +55,9 @@ export default function DeveloperPanel({
   onSetClockPaused,
   onSetWeather,
   onSetHorizonMode,
+  onSetHealth,
+  onApplyFall,
+  onRecover,
   onReset,
 }: DeveloperPanelProps) {
   const panelRef = useRef<HTMLElement>(null);
@@ -256,6 +262,36 @@ export default function DeveloperPanel({
                 {Math.round(snapshot.environment.temperatureC)}°C · {Math.round(snapshot.environment.windKph)} KM/H · {snapshot.environment.precipitation.toUpperCase()}
               </span>
             </p>
+          </div>
+        </fieldset>
+
+        <fieldset className="dev-vitals" disabled={!snapshot.devTools.enabled}>
+          <legend>PLAYER / VITALS</legend>
+          <div className="dev-control-heading">
+            <label htmlFor="developer-health">HEALTH</label>
+            <output htmlFor="developer-health">{Math.ceil(snapshot.health)} / {snapshot.maxHealth}</output>
+          </div>
+          <input
+            id="developer-health"
+            data-testid="developer-health"
+            className="dev-time-slider"
+            type="range"
+            min="0"
+            max={snapshot.maxHealth}
+            step="1"
+            value={snapshot.health}
+            onChange={(event) => onSetHealth(Number(event.currentTarget.value))}
+          />
+          <div className="dev-vitals-status">
+            <span>{snapshot.sheltered ? "SHELTERED" : "EXPOSED"}</span>
+            <span>WET {Math.round(snapshot.wetness * 100)}%</span>
+            <span>COLD {Math.round(snapshot.coldStress * 100)}%</span>
+            <span>FEELS {Math.round(snapshot.apparentTemperatureC)}°C</span>
+          </div>
+          <div className="dev-inline-controls">
+            <button type="button" onClick={() => onSetHealth(Math.max(0, snapshot.health - 25))}>DAMAGE 25</button>
+            <button type="button" onClick={() => onApplyFall(34)}>FATAL FALL</button>
+            <button type="button" onClick={onRecover}>RECOVER PLAYER</button>
           </div>
         </fieldset>
 

@@ -12,8 +12,10 @@ import {
   type ItemId,
 } from "../gameplay/items";
 import type { EntityDiff } from "../gameplay/interactions";
+import { MAX_HEALTH } from "../gameplay/playerCondition";
 import { WORLD_START_MINUTES } from "../environment/model";
 import { WORLD_HALF_EXTENT } from "../world/macroWorld";
+import { isKnownLocationId } from "../world/locationDiscovery";
 
 // Keep the legacy key so version-one saves migrate in place.
 const SAVE_KEY = "stillpoint-frontier:survey:v1";
@@ -23,6 +25,7 @@ const ENTITY_ID = /^[a-z0-9][a-z0-9:._-]{0,119}$/i;
 const MAX_WORLD_DIFFS = 10_000;
 const MAX_DOOR_STATES = 256;
 const MAX_WORLD_MINUTES = 10_000_000;
+const MAX_DISCOVERED_LOCATIONS = 128;
 
 export interface StorageAdapter {
   getItem(key: string): string | null;
@@ -30,7 +33,7 @@ export interface StorageAdapter {
 }
 
 export interface FrontierSave {
-  version: 6;
+  version: 7;
   scanned: BeaconId[];
   inventory: InventoryState;
   worldDiffs: Record<string, EntityDiff>;
@@ -38,6 +41,8 @@ export interface FrontierSave {
   manualWaypoint: SavedMapWaypoint | null;
   worldMinutes: number;
   horizonMode: HorizonMode;
+  player: SavedPlayerState | null;
+  discoveredLocations: string[];
 }
 
 export interface FrontierSaveInput {
@@ -48,6 +53,8 @@ export interface FrontierSaveInput {
   manualWaypoint: Readonly<SavedMapWaypoint> | null;
   worldMinutes: number;
   horizonMode: HorizonMode;
+  player?: Readonly<SavedPlayerState> | null;
+  discoveredLocations?: readonly string[];
 }
 
 export interface SavedMapWaypoint {
@@ -55,9 +62,20 @@ export interface SavedMapWaypoint {
   z: number;
 }
 
+export interface SavedPlayerState {
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  pitch: number;
+  health: number;
+  wetness: number;
+  coldStress: number;
+}
+
 function emptySave(): FrontierSave {
   return {
-    version: 6,
+    version: 7,
     scanned: [],
     inventory: { ...EMPTY_INVENTORY },
     worldDiffs: {},
@@ -65,6 +83,8 @@ function emptySave(): FrontierSave {
     manualWaypoint: null,
     worldMinutes: WORLD_START_MINUTES,
     horizonMode: DEFAULT_HORIZON_MODE,
+    player: null,
+    discoveredLocations: [],
   };
 }
 
@@ -133,8 +153,65 @@ function normalizeHorizonMode(value: unknown): HorizonMode {
   return isHorizonMode(value) ? value : DEFAULT_HORIZON_MODE;
 }
 
+function normalizePlayerState(value: unknown): SavedPlayerState | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const source = value as Partial<Record<keyof SavedPlayerState, unknown>>;
+  if (
+    typeof source.x !== "number" ||
+    typeof source.y !== "number" ||
+    typeof source.z !== "number" ||
+    typeof source.yaw !== "number" ||
+    !Number.isFinite(source.x) ||
+    !Number.isFinite(source.y) ||
+    !Number.isFinite(source.z) ||
+    !Number.isFinite(source.yaw) ||
+    Math.abs(source.x) > WORLD_HALF_EXTENT ||
+    Math.abs(source.z) > WORLD_HALF_EXTENT ||
+    source.y < -100 ||
+    source.y > 5_000
+  ) {
+    return null;
+  }
+  const wrap = (source.yaw + Math.PI) % (Math.PI * 2);
+  const yaw = (wrap < 0 ? wrap + Math.PI * 2 : wrap) - Math.PI;
+  const pitch = typeof source.pitch === "number" && Number.isFinite(source.pitch)
+    ? Math.min(Math.PI * 0.48, Math.max(-Math.PI * 0.48, source.pitch))
+    : 0;
+  const normalizeMeter = (candidate: unknown, fallback: number, maximum: number) =>
+    typeof candidate === "number" && Number.isFinite(candidate)
+      ? Math.min(maximum, Math.max(0, candidate))
+      : fallback;
+  return {
+    x: source.x,
+    y: source.y,
+    z: source.z,
+    yaw,
+    pitch,
+    health: normalizeMeter(source.health, MAX_HEALTH, MAX_HEALTH),
+    wetness: normalizeMeter(source.wetness, 0, 1),
+    coldStress: normalizeMeter(source.coldStress, 0, 1),
+  };
+}
+
+function normalizeDiscoveredLocations(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value)]
+    .filter(isKnownLocationId)
+    .slice(0, MAX_DISCOVERED_LOCATIONS)
+    .sort();
+}
+
 export class SaveStore {
   constructor(private readonly storage: StorageAdapter | null) {}
+
+  hasSave() {
+    if (!this.storage) return false;
+    try {
+      return this.storage.getItem(SAVE_KEY) !== null;
+    } catch {
+      return false;
+    }
+  }
 
   load(): FrontierSave {
     if (!this.storage) return emptySave();
@@ -150,6 +227,8 @@ export class SaveStore {
         manualWaypoint?: unknown;
         worldMinutes?: unknown;
         horizonMode?: unknown;
+        player?: unknown;
+        discoveredLocations?: unknown;
       };
       if (parsed.version === 1) {
         return { ...emptySave(), scanned: normalizeScanned(parsed.scanned) };
@@ -159,34 +238,44 @@ export class SaveStore {
         parsed.version !== 3 &&
         parsed.version !== 4 &&
         parsed.version !== 5 &&
-        parsed.version !== 6
+        parsed.version !== 6 &&
+        parsed.version !== 7
       ) {
         return emptySave();
       }
       return {
-        version: 6,
+        version: 7,
         scanned: normalizeScanned(parsed.scanned),
         inventory: normalizeInventory(parsed.inventory),
         worldDiffs: normalizeWorldDiffs(parsed.worldDiffs),
         doorStates:
-          parsed.version === 5 || parsed.version === 6
+          parsed.version === 5 || parsed.version === 6 || parsed.version === 7
             ? normalizeDoorStates(parsed.doorStates)
             : {},
         manualWaypoint:
           parsed.version === 3 ||
           parsed.version === 4 ||
           parsed.version === 5 ||
-          parsed.version === 6
+          parsed.version === 6 ||
+          parsed.version === 7
             ? normalizeManualWaypoint(parsed.manualWaypoint)
             : null,
         worldMinutes:
-          parsed.version === 4 || parsed.version === 5 || parsed.version === 6
+          parsed.version === 4 ||
+          parsed.version === 5 ||
+          parsed.version === 6 ||
+          parsed.version === 7
             ? normalizeWorldMinutes(parsed.worldMinutes)
             : WORLD_START_MINUTES,
         horizonMode:
-          parsed.version === 6
+          parsed.version === 6 || parsed.version === 7
             ? normalizeHorizonMode(parsed.horizonMode)
             : DEFAULT_HORIZON_MODE,
+        player: parsed.version === 7 ? normalizePlayerState(parsed.player) : null,
+        discoveredLocations:
+          parsed.version === 7
+            ? normalizeDiscoveredLocations(parsed.discoveredLocations)
+            : [],
       };
     } catch {
       return emptySave();
@@ -197,7 +286,7 @@ export class SaveStore {
     if (!this.storage) return false;
     try {
       const payload: FrontierSave = {
-        version: 6,
+        version: 7,
         scanned: normalizeScanned(input.scanned),
         inventory: normalizeInventory(input.inventory),
         worldDiffs: normalizeWorldDiffs(input.worldDiffs),
@@ -205,6 +294,8 @@ export class SaveStore {
         manualWaypoint: normalizeManualWaypoint(input.manualWaypoint),
         worldMinutes: normalizeWorldMinutes(input.worldMinutes),
         horizonMode: normalizeHorizonMode(input.horizonMode),
+        player: normalizePlayerState(input.player),
+        discoveredLocations: normalizeDiscoveredLocations(input.discoveredLocations),
       };
       this.storage.setItem(SAVE_KEY, JSON.stringify(payload));
       return true;

@@ -71,11 +71,11 @@ export class InteractionSystem implements GameSystem<GameRuntimeContext> {
     ) {
       context.toggleDeveloperPanel();
     }
-    if (context.input.consumePressed("KeyM")) context.toggleMap();
-    if (context.input.consumePressed("KeyQ")) context.toggleQuality();
-    const usePressed = context.input.consumePressed("KeyE");
-    const harvestPressed =
-      context.input.consumePressed("KeyF") || context.input.consumePressed("Mouse0");
+    if (context.input.consumeActionPressed("map")) context.toggleMap();
+    if (context.input.consumeActionPressed("inventory")) context.toggleInventory();
+    if (context.input.consumeActionPressed("quality")) context.toggleQuality();
+    const usePressed = context.input.consumeActionPressed("interact");
+    const harvestPressed = context.input.consumeActionPressed("harvest");
 
     context.nearbyTarget = null;
     context.nearbyDistance = null;
@@ -112,7 +112,8 @@ export class InteractionSystem implements GameSystem<GameRuntimeContext> {
       if (distance > target.maxDistance) continue;
       const alignment = forward.dot(toTarget.normalize());
       if (alignment < (target.kind === "pickup" ? 0.5 : 0.58)) continue;
-      const score = distance + (1 - alignment) * 4;
+      const priority = target.kind === "door" || target.kind === "inspectable" ? -0.35 : 0;
+      const score = distance + (1 - alignment) * 4 + priority;
       if (score >= bestScore) continue;
       bestScore = score;
       bestTarget = target;

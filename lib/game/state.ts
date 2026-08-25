@@ -16,12 +16,24 @@ import {
   type DeveloperWeatherOption,
 } from "./developer/environmentState";
 import { EMPTY_INVENTORY, type InventoryState, type ItemId } from "./gameplay/items";
+import type { InteractionPromptDescriptor } from "./gameplay/interactionPrompt";
+import {
+  MAX_HEALTH,
+  type DamageNotice,
+  type PlayerConditionTag,
+} from "./gameplay/playerCondition";
 import type { NavigationGuidance } from "./navigation/NavigationService";
+import { DEFAULT_GAME_SETTINGS, type GameSettings } from "./settings";
+import type { InspectionRecord } from "./world/inspectables";
+import {
+  getDiscoverableLocation,
+  type DiscoverableLocation,
+} from "./world/locationDiscovery";
 
 export interface NearbyTargetSnapshot {
   id: string;
-  kind: "beacon" | "pickup" | "resource" | "door";
-  action: "scan" | "collect" | "harvest" | "toggle";
+  kind: "beacon" | "pickup" | "resource" | "door" | "inspectable";
+  action: "scan" | "collect" | "harvest" | "toggle" | "inspect";
   name: string;
   item: ItemId | null;
   hits: number;
@@ -75,6 +87,10 @@ export interface GameSnapshot {
   started: boolean;
   paused: boolean;
   mapOpen: boolean;
+  inventoryOpen: boolean;
+  settingsOpen: boolean;
+  inspectionOpen: boolean;
+  activeInspection: InspectionRecord | null;
   devTools: DeveloperToolsSnapshot;
   contextStatus: "ready" | "lost";
   position: { x: number; y: number; z: number };
@@ -99,12 +115,33 @@ export interface GameSnapshot {
   quality: QualityLevel;
   scanned: BeaconId[];
   inventory: InventoryState;
+  inventoryWeight: number;
+  inventoryItemCount: number;
   worldChanges: number;
   grounded: boolean;
   crouching: boolean;
   sprinting: boolean;
   stamina: number;
+  health: number;
+  maxHealth: number;
+  wetness: number;
+  coldStress: number;
+  apparentTemperatureC: number;
+  sheltered: boolean;
+  conditions: PlayerConditionTag[];
+  incapacitated: boolean;
+  lastDamage: DamageNotice | null;
   flashlightOn: boolean;
+  settings: GameSettings;
+  saveStatus: "saved" | "unsaved" | "unavailable";
+  lastSavedAt: number | null;
+  audio: {
+    available: boolean;
+    unlocked: boolean;
+    state: string;
+    cueCount: number;
+    lastCue: string | null;
+  };
   biome: { id: string; name: string; region: string };
   environment: EnvironmentSnapshot;
   nearestSettlement: {
@@ -116,11 +153,15 @@ export interface GameSnapshot {
     reason: string;
   };
   nearbyTarget: NearbyTargetSnapshot | null;
+  interactionPrompt: InteractionPromptDescriptor | null;
   nearbyBeacon: BeaconId | null;
   nearbyDistance: number | null;
   lastDiscovery: BeaconId | null;
   lastGather: LastGatherSnapshot | null;
   lastFastTravel: FastTravelSnapshot | null;
+  currentLocation: DiscoverableLocation;
+  discoveredLocationIds: string[];
+  lastLocationDiscovery: DiscoverableLocation | null;
 }
 
 export const INITIAL_SNAPSHOT: GameSnapshot = {
@@ -128,6 +169,10 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
   started: false,
   paused: false,
   mapOpen: false,
+  inventoryOpen: false,
+  settingsOpen: false,
+  inspectionOpen: false,
+  activeInspection: null,
   devTools: {
     enabled: false,
     panelOpen: false,
@@ -159,12 +204,36 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
   quality: "cinematic",
   scanned: [],
   inventory: { ...EMPTY_INVENTORY },
+  inventoryWeight: 0,
+  inventoryItemCount: 0,
   worldChanges: 0,
   grounded: true,
   crouching: false,
   sprinting: false,
   stamina: 1,
+  health: MAX_HEALTH,
+  maxHealth: MAX_HEALTH,
+  wetness: 0,
+  coldStress: 0,
+  apparentTemperatureC: 16,
+  sheltered: false,
+  conditions: [],
+  incapacitated: false,
+  lastDamage: null,
   flashlightOn: false,
+  settings: {
+    ...DEFAULT_GAME_SETTINGS,
+    keyBindings: { ...DEFAULT_GAME_SETTINGS.keyBindings },
+  },
+  saveStatus: "unavailable",
+  lastSavedAt: null,
+  audio: {
+    available: false,
+    unlocked: false,
+    state: "uninitialized",
+    cueCount: 0,
+    lastCue: null,
+  },
   biome: { id: "grey_meadow", name: "Grey Meadow", region: "Red Basin Marches" },
   environment: {
     totalMinutes: 450,
@@ -191,11 +260,15 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
     reason: "A basin settlement.",
   },
   nearbyTarget: null,
+  interactionPrompt: null,
   nearbyBeacon: null,
   nearbyDistance: null,
   lastDiscovery: null,
   lastGather: null,
   lastFastTravel: null,
+  currentLocation: getDiscoverableLocation("landmark:field-unit-compound")!,
+  discoveredLocationIds: [],
+  lastLocationDiscovery: null,
 };
 
 export function addDiscovery(

@@ -14,6 +14,7 @@ import {
 } from "./config";
 import { CitizenEngine } from "./citizens/CitizenEngine";
 import { AnimalEngine } from "./animals/AnimalEngine";
+import { EnvironmentalAudio } from "./audio/EnvironmentalAudio";
 import { PlayerFlashlight } from "./equipment/PlayerFlashlight";
 import { SystemPipeline } from "./core/SystemPipeline";
 import { FeatureRegistry } from "./core/FeatureRegistry";
@@ -31,14 +32,33 @@ import {
 import { clamp, headingFromYaw, unwrappedHeadingFromYaw } from "./navigation/math";
 import type { GamePresentation, WaypointScreenProjection } from "./navigation/presentation";
 import { SaveStore } from "./persistence/SaveStore";
+import { PreferencesStore } from "./persistence/PreferencesStore";
 import { applyGather, type EntityDiff } from "./gameplay/interactions";
-import { EMPTY_INVENTORY, type InventoryState } from "./gameplay/items";
+import {
+  EMPTY_INVENTORY,
+  inventoryItemCount,
+  inventoryWeight,
+  type InventoryState,
+} from "./gameplay/items";
+import { interactionPromptFor } from "./gameplay/interactionPrompt";
+import {
+  INITIAL_PLAYER_CONDITION,
+  MAX_HEALTH,
+  apparentTemperature,
+  applyPlayerDamage,
+  deriveConditionTags,
+  fallDamageForImpact,
+  recoverPlayerCondition,
+} from "./gameplay/playerCondition";
 import { InteractionSystem } from "./systems/InteractionSystem";
 import { CitizenCrowdSystem } from "./systems/CitizenCrowdSystem";
 import { AmbientAnimalSystem } from "./systems/AmbientAnimalSystem";
 import { PlayerEquipmentSystem } from "./systems/PlayerEquipmentSystem";
 import { EnvironmentSystem } from "./systems/EnvironmentSystem";
 import { PlayerControllerSystem } from "./systems/PlayerControllerSystem";
+import { PlayerConditionSystem } from "./systems/PlayerConditionSystem";
+import { LocationDiscoverySystem } from "./systems/LocationDiscoverySystem";
+import { EnvironmentalAudioSystem } from "./systems/EnvironmentalAudioSystem";
 import { NavigationSystem } from "./systems/NavigationSystem";
 import {
   isPlanarPositionClear,
@@ -62,6 +82,20 @@ import {
 } from "./world/fastTravel";
 import { WORLD_HALF_EXTENT, nearestSettlement, sampleClimate } from "./world/macroWorld";
 import { sampleTerrainHeight, worldToChunk } from "./world/terrain";
+import {
+  DEFAULT_GAME_SETTINGS,
+  normalizeGameSettings,
+  rebindAction,
+  type GameAction,
+  type GameSettings,
+} from "./settings";
+import {
+  addLocationDiscovery,
+  currentDiscoverableLocation,
+  getDiscoverableLocation,
+  type DiscoverableLocation,
+} from "./world/locationDiscovery";
+import type { InspectionRecord } from "./world/inspectables";
 
 const FIXED_STEP = 1 / 60;
 const MAX_FRAME_DELTA = 0.075;
@@ -111,6 +145,19 @@ export interface GameTestBridge {
     shadowsEnabled: boolean;
     quality: QualityLevel;
   };
+  audio(): EnvironmentalAudio["diagnostics"];
+  saveNow(): boolean;
+  loadGame(): boolean;
+  setFov(fov: number): boolean;
+  setLookSensitivity(value: number): boolean;
+  setInvertY(enabled: boolean): boolean;
+  setKeyBinding(action: GameAction, code: string): boolean;
+  setQuality(quality: QualityLevel): boolean;
+  setPlayerHealth(health: number): number;
+  applyFallImpact(speed: number): number;
+  recoverPlayer(): void;
+  discoverCurrentLocation(): boolean;
+  inspectableIds(): string[];
   nightLighting(): {
     strength: number;
     windows: number;
@@ -169,6 +216,7 @@ export class Engine {
   private readonly citizens: CitizenEngine;
   private readonly animals: AnimalEngine;
   private readonly flashlight: PlayerFlashlight;
+  private readonly audio: EnvironmentalAudio;
   private readonly navigation = new NavigationService();
   private readonly environment: EnvironmentRuntime;
   private readonly pipeline = new SystemPipeline<GameRuntimeContext>();
@@ -176,6 +224,7 @@ export class Engine {
   private readonly onPresentation: (presentation: GamePresentation) => void;
   private readonly testMode: boolean;
   private readonly saveStore: SaveStore;
+  private readonly preferencesStore: PreferencesStore;
   private readonly projectionPoint = new THREE.Vector3();
   private readonly projectionDirection = new THREE.Vector3();
   private readonly cameraDirection = new THREE.Vector3();
@@ -189,6 +238,13 @@ export class Engine {
     sprinting: false,
     stamina: 1,
     staminaRecoveryDelay: 0,
+    eyeHeight: PLAYER_HEIGHT,
+    jumpBufferRemaining: 0,
+    coyoteRemaining: 0,
+    sheltered: false,
+    condition: { ...INITIAL_PLAYER_CONDITION },
+    safePosition: new THREE.Vector3(0, 0, 8),
+    groundedSafeTime: 0,
   };
 
   private runtime: GameRuntimeContext;
@@ -203,10 +259,17 @@ export class Engine {
   private started = false;
   private paused = false;
   private mapOpen = false;
+  private inventoryOpen = false;
+  private settingsOpen = false;
+  private activeInspection: InspectionRecord | null = null;
   private developerPanelOpen = false;
   private contextStatus: "ready" | "lost" = "ready";
   private quality: QualityLevel = "cinematic";
   private horizonMode: HorizonMode = DEFAULT_HORIZON_MODE;
+  private settings: GameSettings = {
+    ...DEFAULT_GAME_SETTINGS,
+    keyBindings: { ...DEFAULT_GAME_SETTINGS.keyBindings },
+  };
   private scanned: BeaconId[] = [];
   private inventory: InventoryState = { ...EMPTY_INVENTORY };
   private worldDiffs: Record<string, EntityDiff> = {};
@@ -214,6 +277,11 @@ export class Engine {
   private lastDiscovery: BeaconId | null = null;
   private lastGather: LastGatherSnapshot | null = null;
   private lastFastTravel: GameSnapshot["lastFastTravel"] = null;
+  private discoveredLocations: string[] = [];
+  private currentLocation: DiscoverableLocation = currentDiscoverableLocation(0, 8);
+  private lastLocationDiscovery: DiscoverableLocation | null = null;
+  private saveStatus: GameSnapshot["saveStatus"] = "unavailable";
+  private lastSavedAt: number | null = null;
   private lastClockPersistTime = 0;
   private snapshot = { ...INITIAL_SNAPSHOT };
   private disposed = false;
@@ -233,16 +301,36 @@ export class Engine {
       }
     }
     this.saveStore = new SaveStore(browserStorage);
+    this.preferencesStore = new PreferencesStore(browserStorage);
     const saved = this.saveStore.load();
+    this.settings = this.preferencesStore.load(saved.horizonMode);
     this.scanned = saved.scanned;
     this.inventory = saved.inventory;
     this.worldDiffs = saved.worldDiffs;
     this.doorStates = saved.doorStates;
-    this.horizonMode = saved.horizonMode;
+    this.discoveredLocations = saved.discoveredLocations;
+    this.horizonMode = this.settings.horizonMode;
+    this.quality = this.settings.quality;
+    this.saveStatus = browserStorage ? (this.saveStore.hasSave() ? "saved" : "unsaved") : "unavailable";
     if (saved.manualWaypoint) this.navigation.setManualWaypoint(saved.manualWaypoint);
+    if (saved.player) {
+      this.player.position.set(saved.player.x, saved.player.y, saved.player.z);
+      this.player.yaw = saved.player.yaw;
+      this.player.pitch = saved.player.pitch;
+      this.player.condition = {
+        ...INITIAL_PLAYER_CONDITION,
+        health: saved.player.health,
+        wetness: saved.player.wetness,
+        coldStress: saved.player.coldStress,
+      };
+    }
+    this.currentLocation = currentDiscoverableLocation(
+      this.player.position.x,
+      this.player.position.z,
+    );
 
     this.camera = new THREE.PerspectiveCamera(
-      67,
+      this.settings.fov,
       1,
       0.08,
       HORIZON_PRESETS[this.horizonMode].drawDistanceMeters,
@@ -273,10 +361,14 @@ export class Engine {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.12;
-    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.enabled = this.quality === "cinematic";
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    this.input = new InputManager(this.canvas, this.handlePointerLockChange);
+    this.input = new InputManager(
+      this.canvas,
+      this.handlePointerLockChange,
+      this.settings.keyBindings,
+    );
     this.world = new ChunkManager(
       this.scene,
       this.quality,
@@ -287,6 +379,7 @@ export class Engine {
     this.citizens = new CitizenEngine(this.scene, this.quality);
     this.animals = new AnimalEngine(this.scene, this.quality);
     this.flashlight = new PlayerFlashlight(this.scene, this.quality);
+    this.audio = new EnvironmentalAudio(this.settings, this.testMode);
     this.environment = createEnvironment(
       this.scene,
       this.renderer,
@@ -294,10 +387,13 @@ export class Engine {
       saved.worldMinutes,
     );
     this.environment.setHorizonMode(this.horizonMode);
-    this.player.position.y = sampleTerrainHeight(
-      this.player.position.x,
-      this.player.position.z,
-    );
+    if (!saved.player) {
+      this.player.position.y = sampleTerrainHeight(
+        this.player.position.x,
+        this.player.position.z,
+      );
+    }
+    this.player.safePosition.copy(this.player.position);
     this.camera.position.set(
       this.player.position.x,
       this.player.position.y + PLAYER_HEIGHT,
@@ -313,7 +409,9 @@ export class Engine {
       citizens: this.citizens,
       animals: this.animals,
       environment: this.environment,
+      audio: this.audio,
       navigation: this.navigation,
+      settings: this.settings,
       player: this.player,
       started: false,
       paused: false,
@@ -323,9 +421,14 @@ export class Engine {
       discover: (beaconId) => this.discover(beaconId),
       performInteraction: (target) => this.performInteraction(target),
       toggleMap: () => this.toggleMap(),
+      toggleInventory: () => this.toggleInventory(),
       toggleQuality: () => this.toggleQuality(),
       toggleFlashlight: () => this.toggleFlashlight(),
       toggleDeveloperPanel: () => this.toggleDeveloperPanel(),
+      discoverCurrentLocation: () => this.discoverCurrentLocation(),
+      applyFallImpact: (speed) => this.applyFallImpact(speed),
+      recoverPlayer: () => this.recoverPlayer(),
+      inventoryWeight: () => inventoryWeight(this.inventory),
       developerPanelOpen: false,
     };
 
@@ -353,7 +456,9 @@ export class Engine {
         install: (registry) => {
           registry
             .system(new PlayerControllerSystem())
+            .system(new PlayerConditionSystem())
             .system(new WorldStreamingSystem())
+            .system(new LocationDiscoverySystem())
             .system(new InteractionSystem());
         },
       })
@@ -368,12 +473,41 @@ export class Engine {
         install: (registry) => {
           registry.system(new AmbientAnimalSystem());
         },
+      })
+      .use({
+        id: "field-audio",
+        install: (registry) => {
+          registry.system(new EnvironmentalAudioSystem());
+        },
       });
   }
 
   async initialize() {
     this.resize();
     this.world.update(this.player.position.x, this.player.position.z);
+    const current = { x: this.player.position.x, z: this.player.position.z };
+    const supportY = this.world.sampleGroundHeight(
+      current.x,
+      current.z,
+      this.player.position.y,
+    );
+    const resolved = resolvePlanarMovement(
+      current,
+      current,
+      this.world.queryColliders(
+        current,
+        current,
+        PLAYER_RADIUS,
+        supportY,
+        supportY + PLAYER_HEIGHT,
+      ),
+      PLAYER_RADIUS,
+    );
+    this.player.position.set(resolved.x, supportY, resolved.z);
+    this.player.safePosition.copy(this.player.position);
+    this.camera.position.set(resolved.x, supportY + this.player.eyeHeight, resolved.z);
+    this.camera.rotation.set(this.player.pitch, this.player.yaw, 0, "YXZ");
+    this.currentLocation = currentDiscoverableLocation(resolved.x, resolved.z);
     this.horizon.update(this.player.position.x, this.player.position.z);
     this.citizens.updateStreaming(this.player.position.x, this.player.position.z);
     this.animals.updateStreaming(this.player.position.x, this.player.position.z);
@@ -408,9 +542,13 @@ export class Engine {
   beginSession() {
     this.started = true;
     this.mapOpen = false;
+    this.inventoryOpen = false;
+    this.settingsOpen = false;
+    this.activeInspection = null;
     this.developerPanelOpen = false;
     this.paused = !this.testMode;
     this.lastClockPersistTime = performance.now();
+    void this.audio.unlock();
     if (!this.testMode) this.input.requestPointerLock();
     this.emitSnapshot(true);
   }
@@ -418,7 +556,11 @@ export class Engine {
   resume() {
     if (!this.started) return;
     this.mapOpen = false;
+    this.inventoryOpen = false;
+    this.settingsOpen = false;
+    this.activeInspection = null;
     this.developerPanelOpen = false;
+    void this.audio.unlock();
     if (this.testMode) this.paused = false;
     else if (this.input.isLocked()) this.paused = false;
     else {
@@ -435,11 +577,17 @@ export class Engine {
     if (this.scanned.length !== previousLength) {
       this.lastDiscovery = beaconId;
       this.persist();
+      this.audio.playCue("scan");
     }
     this.emitSnapshot(true);
   }
 
   performInteraction(target: WorldTarget) {
+    if (target.action === "inspect" && target.inspection) {
+      this.setInspection(target.inspection);
+      this.audio.playCue("inspect");
+      return;
+    }
     if (target.action === "toggle") {
       if (target.doorId) {
         const result = this.world.toggleDoor(
@@ -447,7 +595,10 @@ export class Engine {
           this.player.position,
           PLAYER_RADIUS,
         );
-        if (result === "opened" || result === "closed") this.persist();
+        if (result === "opened" || result === "closed") {
+          this.persist();
+          this.audio.playCue(result === "opened" ? "door-open" : "door-close");
+        }
       }
       this.emitSnapshot(true);
       return;
@@ -456,7 +607,10 @@ export class Engine {
       this.discover(target.beaconId);
       return;
     }
-    if (!target.item || target.action === "scan") return;
+    if (
+      !target.item ||
+      (target.action !== "collect" && target.action !== "harvest")
+    ) return;
     const outcome = applyGather(
       { inventory: this.inventory, worldDiffs: this.worldDiffs },
       {
@@ -480,14 +634,65 @@ export class Engine {
       remainingHits: outcome.remainingHits,
     };
     this.persist();
+    this.audio.playCue(outcome.result === "hit" ? "harvest" : "collect");
     this.emitSnapshot(true);
   }
 
   setMapOpen(open: boolean) {
     this.mapOpen = open;
-    if (open) this.developerPanelOpen = false;
+    if (open) {
+      this.developerPanelOpen = false;
+      this.inventoryOpen = false;
+      this.settingsOpen = false;
+      this.activeInspection = null;
+    }
     this.input.reset();
     if (open && !this.testMode && this.input.isLocked()) document.exitPointerLock?.();
+    this.emitSnapshot(true);
+  }
+
+  setInventoryOpen(open: boolean) {
+    if (!this.started) return;
+    this.inventoryOpen = open;
+    this.input.reset();
+    if (open) {
+      this.mapOpen = false;
+      this.settingsOpen = false;
+      this.activeInspection = null;
+      this.developerPanelOpen = false;
+      this.paused = true;
+      if (!this.testMode && this.input.isLocked()) document.exitPointerLock?.();
+    }
+    this.emitSnapshot(true);
+  }
+
+  setSettingsOpen(open: boolean) {
+    if (!this.ready) return;
+    this.settingsOpen = open;
+    this.input.reset();
+    if (open) {
+      this.mapOpen = false;
+      this.inventoryOpen = false;
+      this.activeInspection = null;
+      this.developerPanelOpen = false;
+      if (this.started) this.paused = true;
+      if (!this.testMode && this.input.isLocked()) document.exitPointerLock?.();
+    }
+    this.emitSnapshot(true);
+  }
+
+  setInspection(inspection: InspectionRecord | null) {
+    if (!this.started) return;
+    this.activeInspection = inspection ? { ...inspection } : null;
+    this.input.reset();
+    if (inspection) {
+      this.mapOpen = false;
+      this.inventoryOpen = false;
+      this.settingsOpen = false;
+      this.developerPanelOpen = false;
+      this.paused = true;
+      if (!this.testMode && this.input.isLocked()) document.exitPointerLock?.();
+    }
     this.emitSnapshot(true);
   }
 
@@ -497,6 +702,9 @@ export class Engine {
     this.input.reset();
     if (open) {
       this.mapOpen = false;
+      this.inventoryOpen = false;
+      this.settingsOpen = false;
+      this.activeInspection = null;
       this.paused = true;
       if (!this.testMode && this.input.isLocked()) document.exitPointerLock?.();
       this.emitSnapshot(true);
@@ -573,6 +781,7 @@ export class Engine {
       name: location.name,
       kind: location.kind,
     };
+    this.persist();
     this.emitSnapshot(true);
     return { location, arrival };
   }
@@ -589,15 +798,209 @@ export class Engine {
   setHorizonMode(mode: HorizonMode) {
     if (!isHorizonMode(mode) || mode === this.horizonMode) return false;
     this.horizonMode = mode;
+    this.settings = { ...this.settings, horizonMode: mode };
+    this.runtime.settings = this.settings;
     this.camera.far = HORIZON_PRESETS[mode].drawDistanceMeters;
     this.camera.updateProjectionMatrix();
     this.horizon.setMode(mode);
     this.environment.setHorizonMode(mode);
     this.environment.sync(this.player.position);
     this.environment.present(this.player.position, 0);
+    this.persistPreferences();
     this.persist();
     this.emitSnapshot(true);
     return true;
+  }
+
+  setFov(fov: number) {
+    const next = normalizeGameSettings({ ...this.settings, fov }, this.horizonMode);
+    if (next.fov === this.settings.fov) return false;
+    this.settings = next;
+    this.runtime.settings = this.settings;
+    this.camera.fov = next.fov;
+    this.camera.updateProjectionMatrix();
+    this.persistPreferences();
+    this.emitSnapshot(true);
+    return true;
+  }
+
+  setLookSensitivity(lookSensitivity: number) {
+    const next = normalizeGameSettings({ ...this.settings, lookSensitivity }, this.horizonMode);
+    if (next.lookSensitivity === this.settings.lookSensitivity) return false;
+    this.settings = next;
+    this.runtime.settings = this.settings;
+    this.persistPreferences();
+    this.emitSnapshot(true);
+    return true;
+  }
+
+  setInvertY(invertY: boolean) {
+    if (invertY === this.settings.invertY) return false;
+    this.settings = { ...this.settings, invertY };
+    this.runtime.settings = this.settings;
+    this.persistPreferences();
+    this.emitSnapshot(true);
+    return true;
+  }
+
+  setAudioVolume(
+    channel: "masterVolume" | "ambientVolume" | "effectsVolume",
+    value: number,
+  ) {
+    const next = normalizeGameSettings({ ...this.settings, [channel]: value }, this.horizonMode);
+    if (next[channel] === this.settings[channel]) return false;
+    this.settings = next;
+    this.runtime.settings = this.settings;
+    this.audio.setSettings(this.settings);
+    this.persistPreferences();
+    this.emitSnapshot(true);
+    return true;
+  }
+
+  setKeyBinding(action: GameAction, code: string) {
+    const bindings = rebindAction(this.settings.keyBindings, action, code);
+    if (!bindings) return false;
+    this.settings = { ...this.settings, keyBindings: bindings };
+    this.runtime.settings = this.settings;
+    this.input.setBindings(bindings);
+    this.persistPreferences();
+    this.emitSnapshot(true);
+    return true;
+  }
+
+  resetSettings() {
+    this.settings = {
+      ...DEFAULT_GAME_SETTINGS,
+      keyBindings: { ...DEFAULT_GAME_SETTINGS.keyBindings },
+    };
+    this.runtime.settings = this.settings;
+    this.input.setBindings(this.settings.keyBindings);
+    this.audio.setSettings(this.settings);
+    this.camera.fov = this.settings.fov;
+    this.camera.updateProjectionMatrix();
+    if (this.quality !== this.settings.quality) this.applyQuality(this.settings.quality);
+    if (this.horizonMode !== this.settings.horizonMode) {
+      this.horizonMode = this.settings.horizonMode;
+      this.camera.far = HORIZON_PRESETS[this.horizonMode].drawDistanceMeters;
+      this.camera.updateProjectionMatrix();
+      this.horizon.setMode(this.horizonMode);
+      this.environment.setHorizonMode(this.horizonMode);
+    }
+    this.persistPreferences();
+    this.persist();
+    this.emitSnapshot(true);
+  }
+
+  saveNow() {
+    const saved = this.persist();
+    if (saved) this.audio.playCue("save");
+    this.emitSnapshot(true);
+    return saved;
+  }
+
+  loadGame() {
+    if (!this.saveStore.hasSave()) return false;
+    const saved = this.saveStore.load();
+    this.scanned = [...saved.scanned];
+    this.inventory = { ...saved.inventory };
+    this.discoveredLocations = [...saved.discoveredLocations];
+    const playerState = saved.player;
+    const x = playerState?.x ?? 0;
+    const z = playerState?.z ?? 8;
+    this.world.restorePersistentState(
+      saved.worldDiffs,
+      saved.doorStates,
+      this.scanned,
+      x,
+      z,
+    );
+    for (const key of Object.keys(this.worldDiffs)) delete this.worldDiffs[key];
+    Object.assign(this.worldDiffs, saved.worldDiffs);
+    for (const key of Object.keys(this.doorStates)) delete this.doorStates[key];
+    Object.assign(this.doorStates, saved.doorStates);
+    this.navigation.removeTarget(MANUAL_WAYPOINT_ID);
+    if (saved.manualWaypoint) this.navigation.setManualWaypoint(saved.manualWaypoint);
+    this.environment.setWorldMinutes(saved.worldMinutes);
+    this.player.yaw = playerState?.yaw ?? -0.565;
+    this.player.pitch = playerState?.pitch ?? -0.035;
+    this.player.condition = playerState && playerState.health > 0
+      ? {
+          ...INITIAL_PLAYER_CONDITION,
+          health: playerState.health,
+          wetness: playerState.wetness,
+          coldStress: playerState.coldStress,
+        }
+      : recoverPlayerCondition();
+    const y = this.world.sampleGroundHeight(x, z, playerState?.y);
+    this.relocatePlayer(x, z, y);
+    this.currentLocation = currentDiscoverableLocation(x, z);
+    this.lastDiscovery = null;
+    this.lastGather = null;
+    this.lastLocationDiscovery = null;
+    this.saveStatus = "saved";
+    this.inventoryOpen = false;
+    this.settingsOpen = false;
+    this.activeInspection = null;
+    this.mapOpen = false;
+    this.developerPanelOpen = false;
+    this.emitSnapshot(true);
+    return true;
+  }
+
+  recoverPlayer() {
+    this.player.condition = recoverPlayerCondition();
+    this.player.sheltered = false;
+    this.player.stamina = 1;
+    this.relocatePlayer(0, 8);
+    this.mapOpen = false;
+    this.inventoryOpen = false;
+    this.settingsOpen = false;
+    this.activeInspection = null;
+    this.developerPanelOpen = false;
+    this.paused = !this.testMode;
+    this.persist();
+    this.audio.playCue("recover");
+    if (!this.testMode) this.input.requestPointerLock();
+    this.emitSnapshot(true);
+  }
+
+  applyFallImpact(speed: number) {
+    const damage = fallDamageForImpact(speed);
+    if (damage <= 0) return 0;
+    const previousHealth = this.player.condition.health;
+    this.player.condition = applyPlayerDamage(this.player.condition, damage, "fall");
+    if (this.player.condition.health < previousHealth) {
+      this.audio.playCue("damage");
+      this.persist();
+    }
+    if (this.player.condition.health <= 0) {
+      this.paused = true;
+      this.player.sprinting = false;
+      if (!this.testMode && this.input.isLocked()) document.exitPointerLock?.();
+    }
+    this.emitSnapshot(true);
+    return previousHealth - this.player.condition.health;
+  }
+
+  setPlayerHealth(health: number) {
+    if (!Number.isFinite(health)) return this.player.condition.health;
+    const previousHealth = this.player.condition.health;
+    const safe = THREE.MathUtils.clamp(health, 0, MAX_HEALTH);
+    this.player.condition = {
+      ...this.player.condition,
+      health: safe,
+      damageRecoveryDelay: safe < previousHealth ? 8 : 0,
+      lastDamage:
+        safe < previousHealth
+          ? { kind: "exposure", amount: previousHealth - safe }
+          : this.player.condition.lastDamage,
+    };
+    if (safe <= 0) {
+      this.paused = true;
+      if (!this.testMode && this.input.isLocked()) document.exitPointerLock?.();
+    }
+    this.emitSnapshot(true);
+    return safe;
   }
 
   advanceWorldMinutes(minutes: number) {
@@ -641,6 +1044,28 @@ export class Engine {
     return removed;
   }
 
+  discoverCurrentLocation() {
+    const location = currentDiscoverableLocation(
+      this.player.position.x,
+      this.player.position.z,
+    );
+    const changedArea = location.id !== this.currentLocation.id;
+    this.currentLocation = location;
+    if (this.discoveredLocations.includes(location.id)) {
+      if (changedArea) this.emitSnapshot(true);
+      return false;
+    }
+    this.discoveredLocations = addLocationDiscovery(
+      this.discoveredLocations,
+      location.id,
+    );
+    this.lastLocationDiscovery = location;
+    this.persist();
+    this.audio.playCue("discover");
+    this.emitSnapshot(true);
+    return true;
+  }
+
   clearDiscoveryNotice() {
     this.lastDiscovery = null;
     this.emitSnapshot(true);
@@ -648,6 +1073,11 @@ export class Engine {
 
   clearGatherNotice() {
     this.lastGather = null;
+    this.emitSnapshot(true);
+  }
+
+  clearLocationDiscoveryNotice() {
+    this.lastLocationDiscovery = null;
     this.emitSnapshot(true);
   }
 
@@ -676,6 +1106,11 @@ export class Engine {
     this.player.crouching = false;
     this.player.sprinting = false;
     this.player.staminaRecoveryDelay = 0;
+    this.player.eyeHeight = PLAYER_HEIGHT;
+    this.player.jumpBufferRemaining = 0;
+    this.player.coyoteRemaining = 0;
+    this.player.groundedSafeTime = 0;
+    this.player.safePosition.set(x, y, z);
     if (faceX !== undefined && faceZ !== undefined) {
       this.player.yaw = Math.atan2(-(faceX - x), -(faceZ - z));
       this.player.pitch = -0.035;
@@ -693,12 +1128,13 @@ export class Engine {
     this.environment.present(this.player.position, 0);
     this.flashlight.present(this.camera);
     this.synchronizeTimeDependentWorld();
+    this.currentLocation = currentDiscoverableLocation(x, z);
     this.emitPresentation();
   }
 
   private persist() {
     const manualWaypoint = this.navigation.getTarget(MANUAL_WAYPOINT_ID)?.position ?? null;
-    this.saveStore.save({
+    const saved = this.saveStore.save({
       scanned: this.scanned,
       inventory: this.inventory,
       worldDiffs: this.worldDiffs,
@@ -706,7 +1142,25 @@ export class Engine {
       manualWaypoint,
       worldMinutes: this.environment.getPersistentWorldMinutes(),
       horizonMode: this.horizonMode,
+      player: {
+        x: this.player.position.x,
+        y: this.player.position.y,
+        z: this.player.position.z,
+        yaw: this.player.yaw,
+        pitch: this.player.pitch,
+        health: this.player.condition.health,
+        wetness: this.player.condition.wetness,
+        coldStress: this.player.condition.coldStress,
+      },
+      discoveredLocations: this.discoveredLocations,
     });
+    this.saveStatus = saved ? "saved" : "unavailable";
+    if (saved) this.lastSavedAt = Date.now();
+    return saved;
+  }
+
+  private persistPreferences() {
+    return this.preferencesStore.save(this.settings);
   }
 
   dispose() {
@@ -724,6 +1178,7 @@ export class Engine {
     this.citizens.dispose();
     this.animals.dispose();
     this.flashlight.dispose();
+    this.audio.dispose();
     this.world.dispose();
     this.horizon.dispose();
     this.environment.dispose();
@@ -744,9 +1199,16 @@ export class Engine {
       while (this.accumulator >= FIXED_STEP && steps < 5) {
         this.runtime.started = this.started;
         this.runtime.paused =
-          this.paused || this.mapOpen || this.developerPanelOpen;
+          this.paused ||
+          this.mapOpen ||
+          this.inventoryOpen ||
+          this.settingsOpen ||
+          this.activeInspection !== null ||
+          this.developerPanelOpen ||
+          this.player.condition.health <= 0;
         this.runtime.developerPanelOpen = this.developerPanelOpen;
         this.pipeline.update(this.runtime, FIXED_STEP);
+        this.updateSafePosition(FIXED_STEP);
         this.accumulator -= FIXED_STEP;
         steps += 1;
       }
@@ -757,6 +1219,9 @@ export class Engine {
         this.started &&
           !this.paused &&
           !this.mapOpen &&
+          !this.inventoryOpen &&
+          !this.settingsOpen &&
+          !this.activeInspection &&
           !this.developerPanelOpen
           ? this.accumulator
           : 0,
@@ -765,6 +1230,9 @@ export class Engine {
         this.started &&
           !this.paused &&
           !this.mapOpen &&
+          !this.inventoryOpen &&
+          !this.settingsOpen &&
+          !this.activeInspection &&
           !this.developerPanelOpen
           ? this.accumulator
           : 0,
@@ -796,6 +1264,18 @@ export class Engine {
     this.fpsSampleStarted = timestamp;
   }
 
+  private updateSafePosition(deltaSeconds: number) {
+    if (!this.player.grounded || this.player.condition.health <= 0) {
+      this.player.groundedSafeTime = 0;
+      return;
+    }
+    this.player.groundedSafeTime += deltaSeconds;
+    if (this.player.groundedSafeTime >= 0.75) {
+      this.player.safePosition.copy(this.player.position);
+      this.player.groundedSafeTime = 0.75;
+    }
+  }
+
   private emitSnapshot(force = false) {
     if (!force) return;
     this.lastSnapshotTime = performance.now();
@@ -807,11 +1287,22 @@ export class Engine {
     const developer = this.environment.getDeveloperState();
     const nearbyTarget = this.runtime.nearbyTarget;
     const horizon = this.horizon.diagnostics;
+    const carriedWeight = inventoryWeight(this.inventory);
+    const carriedItems = inventoryItemCount(this.inventory);
+    const conditionInput = {
+      sheltered: this.player.sheltered,
+      stamina: this.player.stamina,
+      inventoryWeight: carriedWeight,
+    };
     this.snapshot = {
       ready: this.ready,
       started: this.started,
       paused: this.paused,
       mapOpen: this.mapOpen,
+      inventoryOpen: this.inventoryOpen,
+      settingsOpen: this.settingsOpen,
+      inspectionOpen: this.activeInspection !== null,
+      activeInspection: this.activeInspection ? { ...this.activeInspection } : null,
       devTools: {
         enabled: developer.enabled,
         panelOpen: this.developerPanelOpen,
@@ -847,12 +1338,36 @@ export class Engine {
       quality: this.quality,
       scanned: [...this.scanned],
       inventory: { ...this.inventory },
+      inventoryWeight: carriedWeight,
+      inventoryItemCount: carriedItems,
       worldChanges: Object.values(this.worldDiffs).filter((diff) => diff.removed).length,
       grounded: this.player.grounded,
       crouching: this.player.crouching,
       sprinting: this.player.sprinting,
       stamina: this.player.stamina,
+      health: this.player.condition.health,
+      maxHealth: MAX_HEALTH,
+      wetness: this.player.condition.wetness,
+      coldStress: this.player.condition.coldStress,
+      apparentTemperatureC: apparentTemperature(
+        atmosphere.temperatureC,
+        atmosphere.windKph,
+        this.player.condition.wetness,
+      ),
+      sheltered: this.player.sheltered,
+      conditions: deriveConditionTags(this.player.condition, conditionInput),
+      incapacitated: this.player.condition.health <= 0,
+      lastDamage: this.player.condition.lastDamage
+        ? { ...this.player.condition.lastDamage }
+        : null,
       flashlightOn: this.flashlight.isEnabled,
+      settings: {
+        ...this.settings,
+        keyBindings: { ...this.settings.keyBindings },
+      },
+      saveStatus: this.saveStatus,
+      lastSavedAt: this.lastSavedAt,
+      audio: this.audio.diagnostics,
       biome: {
         id: climate.biome.id,
         name: climate.biome.name,
@@ -880,6 +1395,9 @@ export class Engine {
                     this.contextStatus === "ready" &&
                     !this.paused &&
                     !this.mapOpen &&
+                    !this.inventoryOpen &&
+                    !this.settingsOpen &&
+                    !this.activeInspection &&
                     !this.developerPanelOpen
                 ? "running"
                 : "paused",
@@ -906,11 +1424,19 @@ export class Engine {
             open: nearbyTarget.open ?? null,
           }
         : null,
+      interactionPrompt: nearbyTarget
+        ? interactionPromptFor(nearbyTarget, this.settings.keyBindings)
+        : null,
       nearbyBeacon: nearbyTarget?.beaconId ?? null,
       nearbyDistance: this.runtime.nearbyDistance,
       lastDiscovery: this.lastDiscovery,
       lastGather: this.lastGather,
       lastFastTravel: this.lastFastTravel,
+      currentLocation: { ...this.currentLocation },
+      discoveredLocationIds: [...this.discoveredLocations],
+      lastLocationDiscovery: this.lastLocationDiscovery
+        ? { ...this.lastLocationDiscovery }
+        : null,
     };
     this.onSnapshot(this.snapshot);
   }
@@ -962,6 +1488,10 @@ export class Engine {
     this.setMapOpen(!this.mapOpen);
   }
 
+  private toggleInventory() {
+    this.setInventoryOpen(!this.inventoryOpen);
+  }
+
   private toggleDeveloperPanel() {
     this.setDeveloperPanelOpen(!this.developerPanelOpen);
   }
@@ -979,9 +1509,20 @@ export class Engine {
     this.citizens.setWorldMinutes(atmosphere.totalMinutes);
   }
 
-  private toggleQuality() {
-    this.quality = this.quality === "cinematic" ? "performance" : "cinematic";
-    const cinematic = this.quality === "cinematic";
+  setQuality(quality: QualityLevel) {
+    if (quality !== "cinematic" && quality !== "performance") return false;
+    if (quality === this.quality) return false;
+    this.applyQuality(quality);
+    this.settings = { ...this.settings, quality };
+    this.runtime.settings = this.settings;
+    this.persistPreferences();
+    this.emitSnapshot(true);
+    return true;
+  }
+
+  private applyQuality(quality: QualityLevel) {
+    this.quality = quality;
+    const cinematic = quality === "cinematic";
     this.renderer.shadowMap.enabled = cinematic;
     this.renderer.setPixelRatio(
       cinematic ? Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO) : 1,
@@ -992,7 +1533,10 @@ export class Engine {
     this.animals.setQuality(this.quality);
     this.flashlight.setQuality(this.quality);
     this.resize();
-    this.emitSnapshot(true);
+  }
+
+  private toggleQuality() {
+    this.setQuality(this.quality === "cinematic" ? "performance" : "cinematic");
   }
 
   private resize = () => {
@@ -1010,7 +1554,14 @@ export class Engine {
 
   private handlePointerLockChange = (locked: boolean) => {
     if (!this.started || this.testMode) return;
-    this.paused = this.developerPanelOpen || !locked;
+    this.paused =
+      this.developerPanelOpen ||
+      this.mapOpen ||
+      this.inventoryOpen ||
+      this.settingsOpen ||
+      this.activeInspection !== null ||
+      this.player.condition.health <= 0 ||
+      !locked;
     this.emitSnapshot(true);
   };
 
@@ -1082,6 +1633,21 @@ export class Engine {
       toggleFlashlight: () => this.toggleFlashlight(),
       setFlashlightEnabled: (enabled) => this.setFlashlightEnabled(enabled),
       flashlight: () => this.flashlight.diagnostics,
+      audio: () => this.audio.diagnostics,
+      saveNow: () => this.saveNow(),
+      loadGame: () => this.loadGame(),
+      setFov: (fov) => this.setFov(fov),
+      setLookSensitivity: (value) => this.setLookSensitivity(value),
+      setInvertY: (enabled) => this.setInvertY(enabled),
+      setKeyBinding: (action, code) => this.setKeyBinding(action, code),
+      setQuality: (quality) => this.setQuality(quality),
+      setPlayerHealth: (health) => this.setPlayerHealth(health),
+      applyFallImpact: (speed) => this.applyFallImpact(speed),
+      recoverPlayer: () => this.recoverPlayer(),
+      discoverCurrentLocation: () => this.discoverCurrentLocation(),
+      inspectableIds: () => this.world.targets
+        .filter((target) => target.kind === "inspectable")
+        .map((target) => target.id),
       nightLighting: () => this.world.nightLightingSnapshot,
       faceTarget: (id) => {
         const target = this.world.targets.find((candidate) => candidate.id === id);

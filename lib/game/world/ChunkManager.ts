@@ -3,6 +3,7 @@ import {
   BEACONS,
   CHUNK_SEGMENTS,
   CHUNK_SIZE,
+  CROUCH_HEIGHT,
   GAMEPLAY_CHUNK_RADIUS,
   PLAYER_HEIGHT,
   WORLD_CHUNK_LOAD_RADIUS,
@@ -20,6 +21,11 @@ import {
   type PlanarCollider,
 } from "../systems/collision";
 import type { AuthoredDoorRuntime } from "./authoredDoor";
+import {
+  INSPECTABLES,
+  createInspectableTarget,
+  type InspectionRecord,
+} from "./inspectables";
 import {
   WATER_LEVEL,
   WORLD_MODEL_SCALE,
@@ -68,8 +74,8 @@ import {
   type WoodySpeciesDefinition,
 } from "./vegetation";
 
-export type WorldTargetKind = "beacon" | "pickup" | "resource" | "door";
-export type WorldTargetAction = "scan" | "collect" | "harvest" | "toggle";
+export type WorldTargetKind = "beacon" | "pickup" | "resource" | "door" | "inspectable";
+export type WorldTargetAction = "scan" | "collect" | "harvest" | "toggle" | "inspect";
 
 export interface InstancedTargetVisual {
   mesh: THREE.InstancedMesh;
@@ -101,6 +107,7 @@ export interface WorldTarget {
   note?: string;
   doorId?: string;
   open?: boolean;
+  inspection?: InspectionRecord;
 }
 
 interface ChunkRuntime {
@@ -309,6 +316,46 @@ export class ChunkManager {
     return selectWalkableSupport(supports, referenceY) ?? sampleTerrainHeight(x, z);
   }
 
+  canStandAt(x: number, z: number, feetY: number, radius: number) {
+    const position = { x, z };
+    const blockers = this.queryColliders(
+      position,
+      position,
+      radius,
+      feetY + CROUCH_HEIGHT,
+      feetY + PLAYER_HEIGHT,
+    );
+    return isPlanarPositionClear(position, blockers, radius);
+  }
+
+  isShelteredAt(x: number, z: number, feetY: number) {
+    const overheadSupports = [
+      ...spawnBuildingSupportCandidates(x, z),
+      ...twoStorySupportCandidates(x, z),
+      ...tenStorySupportCandidates(x, z),
+    ];
+    return overheadSupports.some((height) => height > feetY + PLAYER_HEIGHT * 0.72);
+  }
+
+  restorePersistentState(
+    worldDiffs: Readonly<Record<string, EntityDiff>>,
+    doorStates: Readonly<Record<string, boolean>>,
+    scanned: readonly BeaconId[],
+    playerX: number,
+    playerZ: number,
+  ) {
+    for (const key of Object.keys(this.worldDiffs)) delete this.worldDiffs[key];
+    Object.assign(this.worldDiffs, worldDiffs);
+    for (const key of Object.keys(this.doorStates)) delete this.doorStates[key];
+    Object.assign(this.doorStates, doorStates);
+    this.scanned = new Set(scanned);
+    for (const chunk of this.loaded.values()) this.disposeChunk(chunk);
+    this.loaded.clear();
+    this.activeChunkKey = "";
+    this.update(playerX, playerZ);
+    for (const beaconId of scanned) this.markScanned(beaconId);
+  }
+
   toggleDoor(
     id: string,
     playerPosition: { x: number; y: number; z: number },
@@ -425,6 +472,11 @@ export class ChunkManager {
         colliders.push(...building.colliders);
         doors.push(...building.doors);
         for (const door of building.doors) targets.push(this.createDoorTarget(door));
+      }
+      for (const definition of INSPECTABLES) {
+        const target = createInspectableTarget(definition, this.quality);
+        root.add(target.root);
+        targets.push(target);
       }
     }
     this.addSettlementBuildings(

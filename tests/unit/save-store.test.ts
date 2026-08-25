@@ -28,6 +28,20 @@ const saveInput = {
   manualWaypoint: { x: 12_400, z: -8_200 },
   worldMinutes: 2_345.5,
   horizonMode: "unlimited" as const,
+  player: {
+    x: 12.5,
+    y: 3.25,
+    z: -8,
+    yaw: 0.75,
+    pitch: -0.12,
+    health: 82,
+    wetness: 0.35,
+    coldStress: 0.18,
+  },
+  discoveredLocations: [
+    "settlement:dustmere",
+    "landmark:field-unit-compound",
+  ],
 };
 
 describe("versioned frontier saves", () => {
@@ -36,7 +50,7 @@ describe("versioned frontier saves", () => {
     const store = new SaveStore(storage);
     expect(store.save(saveInput)).toBe(true);
     expect(store.load()).toEqual({
-      version: 6,
+      version: 7,
       scanned: ["amber-relay", "meridian-vault"],
       inventory: { ...EMPTY_INVENTORY, stone: 7, wood: 3 },
       worldDiffs: saveInput.worldDiffs,
@@ -44,6 +58,11 @@ describe("versioned frontier saves", () => {
       manualWaypoint: saveInput.manualWaypoint,
       worldMinutes: saveInput.worldMinutes,
       horizonMode: "unlimited",
+      player: saveInput.player,
+      discoveredLocations: [
+        "landmark:field-unit-compound",
+        "settlement:dustmere",
+      ],
     });
   });
 
@@ -54,7 +73,7 @@ describe("versioned frontier saves", () => {
       scanned: ["hollow-array", "invented", "hollow-array", 7],
     });
     expect(new SaveStore(storage).load()).toEqual({
-      version: 6,
+      version: 7,
       scanned: ["hollow-array"],
       inventory: EMPTY_INVENTORY,
       worldDiffs: {},
@@ -62,6 +81,8 @@ describe("versioned frontier saves", () => {
       manualWaypoint: null,
       worldMinutes: WORLD_START_MINUTES,
       horizonMode: "standard",
+      player: null,
+      discoveredLocations: [],
     });
   });
 
@@ -167,7 +188,7 @@ describe("versioned frontier saves", () => {
       const storage = new MemoryStorage();
       storage.value = value;
       expect(new SaveStore(storage).load()).toEqual({
-        version: 6,
+        version: 7,
         scanned: [],
         inventory: EMPTY_INVENTORY,
         worldDiffs: {},
@@ -175,13 +196,15 @@ describe("versioned frontier saves", () => {
         manualWaypoint: null,
         worldMinutes: WORLD_START_MINUTES,
         horizonMode: "standard",
+        player: null,
+        discoveredLocations: [],
       });
     },
   );
 
   it("runs without browser storage in deterministic tests", () => {
     const store = new SaveStore(null);
-    expect(store.load().version).toBe(6);
+    expect(store.load().version).toBe(7);
     expect(store.save(saveInput)).toBe(false);
   });
 
