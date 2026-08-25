@@ -16,11 +16,14 @@ import {
 import type { EntityDiff } from "../gameplay/interactions";
 import type { EnvironmentVisualState } from "../environment";
 import type { ItemId } from "../gameplay/items";
-import type { CraftingStationKind } from "../gameplay/crafting";
 import type { ScanCandidate } from "../gameplay/fieldGuide";
-import type { ContainerState, ContainerStates, LootTableId } from "../gameplay/loot";
-import type { RestSiteDefinition } from "../gameplay/resting";
+import type { ContainerState, ContainerStates } from "../gameplay/loot";
 import { updateAuthoredNpcTarget } from "../npcs/authoredNpc";
+import {
+  WorldMaterialLibrary,
+  tagWorldMaterial,
+} from "../rendering/WorldMaterialLibrary";
+import { markBloomSource } from "../rendering/Bloom";
 import { randomRange, seededRandom } from "../core/random";
 import {
   PlanarCollisionIndex,
@@ -33,9 +36,8 @@ import {
 } from "../systems/collision";
 import type { AuthoredDoorRuntime } from "./authoredDoor";
 import {
-  INSPECTABLES,
   createInspectableTarget,
-  type InspectionRecord,
+  inspectablesForChunk,
 } from "./inspectables";
 import {
   WATER_LEVEL,
@@ -59,22 +61,12 @@ import {
   sampleTerrainHeight,
   worldToChunk,
 } from "./terrain";
+import { selectWalkableSupport } from "./buildingTypes";
 import {
-  SPAWN_BUILDING,
-  createSpawnBuilding,
-  spawnBuildingSupportCandidates,
-} from "./spawnBuilding";
-import {
-  TWO_STORY_BUILDING,
-  createTwoStoryBuilding,
-  selectWalkableSupport,
-  twoStorySupportCandidates,
-} from "./twoStoryBuilding";
-import {
-  TEN_STORY_BUILDING,
-  createTenStoryBuilding,
-  tenStorySupportCandidates,
-} from "./tenStoryBuilding";
+  AUTHORED_BUILDINGS,
+  authoredBuildingSupportCandidates,
+  createAuthoredBuildingsForChunk,
+} from "./authoredBuildings";
 import {
   applyPlacedRuntimeLighting,
   createPlacedRuntime,
@@ -83,7 +75,7 @@ import {
   type PlacedEntity,
   type PlacedRuntime,
 } from "./deployments";
-import { createSpawnGameplayFeatures } from "./spawnFeatures";
+import { createAuthoredGameplayFeaturesForChunk } from "./spawnFeatures";
 import {
   VEGETATION_PROFILES,
   createGroundcoverGeometry,
@@ -99,78 +91,18 @@ import {
   proceduralSurfaceColor,
   terrainSurfaceColor,
 } from "./surfaceVariation";
-
-export type WorldTargetKind =
-  | "beacon"
-  | "pickup"
-  | "resource"
-  | "door"
-  | "inspectable"
-  | "station"
-  | "container"
-  | "rest"
-  | "npc"
-  | "scannable"
-  | "animal";
-export type WorldTargetAction =
-  | "scan"
-  | "collect"
-  | "harvest"
-  | "toggle"
-  | "inspect"
-  | "craft"
-  | "loot"
-  | "rest"
-  | "talk";
-
-export interface InstancedTargetVisual {
-  mesh: THREE.InstancedMesh;
-  index: number;
-  position: THREE.Vector3;
-  quaternion: THREE.Quaternion;
-  scale: THREE.Vector3;
-  groundY: number;
-}
-
-export interface WorldTarget {
-  id: string;
-  kind: WorldTargetKind;
-  action: WorldTargetAction;
-  name: string;
-  position: THREE.Vector3;
-  root: THREE.Group;
-  maxDistance: number;
-  /** Horizontal interaction volume used for forgiving resource selection. */
-  interactionRadius?: number;
-  hitsRequired: number;
-  hits: number;
-  /** Per-instance handles keep procedural resources batched into a few draw calls. */
-  instanceVisuals?: readonly InstancedTargetVisual[];
-  item?: ItemId;
-  yieldAmount?: number;
-  beaconId?: BeaconId;
-  code?: string;
-  note?: string;
-  doorId?: string;
-  open?: boolean;
-  inspection?: InspectionRecord;
-  fieldGuideId?: string;
-  stationId?: string;
-  stationKind?: CraftingStationKind;
-  containerId?: string;
-  lootTableId?: LootTableId;
-  empty?: boolean;
-  restSite?: RestSiteDefinition;
-  npcId?: string;
-}
-
-export interface WorldLineOfSightOptions {
-  ignoredColliderIds?: readonly string[];
-  maxVerticalDelta?: number;
-  checkTerrain?: boolean;
-  requireSameSupport?: boolean;
-  supportTolerance?: number;
-}
+import type {
+  InstancedTargetVisual,
+  WorldLineOfSightOptions,
+  WorldTarget,
+} from "./targets";
+export type {
+  InstancedTargetVisual,
+  WorldLineOfSightOptions,
+  WorldTarget,
+  WorldTargetAction,
+  WorldTargetKind,
+} from "./targets";
 
 interface ChunkRuntime {
   key: string;
@@ -216,21 +148,11 @@ const OPENING_RESERVATIONS = [
   { x: 2.3, z: 5.4, radius: 1.1 },
   { x: 4.2, z: 0.8, radius: 2.4 },
   { x: -3.2, z: -0.4, radius: 1.45 },
-  {
-    x: SPAWN_BUILDING.x,
-    z: SPAWN_BUILDING.z,
-    radius: SPAWN_BUILDING.clearanceRadius,
-  },
-  {
-    x: TWO_STORY_BUILDING.x,
-    z: TWO_STORY_BUILDING.z,
-    radius: TWO_STORY_BUILDING.clearanceRadius,
-  },
-  {
-    x: TEN_STORY_BUILDING.x,
-    z: TEN_STORY_BUILDING.z,
-    radius: TEN_STORY_BUILDING.clearanceRadius,
-  },
+  ...AUTHORED_BUILDINGS.map(({ frame }) => ({
+    x: frame.x,
+    z: frame.z,
+    radius: frame.clearanceRadius,
+  })),
 ] as const;
 
 function targetDiff(
@@ -258,6 +180,8 @@ export class ChunkManager {
   private disposed = false;
   private readonly waterSurface: WaterSurfaceRuntime;
   private readonly sharedMaterials: Set<THREE.Material>;
+  private readonly materialLibrary: WorldMaterialLibrary;
+  private readonly ownsMaterialLibrary: boolean;
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -266,11 +190,15 @@ export class ChunkManager {
     private readonly doorStates: Record<string, boolean> = {},
     private containerStates: ContainerStates = {},
     placedEntities: readonly PlacedEntity[] = [],
+    materialLibrary?: WorldMaterialLibrary,
   ) {
+    this.materialLibrary = materialLibrary ?? new WorldMaterialLibrary();
+    this.ownsMaterialLibrary = materialLibrary === undefined;
     this.waterSurface = new WaterSurfaceRuntime(this.quality);
     this.sharedMaterials = new Set([this.waterSurface.material]);
     this.placedRecords = normalizePlacedEntities(placedEntities);
     this.placedRuntime = createPlacedRuntime(this.placedRecords, this.quality);
+    this.materialLibrary.track(this.placedRuntime.root);
     this.scene.add(this.placedRuntime.root);
   }
 
@@ -344,6 +272,7 @@ export class ChunkManager {
 
   presentEnvironment(state: Readonly<EnvironmentVisualState>) {
     this.waterSurface.present(state);
+    this.materialLibrary.present(state);
   }
 
   setWorldMinutes(totalMinutes: number) {
@@ -380,6 +309,7 @@ export class ChunkManager {
     this.disposeObjectTree(this.placedRuntime.root);
     this.placedRecords = normalizePlacedEntities(records);
     this.placedRuntime = createPlacedRuntime(this.placedRecords, this.quality);
+    this.materialLibrary.track(this.placedRuntime.root);
     this.scene.add(this.placedRuntime.root);
     this.applyPlacedLighting();
     this.refreshCaches();
@@ -530,11 +460,7 @@ export class ChunkManager {
   }
 
   sampleGroundHeight(x: number, z: number, referenceY?: number) {
-    const supports = [
-      ...spawnBuildingSupportCandidates(x, z),
-      ...twoStorySupportCandidates(x, z),
-      ...tenStorySupportCandidates(x, z),
-    ];
+    const supports = authoredBuildingSupportCandidates(x, z);
     return selectWalkableSupport(supports, referenceY) ?? sampleTerrainHeight(x, z);
   }
 
@@ -551,11 +477,7 @@ export class ChunkManager {
   }
 
   isShelteredAt(x: number, z: number, feetY: number) {
-    const overheadSupports = [
-      ...spawnBuildingSupportCandidates(x, z),
-      ...twoStorySupportCandidates(x, z),
-      ...tenStorySupportCandidates(x, z),
-    ];
+    const overheadSupports = authoredBuildingSupportCandidates(x, z);
     if (overheadSupports.some((height) => height > feetY + PLAYER_HEIGHT * 0.72)) {
       return true;
     }
@@ -632,6 +554,7 @@ export class ChunkManager {
     };
     this.placedRecords = [];
     this.waterSurface.dispose();
+    if (this.ownsMaterialLibrary) this.materialLibrary.dispose();
     this.refreshCaches();
   }
 
@@ -709,13 +632,22 @@ export class ChunkManager {
     terrainGeometry.setAttribute("color", new THREE.BufferAttribute(terrainColors, 3));
     terrainGeometry.computeVertexNormals();
 
-    const terrainMaterial = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      roughness: 0.96,
-      metalness: 0.02,
-      flatShading: true,
-      vertexColors: true,
-    });
+    const terrainMaterial = tagWorldMaterial(
+      new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        roughness: 0.96,
+        metalness: 0.02,
+        flatShading: true,
+        vertexColors: true,
+      }),
+      {
+        role: "terrain",
+        weatherExposure: 1,
+        wetRoughness: 0.55,
+        environmentScale: 0.72,
+        wetReflectionBoost: 0.48,
+      },
+    );
     const terrain = new THREE.Mesh(terrainGeometry, terrainMaterial);
     terrain.name = `terrain:${key}`;
     terrain.position.set(center.x, 0, center.z);
@@ -728,41 +660,31 @@ export class ChunkManager {
     const doors: AuthoredDoorRuntime[] = [];
     this.addWater(root, center.x, center.z);
     this.addRoads(root, center.x, center.z, key);
-    if (key === SPAWN_BUILDING.chunkKey) {
-      const authoredBuildings = [
-        createSpawnBuilding(
-          this.quality,
-          this.doorStates[SPAWN_BUILDING.doorId] ?? false,
-        ),
-        createTwoStoryBuilding(
-          this.quality,
-          this.doorStates[TWO_STORY_BUILDING.doorId] ?? false,
-        ),
-        createTenStoryBuilding(
-          this.quality,
-          this.doorStates[TEN_STORY_BUILDING.doorId] ?? false,
-        ),
-      ];
-      for (const building of authoredBuildings) {
-        root.add(building.root);
-        colliders.push(...building.colliders);
-        doors.push(...building.doors);
-        for (const door of building.doors) targets.push(this.createDoorTarget(door));
-      }
-      for (const definition of INSPECTABLES) {
-        const target = createInspectableTarget(definition, this.quality);
-        root.add(target.root);
-        targets.push(target);
-      }
-      const gameplayFeatures = createSpawnGameplayFeatures(
-        this.quality,
-        this.worldMinutes,
-        this.containerStates,
-      );
-      root.add(gameplayFeatures.root);
-      colliders.push(...gameplayFeatures.colliders);
-      targets.push(...gameplayFeatures.targets);
+    const authoredBuildings = createAuthoredBuildingsForChunk(
+      key,
+      this.quality,
+      this.doorStates,
+    );
+    for (const building of authoredBuildings) {
+      root.add(building.root);
+      colliders.push(...building.colliders);
+      doors.push(...building.doors);
+      for (const door of building.doors) targets.push(this.createDoorTarget(door));
     }
+    for (const definition of inspectablesForChunk(key)) {
+      const target = createInspectableTarget(definition, this.quality);
+      root.add(target.root);
+      targets.push(target);
+    }
+    const gameplayFeatures = createAuthoredGameplayFeaturesForChunk(
+      key,
+      this.quality,
+      this.worldMinutes,
+      this.containerStates,
+    );
+    root.add(gameplayFeatures.root);
+    colliders.push(...gameplayFeatures.colliders);
+    targets.push(...gameplayFeatures.targets);
     this.addSettlementBuildings(
       root,
       center.x,
@@ -832,6 +754,7 @@ export class ChunkManager {
       }
     }
 
+    this.materialLibrary.track(root);
     this.scene.add(root);
     const runtime = {
       key,
@@ -985,7 +908,20 @@ export class ChunkManager {
 
     const roads = new THREE.InstancedMesh(
       new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, vertexColors: true }),
+      tagWorldMaterial(
+        new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          roughness: 1,
+          vertexColors: true,
+        }),
+        {
+          role: "road",
+          weatherExposure: 1,
+          wetRoughness: 0.28,
+          environmentScale: 0.62,
+          wetReflectionBoost: 0.72,
+        },
+      ),
       recipes.length,
     );
     roads.name = `roads:${key}`;
@@ -1043,12 +979,21 @@ export class ChunkManager {
       const count = Math.max(2, Math.floor(spec.count * (0.35 + influence * 0.65)));
       const random = seededRandom(`${WORLD_SEED}:chunk:${key}:settlement:${settlement.id}:v1`);
       const geometry = new THREE.BoxGeometry(1, 1, 1);
-      const material = new THREE.MeshStandardMaterial({
-        color: 0xffffff,
-        roughness: 0.78,
-        metalness: settlement.tier === "megacity" ? 0.22 : 0.08,
-        vertexColors: true,
-      });
+      const material = tagWorldMaterial(
+        new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          roughness: 0.78,
+          metalness: settlement.tier === "megacity" ? 0.22 : 0.08,
+          vertexColors: true,
+        }),
+        {
+          role: "building",
+          weatherExposure: 1,
+          wetRoughness: 0.42,
+          environmentScale: 0.86,
+          wetReflectionBoost: 0.4,
+        },
+      );
       const buildings = new THREE.InstancedMesh(geometry, material, count);
       buildings.name = `settlement:${settlement.id}:${key}`;
       buildings.castShadow = qualityUsesShadows(this.quality);
@@ -1083,6 +1028,7 @@ export class ChunkManager {
         windowMaterial,
         count * maxWindowBands * 4,
       );
+      markBloomSource(windows);
       windows.name = `city-windows:${settlement.id}:${key}`;
       windows.castShadow = false;
       windows.receiveShadow = false;
@@ -1234,13 +1180,22 @@ export class ChunkManager {
     const height = settlement.tier === "megacity" ? 125 : settlement.tier === "city" ? 58 : 18;
     const marker = new THREE.Mesh(
       new THREE.BoxGeometry(settlement.tier === "megacity" ? 18 : 8, height, 8),
-      new THREE.MeshStandardMaterial({
-        color: 0x242a28,
-        emissive: settlement.tier === "megacity" ? 0x193834 : 0x000000,
-        emissiveIntensity: 0.8,
-        metalness: 0.48,
-        roughness: 0.5,
-      }),
+      tagWorldMaterial(
+        new THREE.MeshStandardMaterial({
+          color: 0x242a28,
+          emissive: settlement.tier === "megacity" ? 0x193834 : 0x000000,
+          emissiveIntensity: 0.8,
+          metalness: 0.48,
+          roughness: 0.5,
+        }),
+        {
+          role: "metal",
+          weatherExposure: 1,
+          wetRoughness: 0.3,
+          environmentScale: 1.1,
+          wetReflectionBoost: 0.45,
+        },
+      ),
     );
     marker.name = `landmark:${settlement.id}`;
     marker.position.set(
@@ -1324,12 +1279,21 @@ export class ChunkManager {
     const count = Math.max(3, Math.floor(4 + density * 13 + random() * 4));
     const rocks = new THREE.InstancedMesh(
       new THREE.DodecahedronGeometry(1, 0),
-      new THREE.MeshStandardMaterial({
-        color: 0xffffff,
-        roughness: 1,
-        flatShading: true,
-        vertexColors: true,
-      }),
+      tagWorldMaterial(
+        new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          roughness: 1,
+          flatShading: true,
+          vertexColors: true,
+        }),
+        {
+          role: "rock",
+          weatherExposure: 1,
+          wetRoughness: 0.34,
+          environmentScale: 0.7,
+          wetReflectionBoost: 0.58,
+        },
+      ),
       count,
     );
     rocks.name = `rocks:${key}`;
@@ -1646,7 +1610,20 @@ export class ChunkManager {
     if (count === 0) return;
     const ruins = new THREE.InstancedMesh(
       new THREE.BoxGeometry(0.65, 5, 2.2),
-      new THREE.MeshStandardMaterial({ color: 0x262825, roughness: 0.78, metalness: 0.28 }),
+      tagWorldMaterial(
+        new THREE.MeshStandardMaterial({
+          color: 0x262825,
+          roughness: 0.78,
+          metalness: 0.28,
+        }),
+        {
+          role: "building",
+          weatherExposure: 1,
+          wetRoughness: 0.4,
+          environmentScale: 0.88,
+          wetReflectionBoost: 0.45,
+        },
+      ),
       count,
     );
     ruins.name = `ruins:${key}`;
@@ -1896,16 +1873,25 @@ export class ChunkManager {
     root.position.set(x, sampleTerrainHeight(x, z), z);
     const mesh = new THREE.Mesh(
       new THREE.DodecahedronGeometry(1.25, 0),
-      new THREE.MeshStandardMaterial({
-        color: proceduralSurfaceColor(
-          new THREE.Color(),
-          item === "ore" ? 0x5d625d : 0x514c43,
-          "rock",
-          x,
-          z,
-        ),
-        roughness: 1,
-      }),
+      tagWorldMaterial(
+        new THREE.MeshStandardMaterial({
+          color: proceduralSurfaceColor(
+            new THREE.Color(),
+            item === "ore" ? 0x5d625d : 0x514c43,
+            "rock",
+            x,
+            z,
+          ),
+          roughness: 1,
+        }),
+        {
+          role: "rock",
+          weatherExposure: 1,
+          wetRoughness: 0.34,
+          environmentScale: 0.72,
+          wetReflectionBoost: 0.58,
+        },
+      ),
     );
     mesh.position.y = 0.72;
     mesh.scale.set(1.25, 0.8, 1);
@@ -1988,6 +1974,7 @@ export class ChunkManager {
     spine.rotation.y = Math.PI / 4;
     root.add(spine);
     const signalCore = new THREE.Mesh(new THREE.OctahedronGeometry(0.58, 0), signal);
+    markBloomSource(signalCore);
     signalCore.name = "signal-core";
     signalCore.position.y = 8.8;
     root.add(signalCore);
@@ -2018,7 +2005,7 @@ export class ChunkManager {
     };
   }
 
-  private applyScannedAppearance(root: THREE.Group) {
+  private applyScannedAppearance(root: THREE.Object3D) {
     const signalCore = root.getObjectByName("signal-core");
     if (!(signalCore instanceof THREE.Mesh)) return;
     const material = signalCore.material as THREE.MeshStandardMaterial;
@@ -2046,6 +2033,7 @@ export class ChunkManager {
   }
 
   private disposeObjectTree(root: THREE.Object3D) {
+    this.materialLibrary.untrack(root);
     this.scene.remove(root);
     const geometries = new Set<THREE.BufferGeometry>();
     const materials = new Set<THREE.Material>();

@@ -1,10 +1,11 @@
 import * as THREE from "three";
-import { MAX_STEP_HEIGHT, qualityUsesShadows, type QualityLevel } from "../config";
+import { tagWorldMaterial } from "../rendering/WorldMaterialLibrary";
+import { qualityUsesShadows, type QualityLevel } from "../config";
 import type { PlanarCollider } from "../systems/collision";
 import {
   createAuthoredDoor,
-  type AuthoredDoorRuntime,
 } from "./authoredDoor";
+import type { AuthoredBuildingRuntime } from "./buildingTypes";
 import { sampleTerrainHeight } from "./terrain";
 
 const SITE = {
@@ -134,11 +135,7 @@ export const TWO_STORY_BUILDING = Object.freeze({
   clearanceRadius: Math.hypot(SITE.width, SITE.depth) * 0.5 + 1.25,
 });
 
-export interface TwoStoryBuildingRuntime {
-  root: THREE.Group;
-  colliders: PlanarCollider[];
-  doors: AuthoredDoorRuntime[];
-}
+export type TwoStoryBuildingRuntime = AuthoredBuildingRuntime;
 
 function boxCollider(
   id: string,
@@ -221,16 +218,7 @@ export function twoStorySupportCandidates(x: number, z: number): number[] {
   return [...new Set(supports)].sort((left, right) => left - right);
 }
 
-export function selectWalkableSupport(
-  supports: readonly number[],
-  referenceY?: number,
-) {
-  if (supports.length === 0) return null;
-  const ordered = [...supports].sort((left, right) => left - right);
-  if (referenceY === undefined || !Number.isFinite(referenceY)) return ordered[0];
-  const reachable = ordered.filter((height) => height <= referenceY + MAX_STEP_HEIGHT);
-  return reachable.at(-1) ?? ordered[0];
-}
+export { selectWalkableSupport } from "./buildingTypes";
 
 export function createTwoStoryBuilding(
   quality: QualityLevel,
@@ -257,11 +245,20 @@ export function createTwoStoryBuilding(
       roughness: 0.83,
       metalness: 0.12,
     }),
-    roof: new THREE.MeshStandardMaterial({
-      color: 0x303633,
-      roughness: 0.7,
-      metalness: 0.3,
-    }),
+    roof: tagWorldMaterial(
+      new THREE.MeshStandardMaterial({
+        color: 0x303633,
+        roughness: 0.7,
+        metalness: 0.3,
+      }),
+      {
+        role: "roof",
+        weatherExposure: 1,
+        wetRoughness: 0.3,
+        environmentScale: 0.98,
+        wetReflectionBoost: 0.5,
+      },
+    ),
     trim: new THREE.MeshStandardMaterial({
       color: 0x242927,
       roughness: 0.68,

@@ -1,10 +1,11 @@
 import * as THREE from "three";
+import { tagWorldMaterial } from "../rendering/WorldMaterialLibrary";
 import { qualityUsesShadows, type QualityLevel } from "../config";
 import type { PlanarCollider } from "../systems/collision";
 import {
   createAuthoredDoor,
-  type AuthoredDoorRuntime,
 } from "./authoredDoor";
+import type { AuthoredBuildingRuntime } from "./buildingTypes";
 import { sampleTerrainHeight } from "./terrain";
 
 const SITE = {
@@ -83,11 +84,7 @@ export const SPAWN_BUILDING = Object.freeze({
   clearanceRadius: Math.hypot(SITE.width, SITE.depth) * 0.5 + 1.25,
 });
 
-export interface SpawnBuildingRuntime {
-  root: THREE.Group;
-  colliders: PlanarCollider[];
-  doors: AuthoredDoorRuntime[];
-}
+export type SpawnBuildingRuntime = AuthoredBuildingRuntime;
 
 function wallCollider(
   id: string,
@@ -200,11 +197,20 @@ export function createSpawnBuilding(
     roughness: 0.86,
     metalness: 0.08,
   });
-  const roofTemplate = new THREE.MeshStandardMaterial({
-    color: 0x343735,
-    roughness: 0.76,
-    metalness: 0.24,
-  });
+  const roofTemplate = tagWorldMaterial(
+    new THREE.MeshStandardMaterial({
+      color: 0x343735,
+      roughness: 0.76,
+      metalness: 0.24,
+    }),
+    {
+      role: "roof",
+      weatherExposure: 1,
+      wetRoughness: 0.3,
+      environmentScale: 0.94,
+      wetReflectionBoost: 0.5,
+    },
+  );
   const trimTemplate = new THREE.MeshStandardMaterial({
     color: 0x252826,
     roughness: 0.72,

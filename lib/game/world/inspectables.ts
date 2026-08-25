@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { qualityUsesShadows, type QualityLevel } from "../config";
-import type { WorldTarget } from "./ChunkManager";
-import { sampleTerrainHeight } from "./terrain";
+import type { WorldTarget } from "./targets";
+import { chunkKey, sampleTerrainHeight, worldToChunk } from "./terrain";
 
 export interface InspectionRecord {
   id: string;
@@ -49,6 +49,13 @@ export const INSPECTABLES: readonly InspectableDefinition[] = Object.freeze([
     rotation: Math.PI,
   },
 ]);
+
+export function inspectablesForChunk(targetChunkKey: string) {
+  return INSPECTABLES.filter((definition) => {
+    const coordinate = worldToChunk(definition.x, definition.z);
+    return chunkKey(coordinate.x, coordinate.z) === targetChunkKey;
+  });
+}
 
 export function createInspectableTarget(
   definition: Readonly<InspectableDefinition>,

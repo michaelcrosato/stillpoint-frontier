@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  AUDIO_CUE_RECIPES,
   deriveAmbientMix,
   footstepSpacing,
   footstepSurfaceForBiome,
@@ -55,5 +56,17 @@ describe("procedural environmental audio model", () => {
   it("uses distance cadence for walk, sprint, and crouch", () => {
     expect(footstepSpacing(true, false)).toBeLessThan(footstepSpacing(false, false));
     expect(footstepSpacing(false, true)).toBeGreaterThan(footstepSpacing(false, false));
+  });
+
+  it("defines a bounded oscillator recipe for every cue", () => {
+    expect(Object.keys(AUDIO_CUE_RECIPES)).toHaveLength(10);
+    for (const recipe of Object.values(AUDIO_CUE_RECIPES)) {
+      expect(recipe.startFrequency).toBeGreaterThan(20);
+      expect(recipe.endFrequency).toBeGreaterThan(20);
+      expect(recipe.duration).toBeGreaterThan(0);
+      expect(recipe.duration).toBeLessThanOrEqual(0.25);
+      expect(recipe.gain).toBeGreaterThan(0);
+      expect(recipe.gain).toBeLessThanOrEqual(0.2);
+    }
   });
 });

@@ -7,6 +7,9 @@ export default defineConfig({
     reporters: ["default"],
     coverage: {
       provider: "v8",
+      // Browser-owned renderer/PMREM lifecycles require a real WebGL2 context
+      // and live in Playwright; their pure policies and non-GPU collaborators
+      // remain part of this enforced unit-coverage gate.
       include: [
         "lib/game/core/random.ts",
         "lib/game/core/SystemPipeline.ts",
@@ -18,10 +21,23 @@ export default defineConfig({
         "lib/game/world/vegetation.ts",
         "lib/game/world/surfaceVariation.ts",
         "lib/game/world/WaterSurface.ts",
+        "lib/game/world/authoredBuildings.ts",
+        "lib/game/world/buildingTypes.ts",
+        "lib/game/world/spawnFeatures.ts",
+        "lib/game/world/deployments.ts",
         "lib/game/animals/animalRecipes.ts",
         "lib/game/animals/AnimalEngine.ts",
         "lib/game/equipment/PlayerFlashlight.ts",
         "lib/game/audio/model.ts",
+        "lib/game/audio/EnvironmentalAudio.ts",
+        "lib/game/npcs/model.ts",
+        "lib/game/npcs/stillpointNpcs.ts",
+        "lib/game/npcs/presentation.ts",
+        "lib/game/npcs/authoredNpc.ts",
+        "lib/game/rendering/Bloom.ts",
+        "lib/game/rendering/PostProcessShader.ts",
+        "lib/game/rendering/RenderingPolicy.ts",
+        "lib/game/rendering/WorldMaterialLibrary.ts",
         "lib/game/settings.ts",
         "lib/game/persistence/PreferencesStore.ts",
         "lib/game/systems/PlayerEquipmentSystem.ts",

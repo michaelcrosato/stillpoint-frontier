@@ -8,32 +8,20 @@ import {
   createAuthoredNpcTarget,
 } from "../npcs/authoredNpc";
 import type { PlanarCollider } from "../systems/collision";
-import type { WorldTarget } from "./ChunkManager";
-import { SPAWN_BUILDING } from "./spawnBuilding";
-import { TEN_STORY_BUILDING } from "./tenStoryBuilding";
-import { TWO_STORY_BUILDING } from "./twoStoryBuilding";
-import { sampleTerrainHeight } from "./terrain";
+import type { WorldTarget } from "./targets";
+import {
+  authoredBuildingById,
+  buildingLocalToWorld,
+  type AuthoredBuildingId,
+} from "./authoredBuildings";
+import type { BuildingReservation } from "./buildingTypes";
+import {
+  chunkKey as coordinateChunkKey,
+  sampleTerrainHeight,
+  worldToChunk,
+} from "./terrain";
 
-export type BuildingId = "field-unit" | "survey-house" | "meridian-tower";
-
-interface InteriorReservation {
-  id: string;
-  minX: number;
-  maxX: number;
-  minZ: number;
-  maxZ: number;
-}
-
-interface BuildingFrame {
-  x: number;
-  z: number;
-  rotation: number;
-  width: number;
-  depth: number;
-  wallThickness: number;
-  floorYs: readonly number[];
-  reservations: readonly InteriorReservation[];
-}
+export type BuildingId = AuthoredBuildingId;
 
 export interface InteriorPlacement {
   id: string;
@@ -52,84 +40,6 @@ export interface InteriorPlacement {
     | { type: "rest"; site: RestSiteDefinition }
     | { type: "loot"; containerId: string; tableId: LootTableId; label: string };
 }
-
-const BUILDING_FRAMES: Readonly<Record<BuildingId, BuildingFrame>> = {
-  "field-unit": {
-    x: SPAWN_BUILDING.x,
-    z: SPAWN_BUILDING.z,
-    rotation: 0,
-    width: SPAWN_BUILDING.width,
-    depth: SPAWN_BUILDING.depth,
-    wallThickness: SPAWN_BUILDING.wallThickness,
-    floorYs: [SPAWN_BUILDING.floorY],
-    reservations: [
-      {
-        id: "roof-stair",
-        minX: SPAWN_BUILDING.roofStairwellMinX,
-        maxX: SPAWN_BUILDING.roofStairwellMaxX,
-        minZ: SPAWN_BUILDING.roofStairwellMinZ,
-        maxZ: SPAWN_BUILDING.roofStairwellMaxZ,
-      },
-      {
-        id: "front-door",
-        minX: -SPAWN_BUILDING.doorWidth * 0.5 - 0.45,
-        maxX: SPAWN_BUILDING.doorWidth * 0.5 + 0.45,
-        minZ: SPAWN_BUILDING.depth * 0.5 - 1.15,
-        maxZ: SPAWN_BUILDING.depth * 0.5 + 0.55,
-      },
-    ],
-  },
-  "survey-house": {
-    x: TWO_STORY_BUILDING.x,
-    z: TWO_STORY_BUILDING.z,
-    rotation: TWO_STORY_BUILDING.rotation,
-    width: TWO_STORY_BUILDING.width,
-    depth: TWO_STORY_BUILDING.depth,
-    wallThickness: TWO_STORY_BUILDING.wallThickness,
-    floorYs: [TWO_STORY_BUILDING.floorY, TWO_STORY_BUILDING.upperFloorY],
-    reservations: [
-      {
-        id: "stairs",
-        minX: TWO_STORY_BUILDING.stairwellMinX,
-        maxX: TWO_STORY_BUILDING.stairwellMaxX,
-        minZ: TWO_STORY_BUILDING.stairwellMinZ,
-        maxZ: TWO_STORY_BUILDING.stairwellMaxZ,
-      },
-      {
-        id: "front-door",
-        minX: -TWO_STORY_BUILDING.doorWidth * 0.5 - 0.45,
-        maxX: TWO_STORY_BUILDING.doorWidth * 0.5 + 0.45,
-        minZ: TWO_STORY_BUILDING.depth * 0.5 - 1.2,
-        maxZ: TWO_STORY_BUILDING.depth * 0.5 + 0.55,
-      },
-    ],
-  },
-  "meridian-tower": {
-    x: TEN_STORY_BUILDING.x,
-    z: TEN_STORY_BUILDING.z,
-    rotation: TEN_STORY_BUILDING.rotation,
-    width: TEN_STORY_BUILDING.width,
-    depth: TEN_STORY_BUILDING.depth,
-    wallThickness: TEN_STORY_BUILDING.wallThickness,
-    floorYs: TEN_STORY_BUILDING.floorYs,
-    reservations: [
-      {
-        id: "stairs",
-        minX: TEN_STORY_BUILDING.stairwellMinX,
-        maxX: TEN_STORY_BUILDING.stairwellMaxX,
-        minZ: TEN_STORY_BUILDING.stairwellMinZ,
-        maxZ: TEN_STORY_BUILDING.stairwellMaxZ,
-      },
-      {
-        id: "front-door",
-        minX: -TEN_STORY_BUILDING.doorWidth * 0.5 - 0.45,
-        maxX: TEN_STORY_BUILDING.doorWidth * 0.5 + 0.45,
-        minZ: TEN_STORY_BUILDING.depth * 0.5 - 1.2,
-        maxZ: TEN_STORY_BUILDING.depth * 0.5 + 0.55,
-      },
-    ],
-  },
-};
 
 const BASE_INTERIOR_PLACEMENTS: readonly InteriorPlacement[] = [
   {
@@ -269,7 +179,8 @@ const BASE_INTERIOR_PLACEMENTS: readonly InteriorPlacement[] = [
 ];
 
 function towerPlacements(): InteriorPlacement[] {
-  return TEN_STORY_BUILDING.floorYs.flatMap((_, floor) => {
+  const floorYs = authoredBuildingById("meridian-tower")?.frame.floorYs ?? [];
+  return floorYs.flatMap((_, floor) => {
     const zone = floor <= 2 ? "records" : floor <= 6 ? "cartography" : "observation";
     const color = zone === "records" ? 0x454947 : zone === "cartography" ? 0x4a5149 : 0x3c4b50;
     const placements: InteriorPlacement[] = [
@@ -344,7 +255,7 @@ export const INTERIOR_PLACEMENTS = Object.freeze([
 
 function overlapsReservation(
   placement: Readonly<InteriorPlacement>,
-  reservation: Readonly<InteriorReservation>,
+  reservation: Readonly<BuildingReservation>,
 ) {
   const halfWidth = placement.width * 0.5;
   const halfDepth = placement.depth * 0.5;
@@ -374,10 +285,15 @@ export function interiorPlacementIssues(
   const ids = new Set<string>();
   const validPlacements: InteriorPlacement[] = [];
   for (const placement of placements) {
-    const frame = BUILDING_FRAMES[placement.buildingId];
     const stableId = `${placement.buildingId}:${placement.id}`;
     if (ids.has(stableId)) issues.push(`${stableId}:duplicate-id`);
     ids.add(stableId);
+    const recipe = authoredBuildingById(placement.buildingId);
+    if (!recipe) {
+      issues.push(`${stableId}:unknown-building`);
+      continue;
+    }
+    const frame = recipe.frame;
     if (!Number.isInteger(placement.floor) || frame.floorYs[placement.floor] === undefined) {
       issues.push(`${stableId}:invalid-floor`);
       continue;
@@ -425,15 +341,6 @@ export function interiorPlacementIssues(
     }
   }
   return issues;
-}
-
-function localToWorld(frame: BuildingFrame, localX: number, localZ: number) {
-  const cosine = Math.cos(frame.rotation);
-  const sine = Math.sin(frame.rotation);
-  return {
-    x: frame.x + cosine * localX + sine * localZ,
-    z: frame.z - sine * localX + cosine * localZ,
-  };
 }
 
 function targetFromInteraction(
@@ -499,20 +406,26 @@ export interface SpawnFeatureRuntime {
   targets: WorldTarget[];
 }
 
-export function createSpawnGameplayFeatures(
+export function createAuthoredGameplayFeaturesForChunk(
+  targetChunkKey: string,
   quality: QualityLevel,
   totalMinutes: number,
   containerStates: Readonly<ContainerStates>,
 ): SpawnFeatureRuntime {
   const root = new THREE.Group();
-  root.name = "spawn-gameplay-features:v1";
+  root.name = `authored-gameplay-features:${targetChunkKey}:v1`;
   const colliders: PlanarCollider[] = [];
   const targets: WorldTarget[] = [];
   for (const placement of INTERIOR_PLACEMENTS) {
-    const frame = BUILDING_FRAMES[placement.buildingId];
+    const frame = authoredBuildingById(placement.buildingId)?.frame;
+    if (!frame || frame.chunkKey !== targetChunkKey) continue;
     const floorY = frame.floorYs[placement.floor];
     if (floorY === undefined) continue;
-    const point = localToWorld(frame, placement.localX, placement.localZ);
+    const point = buildingLocalToWorld(
+      frame,
+      placement.localX,
+      placement.localZ,
+    );
     const group = new THREE.Group();
     group.name = `interior:${placement.buildingId}:v1:${placement.id}`;
     group.position.set(point.x, floorY, point.z);
@@ -557,41 +470,65 @@ export function createSpawnGameplayFeatures(
     if (target) targets.push(target);
   }
 
-  const mastRoot = new THREE.Group();
-  mastRoot.name = "scan-subject:field-unit-weather-mast";
   const mastX = -1.8;
   const mastZ = 3.4;
-  const mastY = sampleTerrainHeight(mastX, mastZ);
-  mastRoot.position.set(mastX, mastY, mastZ);
-  const mast = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.06, 0.1, 2.7, 6),
-    new THREE.MeshStandardMaterial({ color: 0x46504d, roughness: 0.72 }),
-  );
-  mast.position.y = 1.35;
-  const sensor = new THREE.Mesh(
-    new THREE.OctahedronGeometry(0.28, 0),
-    new THREE.MeshStandardMaterial({ color: 0x8eb8a5, emissive: 0x274f40, emissiveIntensity: 1 }),
-  );
-  sensor.position.y = 2.82;
-  mastRoot.add(mast, sensor);
-  root.add(mastRoot);
-  targets.push({
-    id: "scan-subject:field-unit-weather-mast",
-    kind: "scannable",
-    action: "scan",
-    name: "Field Unit weather mast",
-    position: new THREE.Vector3(mastX, mastY + 2.2, mastZ),
-    root: mastRoot,
-    maxDistance: 35,
-    hitsRequired: 0,
-    hits: 0,
-    fieldGuideId: "guide:landmark:field-unit-weather-mast:v1",
-  });
+  const mastCoordinate = worldToChunk(mastX, mastZ);
+  const mastChunkKey = coordinateChunkKey(mastCoordinate.x, mastCoordinate.z);
+  if (mastChunkKey === targetChunkKey) {
+    const mastRoot = new THREE.Group();
+    mastRoot.name = "scan-subject:field-unit-weather-mast";
+    const mastY = sampleTerrainHeight(mastX, mastZ);
+    mastRoot.position.set(mastX, mastY, mastZ);
+    const mast = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.06, 0.1, 2.7, 6),
+      new THREE.MeshStandardMaterial({ color: 0x46504d, roughness: 0.72 }),
+    );
+    mast.position.y = 1.35;
+    const sensor = new THREE.Mesh(
+      new THREE.OctahedronGeometry(0.28, 0),
+      new THREE.MeshStandardMaterial({
+        color: 0x8eb8a5,
+        emissive: 0x274f40,
+        emissiveIntensity: 1,
+      }),
+    );
+    sensor.position.y = 2.82;
+    mastRoot.add(mast, sensor);
+    root.add(mastRoot);
+    targets.push({
+      id: "scan-subject:field-unit-weather-mast",
+      kind: "scannable",
+      action: "scan",
+      name: "Field Unit weather mast",
+      position: new THREE.Vector3(mastX, mastY + 2.2, mastZ),
+      root: mastRoot,
+      maxDistance: 35,
+      hitsRequired: 0,
+      hits: 0,
+      fieldGuideId: "guide:landmark:field-unit-weather-mast:v1",
+    });
+  }
 
-  for (const npc of AUTHORED_NPCS) {
+  for (const npc of AUTHORED_NPCS.filter(
+    (definition) => definition.residentChunkKey === targetChunkKey,
+  )) {
     const target = createAuthoredNpcTarget(npc, quality, totalMinutes);
     root.add(target.root);
     targets.push(target);
   }
   return { root, colliders, targets };
+}
+
+/** Compatibility wrapper for the original single-compound caller. */
+export function createSpawnGameplayFeatures(
+  quality: QualityLevel,
+  totalMinutes: number,
+  containerStates: Readonly<ContainerStates>,
+) {
+  return createAuthoredGameplayFeaturesForChunk(
+    "0:0",
+    quality,
+    totalMinutes,
+    containerStates,
+  );
 }

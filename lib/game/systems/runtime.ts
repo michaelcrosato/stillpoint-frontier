@@ -1,6 +1,6 @@
 import type * as THREE from "three";
 import type { AnimalEngine } from "../animals/AnimalEngine";
-import type { EnvironmentalAudio } from "../audio/EnvironmentalAudio";
+import type { AudioPort } from "../audio/port";
 import type { BeaconId } from "../config";
 import type { CitizenEngine } from "../citizens/CitizenEngine";
 import type { EnvironmentRuntime } from "../environment";
@@ -8,7 +8,7 @@ import type { InputManager } from "../input/InputManager";
 import type { NavigationService } from "../navigation/NavigationService";
 import type { ChunkManager } from "../world/ChunkManager";
 import type { HorizonRenderer } from "../world/HorizonRenderer";
-import type { WorldTarget } from "../world/ChunkManager";
+import type { WorldTarget } from "../world/targets";
 import type { PlayerConditionState } from "../gameplay/playerCondition";
 import type { GameSettings } from "../settings";
 import type { ScanCandidate } from "../gameplay/fieldGuide";
@@ -49,7 +49,7 @@ export interface GameRuntimeContext {
   citizens: CitizenEngine;
   animals: AnimalEngine;
   environment: EnvironmentRuntime;
-  audio: EnvironmentalAudio;
+  audio: AudioPort;
   navigation: NavigationService;
   settings: GameSettings;
   player: PlayerRuntime;

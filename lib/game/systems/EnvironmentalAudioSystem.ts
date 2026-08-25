@@ -1,3 +1,4 @@
+import * as THREE from "three";
 import type { GameSystem } from "../core/SystemPipeline";
 import { deriveAmbientMix, footstepSpacing, footstepSurfaceForBiome } from "../audio/model";
 import { sampleClimate, settlementInfluence, nearestSettlement } from "../world/macroWorld";
@@ -9,8 +10,17 @@ export class EnvironmentalAudioSystem implements GameSystem<GameRuntimeContext> 
   private previousX: number | null = null;
   private previousZ: number | null = null;
   private distanceSinceStep = 0;
+  private readonly listenerForward = new THREE.Vector3();
+  private readonly listenerUp = new THREE.Vector3();
 
   update(context: GameRuntimeContext) {
+    context.camera.getWorldDirection(this.listenerForward);
+    this.listenerUp.copy(context.camera.up).applyQuaternion(context.camera.quaternion);
+    context.audio.setListenerPose({
+      position: context.camera.position,
+      forward: this.listenerForward,
+      up: this.listenerUp,
+    });
     const atmosphere = context.environment.getSample();
     const climate = sampleClimate(context.player.position.x, context.player.position.z);
     const nearest = nearestSettlement(context.player.position.x, context.player.position.z);
@@ -50,6 +60,11 @@ export class EnvironmentalAudioSystem implements GameSystem<GameRuntimeContext> 
     context.audio.playFootstep(
       footstepSurfaceForBiome(climate.biome.id, context.player.sheltered),
       context.player.sprinting ? 1 : context.player.crouching ? 0.55 : 0.78,
+      {
+        position: context.player.position,
+        referenceDistance: 1.2,
+        maxDistance: 12,
+      },
     );
   }
 }

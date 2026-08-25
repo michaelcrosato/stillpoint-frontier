@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { markBloomSource } from "../rendering/Bloom";
 import {
   qualityUsesHighDetail,
   qualityUsesShadows,
@@ -6,7 +7,7 @@ import {
 } from "../config";
 import type { RestSiteDefinition } from "../gameplay/resting";
 import type { PlanarCollider } from "../systems/collision";
-import type { WorldTarget } from "./ChunkManager";
+import type { WorldTarget } from "./targets";
 import { WORLD_HALF_EXTENT } from "./macroWorld";
 
 export type PlacementArchetype =
@@ -147,6 +148,7 @@ export function createPlacedRuntime(
         }),
         quality,
       );
+      markBloomSource(ember);
       ember.position.y = 0.48;
       group.add(ring, ember);
       colliders.push({
@@ -177,6 +179,7 @@ export function createPlacedRuntime(
         new THREE.MeshStandardMaterial({ color: 0x8bc3aa, emissive: 0x315b4a, emissiveIntensity: 1 }),
         quality,
       );
+      markBloomSource(cap);
       cap.position.y = 2.25;
       group.add(pole, cap);
     } else if (record.archetypeId === "weather_shelter") {
@@ -216,6 +219,7 @@ export function createPlacedRuntime(
         new THREE.MeshStandardMaterial({ color: 0xf1b86f, emissive: 0xf28a3a, emissiveIntensity: 1.8 }),
         quality,
       );
+      markBloomSource(lamp);
       lamp.position.y = 1.62;
       const light = new THREE.PointLight(
         0xffad68,

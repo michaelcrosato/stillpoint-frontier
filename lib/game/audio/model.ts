@@ -3,6 +3,41 @@ import type { PrecipitationKind } from "../environment/model";
 
 export type FootstepSurface = "grass" | "stone" | "soil" | "sand" | "interior";
 
+export type AudioCue =
+  | "collect"
+  | "harvest"
+  | "door-open"
+  | "door-close"
+  | "scan"
+  | "inspect"
+  | "discover"
+  | "damage"
+  | "recover"
+  | "save";
+
+export type AudioWaveform = "sine" | "square" | "sawtooth" | "triangle";
+
+export interface AudioCueRecipe {
+  startFrequency: number;
+  endFrequency: number;
+  duration: number;
+  gain: number;
+  waveform: AudioWaveform;
+}
+
+export const AUDIO_CUE_RECIPES = {
+  collect: { startFrequency: 520, endFrequency: 760, duration: 0.17, gain: 0.075, waveform: "sine" },
+  harvest: { startFrequency: 135, endFrequency: 92, duration: 0.17, gain: 0.075, waveform: "triangle" },
+  "door-open": { startFrequency: 180, endFrequency: 230, duration: 0.17, gain: 0.075, waveform: "sine" },
+  "door-close": { startFrequency: 210, endFrequency: 120, duration: 0.17, gain: 0.075, waveform: "sine" },
+  scan: { startFrequency: 410, endFrequency: 920, duration: 0.17, gain: 0.075, waveform: "sine" },
+  inspect: { startFrequency: 360, endFrequency: 470, duration: 0.17, gain: 0.075, waveform: "sine" },
+  discover: { startFrequency: 330, endFrequency: 660, duration: 0.17, gain: 0.075, waveform: "sine" },
+  damage: { startFrequency: 95, endFrequency: 58, duration: 0.17, gain: 0.13, waveform: "triangle" },
+  recover: { startFrequency: 260, endFrequency: 520, duration: 0.17, gain: 0.075, waveform: "sine" },
+  save: { startFrequency: 620, endFrequency: 780, duration: 0.17, gain: 0.075, waveform: "sine" },
+} as const satisfies Record<AudioCue, AudioCueRecipe>;
+
 export interface AmbientMixInput {
   windKph: number;
   precipitation: PrecipitationKind;

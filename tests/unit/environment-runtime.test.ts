@@ -43,6 +43,23 @@ describe("environment visual runtime", () => {
     expect(environment.getVisualState().effectSeconds).toBe(before + 2);
     expect(renderer.toneMappingExposure).toBeGreaterThan(0);
 
+    environment.setDeveloperMode(true);
+    expect(environment.setDeveloperWeather("rain")).toBe(true);
+    environment.sync(position, true);
+    environment.tick(position, 30, true);
+    environment.present(position, 0);
+    const wet = environment.getVisualState().surfaceWetness;
+    expect(wet).toBeGreaterThan(0);
+    expect(wet).toBeLessThanOrEqual(1);
+    environment.tick(position, 30, false);
+    environment.present(position, 0);
+    expect(environment.getVisualState().surfaceWetness).toBe(wet);
+    expect(environment.setDeveloperWeather("fair")).toBe(true);
+    environment.sync(position, true);
+    environment.tick(position, 120, true);
+    environment.present(position, 0);
+    expect(environment.getVisualState().surfaceWetness).toBeLessThan(wet);
+
     environment.dispose();
     expect(scene.getObjectByName("atmosphere-sky")).toBeUndefined();
   });

@@ -1,17 +1,16 @@
-import type { GameSettings } from "../settings";
-import type { AmbientMix, FootstepSurface } from "./model";
-
-export type AudioCue =
-  | "collect"
-  | "harvest"
-  | "door-open"
-  | "door-close"
-  | "scan"
-  | "inspect"
-  | "discover"
-  | "damage"
-  | "recover"
-  | "save";
+import {
+  AUDIO_CUE_RECIPES,
+  type AmbientMix,
+  type AudioCue,
+  type FootstepSurface,
+} from "./model";
+import type {
+  AudioEmitter,
+  AudioDiagnostics,
+  AudioLevels,
+  AudioListenerPose,
+  AudioPort,
+} from "./port";
 
 type AudioContextConstructor = typeof AudioContext;
 
@@ -25,7 +24,117 @@ function safeVolume(value: number) {
   return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0;
 }
 
-export class EnvironmentalAudio {
+type CompatibleAudioListener = AudioListener & {
+  positionX?: AudioParam;
+  positionY?: AudioParam;
+  positionZ?: AudioParam;
+  forwardX?: AudioParam;
+  forwardY?: AudioParam;
+  forwardZ?: AudioParam;
+  upX?: AudioParam;
+  upY?: AudioParam;
+  upZ?: AudioParam;
+  setPosition?: (x: number, y: number, z: number) => void;
+  setOrientation?: (
+    forwardX: number,
+    forwardY: number,
+    forwardZ: number,
+    upX: number,
+    upY: number,
+    upZ: number,
+  ) => void;
+};
+
+type CompatiblePannerNode = PannerNode & {
+  positionX?: AudioParam;
+  positionY?: AudioParam;
+  positionZ?: AudioParam;
+  setPosition?: (x: number, y: number, z: number) => void;
+};
+
+const finiteCoordinate = (value: number, fallback: number) =>
+  Number.isFinite(value) ? value : fallback;
+
+function scheduleCoordinates(
+  parameters: readonly (AudioParam | undefined)[],
+  values: readonly number[],
+  now: number,
+) {
+  if (parameters.some((parameter) => !parameter)) return false;
+  parameters.forEach((parameter, index) => {
+    parameter!.setValueAtTime(values[index], now);
+  });
+  return true;
+}
+
+/** Applies a listener transform across modern and legacy Web Audio APIs. */
+export function applyListenerPose(
+  listener: AudioListener,
+  pose: Readonly<AudioListenerPose>,
+  now: number,
+) {
+  const compatible = listener as CompatibleAudioListener;
+  const position = [
+    finiteCoordinate(pose.position.x, 0),
+    finiteCoordinate(pose.position.y, 0),
+    finiteCoordinate(pose.position.z, 0),
+  ] as const;
+  const forward = [
+    finiteCoordinate(pose.forward.x, 0),
+    finiteCoordinate(pose.forward.y, 0),
+    finiteCoordinate(pose.forward.z, -1),
+  ] as const;
+  const up = [
+    finiteCoordinate(pose.up.x, 0),
+    finiteCoordinate(pose.up.y, 1),
+    finiteCoordinate(pose.up.z, 0),
+  ] as const;
+
+  if (!scheduleCoordinates(
+    [compatible.positionX, compatible.positionY, compatible.positionZ],
+    position,
+    now,
+  )) {
+    compatible.setPosition?.(...position);
+  }
+  if (!scheduleCoordinates(
+    [
+      compatible.forwardX,
+      compatible.forwardY,
+      compatible.forwardZ,
+      compatible.upX,
+      compatible.upY,
+      compatible.upZ,
+    ],
+    [...forward, ...up],
+    now,
+  )) {
+    compatible.setOrientation?.(...forward, ...up);
+  }
+}
+
+/** Applies a world emitter position across modern and legacy Web Audio APIs. */
+export function applyPannerPosition(
+  panner: PannerNode,
+  position: Readonly<AudioEmitter["position"]>,
+  now: number,
+) {
+  const compatible = panner as CompatiblePannerNode;
+  const coordinates = [
+    finiteCoordinate(position.x, 0),
+    finiteCoordinate(position.y, 0),
+    finiteCoordinate(position.z, 0),
+  ] as const;
+  if (!scheduleCoordinates(
+    [compatible.positionX, compatible.positionY, compatible.positionZ],
+    coordinates,
+    now,
+  )) {
+    compatible.setPosition?.(...coordinates);
+  }
+}
+
+export class EnvironmentalAudio implements AudioPort<AudioCue> {
   private context: AudioContext | null = null;
   private master: GainNode | null = null;
   private ambient: GainNode | null = null;
@@ -39,14 +148,16 @@ export class EnvironmentalAudio {
   private wildlifeFilter: BiquadFilterNode | null = null;
   private settlementFilter: BiquadFilterNode | null = null;
   private noiseBuffer: AudioBuffer | null = null;
-  private settings: GameSettings;
+  private levels: AudioLevels;
   private unlocked = false;
   private disposed = false;
   private cueCount = 0;
+  private spatialCueCount = 0;
+  private listenerUpdates = 0;
   private lastCue: AudioCue | "footstep" | null = null;
 
-  constructor(settings: Readonly<GameSettings>, private readonly disabled = false) {
-    this.settings = { ...settings, keyBindings: { ...settings.keyBindings } };
+  constructor(levels: Readonly<AudioLevels>, private readonly disabled = false) {
+    this.levels = { ...levels };
   }
 
   async unlock() {
@@ -62,13 +173,19 @@ export class EnvironmentalAudio {
     return this.unlocked;
   }
 
-  setSettings(settings: Readonly<GameSettings>) {
-    this.settings = { ...settings, keyBindings: { ...settings.keyBindings } };
+  setLevels(levels: Readonly<AudioLevels>) {
+    this.levels = { ...levels };
     if (!this.context || !this.master || !this.ambient || !this.effects) return;
     const now = this.context.currentTime;
-    this.master.gain.setTargetAtTime(safeVolume(settings.masterVolume), now, 0.04);
-    this.ambient.gain.setTargetAtTime(safeVolume(settings.ambientVolume), now, 0.08);
-    this.effects.gain.setTargetAtTime(safeVolume(settings.effectsVolume), now, 0.04);
+    this.master.gain.setTargetAtTime(safeVolume(levels.master), now, 0.04);
+    this.ambient.gain.setTargetAtTime(safeVolume(levels.ambient), now, 0.08);
+    this.effects.gain.setTargetAtTime(safeVolume(levels.effects), now, 0.04);
+  }
+
+  setListenerPose(pose: Readonly<AudioListenerPose>) {
+    if (!this.context || !this.unlocked) return;
+    applyListenerPose(this.context.listener, pose, this.context.currentTime);
+    this.listenerUpdates += 1;
   }
 
   updateMix(mix: Readonly<AmbientMix>) {
@@ -94,7 +211,11 @@ export class EnvironmentalAudio {
     );
   }
 
-  playFootstep(surface: FootstepSurface, intensity = 1) {
+  playFootstep(
+    surface: FootstepSurface,
+    intensity = 1,
+    emitter?: Readonly<AudioEmitter>,
+  ) {
     if (!this.context || !this.effects || !this.noiseBuffer || !this.unlocked) return;
     const source = this.context.createBufferSource();
     const filter = this.context.createBiquadFilter();
@@ -113,49 +234,44 @@ export class EnvironmentalAudio {
     const now = this.context.currentTime;
     gain.gain.setValueAtTime(profile.volume * safeVolume(intensity), now);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.105);
-    source.connect(filter).connect(gain).connect(this.effects);
+    source.connect(filter).connect(gain);
+    this.connectEffect(gain, emitter);
     source.start(now, 0, 0.11);
     source.stop(now + 0.12);
     this.cueCount += 1;
     this.lastCue = "footstep";
   }
 
-  playCue(cue: AudioCue) {
+  playCue(cue: AudioCue, emitter?: Readonly<AudioEmitter>) {
     if (!this.context || !this.effects || !this.unlocked) return;
-    const frequencies: Record<AudioCue, [number, number]> = {
-      collect: [520, 760],
-      harvest: [135, 92],
-      "door-open": [180, 230],
-      "door-close": [210, 120],
-      scan: [410, 920],
-      inspect: [360, 470],
-      discover: [330, 660],
-      damage: [95, 58],
-      recover: [260, 520],
-      save: [620, 780],
-    };
-    const [startFrequency, endFrequency] = frequencies[cue];
+    const recipe = AUDIO_CUE_RECIPES[cue];
     const oscillator = this.context.createOscillator();
     const gain = this.context.createGain();
     const now = this.context.currentTime;
-    oscillator.type = cue === "damage" || cue === "harvest" ? "triangle" : "sine";
-    oscillator.frequency.setValueAtTime(startFrequency, now);
-    oscillator.frequency.exponentialRampToValueAtTime(endFrequency, now + 0.12);
-    gain.gain.setValueAtTime(cue === "damage" ? 0.13 : 0.075, now);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
-    oscillator.connect(gain).connect(this.effects);
+    oscillator.type = recipe.waveform;
+    oscillator.frequency.setValueAtTime(recipe.startFrequency, now);
+    oscillator.frequency.exponentialRampToValueAtTime(
+      recipe.endFrequency,
+      now + recipe.duration * 0.7,
+    );
+    gain.gain.setValueAtTime(recipe.gain, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + recipe.duration * 0.94);
+    oscillator.connect(gain);
+    this.connectEffect(gain, emitter);
     oscillator.start(now);
-    oscillator.stop(now + 0.17);
+    oscillator.stop(now + recipe.duration);
     this.cueCount += 1;
     this.lastCue = cue;
   }
 
-  get diagnostics() {
+  get diagnostics(): AudioDiagnostics {
     return {
       available: !this.disabled && audioContextConstructor() !== null,
       unlocked: this.unlocked,
       state: this.context?.state ?? "uninitialized",
       cueCount: this.cueCount,
+      spatialCueCount: this.spatialCueCount,
+      listenerUpdates: this.listenerUpdates,
       lastCue: this.lastCue,
     };
   }
@@ -245,6 +361,39 @@ export class EnvironmentalAudio {
     this.wildlifeFilter = wildlifeFilter;
     this.settlementFilter = settlementFilter;
     this.noiseBuffer = buffer;
-    this.setSettings(this.settings);
+    this.setLevels(this.levels);
+  }
+
+  private connectEffect(
+    source: AudioNode,
+    emitter: Readonly<AudioEmitter> | undefined,
+  ) {
+    if (!this.context || !this.effects) return;
+    if (!emitter) {
+      source.connect(this.effects);
+      return;
+    }
+    const panner = this.context.createPanner();
+    panner.panningModel = "HRTF";
+    panner.distanceModel = "inverse";
+    panner.refDistance = Math.max(
+      0.25,
+      Number.isFinite(emitter.referenceDistance)
+        ? emitter.referenceDistance!
+        : 2.5,
+    );
+    panner.maxDistance = Math.max(
+      panner.refDistance,
+      Number.isFinite(emitter.maxDistance) ? emitter.maxDistance! : 48,
+    );
+    panner.rolloffFactor = 1;
+    const now = this.context.currentTime;
+    applyPannerPosition(panner, emitter.position, now);
+    const emitterGain = this.context.createGain();
+    emitterGain.gain.value = safeVolume(emitter.gain ?? 1);
+    source.connect(emitterGain).connect(panner).connect(this.effects);
+    this.spatialCueCount += 1;
   }
 }
+
+export type { AudioCue } from "./model";

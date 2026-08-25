@@ -1,4 +1,4 @@
-import type { WorldTarget } from "../world/ChunkManager";
+import type { WorldTarget } from "../world/targets";
 import type { KeyBindings } from "../settings";
 
 export interface InteractionPromptDescriptor {

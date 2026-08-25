@@ -1,7 +1,5 @@
 import { BIOMES, SETTLEMENTS, sampleClimate, type BiomeId } from "./macroWorld";
-import { SPAWN_BUILDING } from "./spawnBuilding";
-import { TEN_STORY_BUILDING } from "./tenStoryBuilding";
-import { TWO_STORY_BUILDING } from "./twoStoryBuilding";
+import { authoredBuildingsForLandmark } from "./authoredBuildings";
 
 export type LocationKind = "biome" | "settlement" | "landmark";
 
@@ -13,14 +11,27 @@ export interface DiscoverableLocation {
   note: string;
 }
 
+const COMPOUND_ID = "landmark:field-unit-compound";
+const compoundBuildings = authoredBuildingsForLandmark(COMPOUND_ID);
+const compoundCenter = compoundBuildings.length > 0
+  ? {
+      x:
+        compoundBuildings.reduce((sum, recipe) => sum + recipe.frame.x, 0) /
+        compoundBuildings.length,
+      z:
+        compoundBuildings.reduce((sum, recipe) => sum + recipe.frame.z, 0) /
+        compoundBuildings.length,
+    }
+  : { x: 0, z: 8 };
+
 const COMPOUND: DiscoverableLocation & { x: number; z: number; radius: number } = {
-  id: "landmark:field-unit-compound",
+  id: COMPOUND_ID,
   name: "Field Unit Compound",
   kind: "landmark",
   region: "Grey Meadow",
   note: "Three restored survey structures mark the expedition's safe operating base.",
-  x: (SPAWN_BUILDING.x + TWO_STORY_BUILDING.x + TEN_STORY_BUILDING.x) / 3,
-  z: (SPAWN_BUILDING.z + TWO_STORY_BUILDING.z + TEN_STORY_BUILDING.z) / 3,
+  x: compoundCenter.x,
+  z: compoundCenter.z,
   radius: 54,
 };
 

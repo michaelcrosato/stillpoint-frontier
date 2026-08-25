@@ -1,10 +1,11 @@
 import * as THREE from "three";
+import { tagWorldMaterial } from "../rendering/WorldMaterialLibrary";
 import { qualityUsesShadows, type QualityLevel } from "../config";
 import type { PlanarCollider } from "../systems/collision";
 import {
   createAuthoredDoor,
-  type AuthoredDoorRuntime,
 } from "./authoredDoor";
+import type { AuthoredBuildingRuntime } from "./buildingTypes";
 import { sampleTerrainHeight } from "./terrain";
 
 const SITE = {
@@ -126,11 +127,7 @@ export const TEN_STORY_BUILDING = Object.freeze({
   clearanceRadius: Math.hypot(SITE.width, SITE.depth) * 0.5 + 1.25,
 });
 
-export interface TenStoryBuildingRuntime {
-  root: THREE.Group;
-  colliders: PlanarCollider[];
-  doors: AuthoredDoorRuntime[];
-}
+export type TenStoryBuildingRuntime = AuthoredBuildingRuntime;
 
 interface BoxRecipe {
   size: readonly [number, number, number];
@@ -267,11 +264,20 @@ export function createTenStoryBuilding(
       roughness: 0.86,
       metalness: 0.14,
     }),
-    roof: new THREE.MeshStandardMaterial({
-      color: 0x282f2d,
-      roughness: 0.66,
-      metalness: 0.38,
-    }),
+    roof: tagWorldMaterial(
+      new THREE.MeshStandardMaterial({
+        color: 0x282f2d,
+        roughness: 0.66,
+        metalness: 0.38,
+      }),
+      {
+        role: "roof",
+        weatherExposure: 1,
+        wetRoughness: 0.28,
+        environmentScale: 1.04,
+        wetReflectionBoost: 0.52,
+      },
+    ),
     trim: new THREE.MeshStandardMaterial({
       color: 0x202725,
       roughness: 0.62,

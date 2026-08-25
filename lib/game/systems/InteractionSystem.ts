@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { GameSystem } from "../core/SystemPipeline";
-import type { WorldTarget } from "../world/ChunkManager";
+import type { WorldTarget } from "../world/targets";
 import type { GameRuntimeContext } from "./runtime";
 
 const forward = new THREE.Vector3();

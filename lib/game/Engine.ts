@@ -4,21 +4,25 @@ import {
   DEFAULT_HORIZON_MODE,
   HORIZON_PRESETS,
   QUALITY_LEVELS,
-  QUALITY_PRESETS,
   PLAYER_HEIGHT,
   PLAYER_RADIUS,
   WAYPOINT_WORLD_MARKER_DISTANCE,
   type BeaconId,
   type HorizonMode,
   isQualityLevel,
-  qualityUsesShadows,
   type QualityLevel,
   isHorizonMode,
 } from "./config";
 import { CitizenEngine } from "./citizens/CitizenEngine";
 import { AnimalEngine } from "./animals/AnimalEngine";
 import { EnvironmentalAudio } from "./audio/EnvironmentalAudio";
+import type { AudioLevels, AudioPoint } from "./audio/port";
 import { PlayerFlashlight } from "./equipment/PlayerFlashlight";
+import {
+  RenderPipeline,
+  type GraphicsDiagnostics,
+} from "./rendering/RenderPipeline";
+import { WorldMaterialLibrary } from "./rendering/WorldMaterialLibrary";
 import { SystemPipeline } from "./core/SystemPipeline";
 import { FeatureRegistry } from "./core/FeatureRegistry";
 import { createEnvironment, type EnvironmentRuntime } from "./environment";
@@ -118,7 +122,8 @@ import {
   INITIAL_SNAPSHOT,
   addDiscovery,
 } from "./state";
-import { ChunkManager, type WorldTarget } from "./world/ChunkManager";
+import { ChunkManager } from "./world/ChunkManager";
+import type { WorldTarget } from "./world/targets";
 import { HorizonRenderer, type HorizonDiagnostics } from "./world/HorizonRenderer";
 import {
   getFastTravelLocation,
@@ -134,8 +139,8 @@ import {
   type PlacedEntity,
 } from "./world/deployments";
 import {
-  authoredNpcScheduleAnchor,
   npcById,
+  npcPoseAt,
 } from "./npcs/authoredNpc";
 import {
   DEFAULT_GAME_SETTINGS,
@@ -153,6 +158,19 @@ import type { InspectionRecord } from "./world/inspectables";
 
 const FIXED_STEP = 1 / 60;
 const MAX_FRAME_DELTA = 0.075;
+
+function audioLevelsFromSettings(
+  settings: Pick<
+    GameSettings,
+    "masterVolume" | "ambientVolume" | "effectsVolume"
+  >,
+): AudioLevels {
+  return {
+    master: settings.masterVolume,
+    ambient: settings.ambientVolume,
+    effects: settings.effectsVolume,
+  };
+}
 
 export interface GameTestBridge {
   isReady(): boolean;
@@ -200,6 +218,7 @@ export interface GameTestBridge {
     quality: QualityLevel;
   };
   audio(): EnvironmentalAudio["diagnostics"];
+  graphics(): GraphicsDiagnostics;
   saveNow(): boolean;
   loadGame(): boolean;
   setFov(fov: number): boolean;
@@ -263,7 +282,9 @@ export class Engine {
   private readonly canvas: HTMLCanvasElement;
   private readonly scene = new THREE.Scene();
   private readonly camera: THREE.PerspectiveCamera;
+  private readonly renderPipeline: RenderPipeline;
   private readonly renderer: THREE.WebGLRenderer;
+  private readonly materialLibrary: WorldMaterialLibrary;
   private readonly input: InputManager;
   private readonly world: ChunkManager;
   private readonly horizon: HorizonRenderer;
@@ -407,33 +428,15 @@ export class Engine {
       HORIZON_PRESETS[this.horizonMode].drawDistanceMeters,
     );
 
-    const contextAttributes: WebGLContextAttributes = {
-      alpha: false,
-      antialias: true,
-      powerPreference: "high-performance",
-      preserveDrawingBuffer: this.testMode,
-      stencil: false,
-    };
-    const webglContext = this.canvas.getContext("webgl2", contextAttributes);
-    const reversedDepthSupported = Boolean(
-      webglContext?.getExtension("EXT_clip_control"),
-    );
-    this.renderer = new THREE.WebGLRenderer({
+    this.renderPipeline = new RenderPipeline({
       canvas: this.canvas,
-      context: webglContext ?? undefined,
-      antialias: true,
-      alpha: false,
-      powerPreference: "high-performance",
-      stencil: false,
       preserveDrawingBuffer: this.testMode,
-      reversedDepthBuffer: reversedDepthSupported,
-      logarithmicDepthBuffer: !reversedDepthSupported,
+      scene: this.scene,
+      camera: this.camera,
+      quality: this.quality,
     });
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.12;
-    this.renderer.shadowMap.enabled = qualityUsesShadows(this.quality);
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer = this.renderPipeline.renderer;
+    this.materialLibrary = new WorldMaterialLibrary();
 
     this.input = new InputManager(
       this.canvas,
@@ -447,6 +450,7 @@ export class Engine {
       this.doorStates,
       this.featureProgress.containerStates,
       this.featureProgress.placedEntities,
+      this.materialLibrary,
     );
     this.horizon = new HorizonRenderer(this.scene, this.horizonMode);
     this.citizens = new CitizenEngine(this.scene, this.quality);
@@ -456,7 +460,10 @@ export class Engine {
         this.world.queryColliders(current, desired, radius, minY, maxY),
     });
     this.flashlight = new PlayerFlashlight(this.scene, this.quality);
-    this.audio = new EnvironmentalAudio(this.settings, this.testMode);
+    this.audio = new EnvironmentalAudio(
+      audioLevelsFromSettings(this.settings),
+      this.testMode,
+    );
     this.environment = createEnvironment(
       this.scene,
       this.renderer,
@@ -601,7 +608,9 @@ export class Engine {
     this.flashlight.present(this.camera);
     this.environment.sync(this.player.position, true);
     this.environment.present(this.player.position, 0);
-    this.world.presentEnvironment(this.environment.getVisualState());
+    const visualState = this.environment.getVisualState();
+    this.world.presentEnvironment(visualState);
+    this.renderPipeline.presentEnvironment(visualState);
     this.synchronizeTimeDependentWorld();
     this.syncPlacedNavigationTargets();
     this.syncContractNavigation();
@@ -614,15 +623,13 @@ export class Engine {
     this.animationFrame = requestAnimationFrame(this.frame);
     this.flashlight.prepareForCompile();
     try {
-      await this.renderer.compileAsync(this.scene, this.camera);
-    } catch {
-      this.renderer.compile(this.scene, this.camera);
+      await this.renderPipeline.compile();
     } finally {
       this.flashlight.finishCompile();
     }
     if (this.disposed) return;
-    this.renderer.render(this.scene, this.camera);
-    this.renderer.render(this.scene, this.camera);
+    this.renderPipeline.render(0);
+    this.renderPipeline.render(0);
     this.ready = true;
     this.emitSnapshot(true);
 
@@ -662,14 +669,14 @@ export class Engine {
     this.emitSnapshot(true);
   }
 
-  discover(beaconId: BeaconId) {
+  discover(beaconId: BeaconId, emitter?: AudioPoint) {
     const previousLength = this.scanned.length;
     this.scanned = addDiscovery(this.scanned, beaconId);
     this.world.markScanned(beaconId);
     if (this.scanned.length !== previousLength) {
       this.lastDiscovery = beaconId;
       this.persist();
-      this.audio.playCue("scan");
+      this.audio.playCue("scan", emitter ? { position: emitter } : undefined);
     }
     this.emitSnapshot(true);
   }
@@ -679,7 +686,7 @@ export class Engine {
       this.applyGameplayEvent({ type: "object.inspected", targetId: target.id });
       this.persist();
       this.setInspection(target.inspection);
-      this.audio.playCue("inspect");
+      this.audio.playCue("inspect", { position: target.position });
       return;
     }
     if (target.action === "toggle") {
@@ -691,14 +698,17 @@ export class Engine {
         );
         if (result === "opened" || result === "closed") {
           this.persist();
-          this.audio.playCue(result === "opened" ? "door-open" : "door-close");
+          this.audio.playCue(
+            result === "opened" ? "door-open" : "door-close",
+            { position: target.position },
+          );
         }
       }
       this.emitSnapshot(true);
       return;
     }
     if (target.action === "scan" && target.beaconId) {
-      this.discover(target.beaconId);
+      this.discover(target.beaconId, target.position);
       return;
     }
     if (target.action === "craft" && target.stationKind) {
@@ -707,7 +717,7 @@ export class Engine {
         tab: "crafting",
         station: target.stationKind,
       });
-      this.audio.playCue("inspect");
+      this.audio.playCue("inspect", { position: target.position });
       return;
     }
     if (target.action === "loot" && target.containerId && target.lootTableId) {
@@ -723,7 +733,7 @@ export class Engine {
       this.world.setContainerStates(ensured.states);
       this.persist();
       this.setFeatureOverlay({ kind: "container", containerId: target.containerId });
-      this.audio.playCue("inspect");
+      this.audio.playCue("inspect", { position: target.position });
       return;
     }
     if (target.action === "rest" && target.restSite) {
@@ -741,11 +751,11 @@ export class Engine {
           warmth: Math.max(target.restSite.warmth, modifiers.warmth),
         },
       });
-      this.audio.playCue("inspect");
+      this.audio.playCue("inspect", { position: target.position });
       return;
     }
     if (target.action === "talk" && target.npcId) {
-      this.talkToNpc(target.npcId);
+      this.talkToNpc(target.npcId, target.position);
       return;
     }
     if (
@@ -782,12 +792,16 @@ export class Engine {
       });
     }
     this.persist();
-    this.audio.playCue(outcome.result === "hit" ? "harvest" : "collect");
+    this.audio.playCue(
+      outcome.result === "hit" ? "harvest" : "collect",
+      { position: target.position },
+    );
     this.emitSnapshot(true);
   }
 
   setFeatureOverlay(overlay: FeatureOverlayState) {
     if (!this.started && overlay) return false;
+    if (overlay?.kind === "dialogue" && !npcById(overlay.npcId)) return false;
     this.featureOverlay = overlay
       ? structuredClone(overlay)
       : null;
@@ -1077,13 +1091,13 @@ export class Engine {
     return true;
   }
 
-  talkToNpc(npcId: string) {
+  talkToNpc(npcId: string, emitter?: AudioPoint) {
     const npc = npcById(npcId);
     if (!npc) return false;
     this.applyGameplayEvent({ type: "npc.talked", npcId: npc.id });
     this.persist();
     this.setFeatureOverlay({ kind: "dialogue", npcId: npc.id });
-    this.audio.playCue("inspect");
+    this.audio.playCue("inspect", emitter ? { position: emitter } : undefined);
     return true;
   }
 
@@ -1265,7 +1279,10 @@ export class Engine {
       ? currentContractObjective(definition, progress)
       : null;
     const scheduleAnchor = objective?.matcher.type === "return"
-      ? authoredNpcScheduleAnchor(this.environment.getSample().totalMinutes)
+      ? npcPoseAt(
+          objective.matcher.npcId,
+          this.environment.getSample().totalMinutes,
+        )
       : null;
     const targetPosition = scheduleAnchor
       ? { x: scheduleAnchor.x, z: scheduleAnchor.z }
@@ -1542,7 +1559,7 @@ export class Engine {
     if (next[channel] === this.settings[channel]) return false;
     this.settings = next;
     this.runtime.settings = this.settings;
-    this.audio.setSettings(this.settings);
+    this.audio.setLevels(audioLevelsFromSettings(this.settings));
     this.persistPreferences();
     this.emitSnapshot(true);
     return true;
@@ -1566,7 +1583,7 @@ export class Engine {
     };
     this.runtime.settings = this.settings;
     this.input.setBindings(this.settings.keyBindings);
-    this.audio.setSettings(this.settings);
+    this.audio.setLevels(audioLevelsFromSettings(this.settings));
     this.camera.fov = this.settings.fov;
     this.camera.updateProjectionMatrix();
     if (this.quality !== this.settings.quality) this.applyQuality(this.settings.quality);
@@ -1898,9 +1915,10 @@ export class Engine {
     this.flashlight.dispose();
     this.audio.dispose();
     this.world.dispose();
+    this.materialLibrary.dispose();
     this.horizon.dispose();
     this.environment.dispose();
-    this.renderer.dispose();
+    this.renderPipeline.dispose();
     if (window.__STILLPOINT_TEST__) delete window.__STILLPOINT_TEST__;
   }
 
@@ -1934,7 +1952,9 @@ export class Engine {
       if (steps === 5) this.accumulator = 0;
 
       this.environment.present(this.player.position, delta);
-      this.world.presentEnvironment(this.environment.getVisualState());
+      const visualState = this.environment.getVisualState();
+      this.world.presentEnvironment(visualState);
+      this.renderPipeline.presentEnvironment(visualState);
       this.citizens.present(
         this.started &&
           !this.paused &&
@@ -1961,7 +1981,7 @@ export class Engine {
       );
       this.flashlight.present(this.camera);
       this.emitPresentation();
-      this.renderer.render(this.scene, this.camera);
+      this.renderPipeline.render(delta);
       this.trackPerformance(timestamp);
       if (
         this.started &&
@@ -2249,7 +2269,9 @@ export class Engine {
   private refreshEnvironment(snap = true) {
     this.environment.sync(this.player.position, snap);
     this.environment.present(this.player.position, 0);
-    this.world.presentEnvironment(this.environment.getVisualState());
+    const visualState = this.environment.getVisualState();
+    this.world.presentEnvironment(visualState);
+    this.renderPipeline.presentEnvironment(visualState);
     this.synchronizeTimeDependentWorld();
     this.emitSnapshot(true);
   }
@@ -2275,11 +2297,7 @@ export class Engine {
 
   private applyQuality(quality: QualityLevel) {
     this.quality = quality;
-    const preset = QUALITY_PRESETS[quality];
-    this.renderer.shadowMap.enabled = preset.shadows;
-    this.renderer.setPixelRatio(
-      Math.min(window.devicePixelRatio, preset.pixelRatioCap),
-    );
+    this.renderPipeline.setQuality(quality);
     this.environment.setQuality(this.quality);
     this.world.setQuality(this.quality);
     this.citizens.setQuality(this.quality);
@@ -2296,10 +2314,7 @@ export class Engine {
   private resize = () => {
     const width = Math.max(1, this.canvas.clientWidth || window.innerWidth);
     const height = Math.max(1, this.canvas.clientHeight || window.innerHeight);
-    this.renderer.setPixelRatio(
-      Math.min(window.devicePixelRatio, QUALITY_PRESETS[this.quality].pixelRatioCap),
-    );
-    this.renderer.setSize(width, height, false);
+    this.renderPipeline.resize(width, height, window.devicePixelRatio);
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
   };
@@ -2337,7 +2352,8 @@ export class Engine {
 
   private handleContextRestored = () => {
     this.contextStatus = "ready";
-    this.renderer.resetState();
+    this.renderPipeline.handleContextRestored();
+    this.renderPipeline.presentEnvironment(this.environment.getVisualState());
     this.emitSnapshot(true);
   };
 
@@ -2387,6 +2403,7 @@ export class Engine {
       setFlashlightEnabled: (enabled) => this.setFlashlightEnabled(enabled),
       flashlight: () => this.flashlight.diagnostics,
       audio: () => this.audio.diagnostics,
+      graphics: () => this.renderPipeline.diagnostics,
       saveNow: () => this.saveNow(),
       loadGame: () => this.loadGame(),
       setFov: (fov) => this.setFov(fov),

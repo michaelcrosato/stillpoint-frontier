@@ -5,7 +5,7 @@ import {
   CONTRACT_DEFINITIONS,
   hasOutstandingContract,
 } from "../lib/game/gameplay/contracts";
-import { AUTHORED_NPCS, npcById, npcGreeting } from "../lib/game/npcs/authoredNpc";
+import { npcById, npcGreeting } from "../lib/game/npcs/authoredNpc";
 import type { GameSnapshot } from "../lib/game/state";
 import FeatureDialog from "./FeatureDialog";
 
@@ -26,8 +26,9 @@ export default function DialoguePanel({
   onTurnInContract,
   onOpenOperations,
 }: DialoguePanelProps) {
-  const npc = npcById(npcId) ?? AUTHORED_NPCS[0];
+  const npc = npcById(npcId);
   const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null);
+  if (!npc) return null;
   const selectedTopic = npc.topics.find((topic) => topic.id === selectedTopicId) ?? null;
   const issued = CONTRACT_DEFINITIONS.filter((contract) => contract.issuerNpcId === npc.id);
   const hasOutstanding = hasOutstandingContract(snapshot.contractJournal);
@@ -54,7 +55,7 @@ export default function DialoguePanel({
             <i /><b /><span>MV</span>
           </div>
           <p>{npc.role}</p>
-          <strong>{npcGreeting(snapshot.environment.totalMinutes)}</strong>
+          <strong>{npcGreeting(snapshot.environment.totalMinutes, npc.id)}</strong>
           <small>Schedule-linked field personnel · text channel only</small>
         </aside>
         <div className="dialogue-body">

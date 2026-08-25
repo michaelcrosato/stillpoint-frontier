@@ -64,8 +64,11 @@ export interface EnvironmentVisualState {
   cloudCover: number;
   precipitationRate: number;
   daylight: number;
+  goldenHour: number;
   night: number;
   dust: number;
+  /** Smoothed outdoor surface saturation: fast to accumulate, slow to dry. */
+  surfaceWetness: number;
   windKph: number;
   windDirection: number;
   sunDirection: THREE.Vector3;
@@ -405,13 +408,16 @@ export function createEnvironment(
   const temporaryColor = new THREE.Color();
   const sunDirection = new THREE.Vector3();
   const moonDirection = new THREE.Vector3();
+  let surfaceWetness = 0;
   const visualState: EnvironmentVisualState = {
     effectSeconds,
     cloudCover: displaySample.cloudCover,
     precipitationRate: displaySample.precipitationRate,
     daylight: displaySample.daylight,
+    goldenHour: displaySample.goldenHour,
     night: displaySample.night,
     dust: displaySample.dust,
+    surfaceWetness,
     windKph: displaySample.windKph,
     windDirection: displaySample.windDirection,
     sunDirection,
@@ -534,8 +540,10 @@ export function createEnvironment(
     visualState.cloudCover = displaySample.cloudCover;
     visualState.precipitationRate = displaySample.precipitationRate;
     visualState.daylight = displaySample.daylight;
+    visualState.goldenHour = displaySample.goldenHour;
     visualState.night = displaySample.night;
     visualState.dust = displaySample.dust;
+    visualState.surfaceWetness = surfaceWetness;
     visualState.windKph = displaySample.windKph;
     visualState.windDirection = displaySample.windDirection;
     visualState.sunColor.copy(sun.color);
@@ -550,6 +558,18 @@ export function createEnvironment(
       const safeDelta = Number.isFinite(deltaSeconds) ? Math.max(0, deltaSeconds) : 0;
       if (running) {
         effectSeconds += safeDelta;
+        const precipitationWetsSurfaces =
+          displaySample.precipitation === "rain" ||
+          displaySample.precipitation === "sleet";
+        const targetWetness = precipitationWetsSurfaces
+          ? displaySample.precipitationRate
+          : 0;
+        const wetnessRate = targetWetness > surfaceWetness ? 0.18 : 0.025;
+        surfaceWetness = THREE.MathUtils.lerp(
+          surfaceWetness,
+          targetWetness,
+          1 - Math.exp(-wetnessRate * safeDelta),
+        );
         const windRadians = (displaySample.windDirection * Math.PI) / 180;
         const cloudSpeed = THREE.MathUtils.clamp(displaySample.windKph * 0.018, 0.025, 1.8);
         cloudOffset.x += Math.cos(windRadians) * safeDelta * cloudSpeed;

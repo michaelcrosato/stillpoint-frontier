@@ -6,6 +6,7 @@ import {
   type HorizonMode,
   type QualityLevel,
 } from "./config";
+import type { AudioDiagnostics } from "./audio/port";
 import type {
   DayPhase,
   PrecipitationKind,
@@ -181,13 +182,7 @@ export interface GameSnapshot {
   settings: GameSettings;
   saveStatus: "saved" | "unsaved" | "unavailable";
   lastSavedAt: number | null;
-  audio: {
-    available: boolean;
-    unlocked: boolean;
-    state: string;
-    cueCount: number;
-    lastCue: string | null;
-  };
+  audio: AudioDiagnostics;
   scanner: {
     active: boolean;
     focusId: string | null;
@@ -293,6 +288,8 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
     unlocked: false,
     state: "uninitialized",
     cueCount: 0,
+    spatialCueCount: 0,
+    listenerUpdates: 0,
     lastCue: null,
   },
   scanner: {

@@ -4,6 +4,8 @@ import { EnvironmentalAudioSystem } from "../../lib/game/systems/EnvironmentalAu
 import type { GameRuntimeContext } from "../../lib/game/systems/runtime";
 
 function runtime() {
+  const camera = new THREE.PerspectiveCamera();
+  camera.position.set(0, 1.72, 8);
   return {
     started: true,
     paused: false,
@@ -23,7 +25,9 @@ function runtime() {
       }),
     },
     animals: { visibleCount: 3 },
+    camera,
     audio: {
+      setListenerPose: vi.fn(),
       updateMix: vi.fn(),
       playFootstep: vi.fn(),
     },
@@ -35,13 +39,18 @@ describe("environmental audio system", () => {
     const context = runtime();
     const system = new EnvironmentalAudioSystem();
     system.update(context);
+    expect(context.audio.setListenerPose).toHaveBeenCalledTimes(1);
     expect(context.audio.updateMix).toHaveBeenCalledTimes(1);
     expect(context.audio.playFootstep).not.toHaveBeenCalled();
 
     context.player.position.x += 1.2;
     system.update(context);
     expect(context.audio.playFootstep).toHaveBeenCalledTimes(1);
-    expect(context.audio.playFootstep).toHaveBeenCalledWith("grass", 0.78);
+    expect(context.audio.playFootstep).toHaveBeenCalledWith(
+      "grass",
+      0.78,
+      expect.objectContaining({ referenceDistance: 1.2, maxDistance: 12 }),
+    );
   });
 
   it("silences the mix and resets cadence while paused", () => {

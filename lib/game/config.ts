@@ -42,6 +42,22 @@ export interface QualityPreset {
   flashlightShadowMapSize: number;
   shadows: boolean;
   highDetail: boolean;
+  postProcessing: {
+    enabled: boolean;
+    msaaSamples: number;
+    bloomStrength: number;
+    bloomRadius: number;
+    bloomThreshold: number;
+    gtao: boolean;
+    gtaoResolutionScale: number;
+    gradingStrength: number;
+    vignetteStrength: number;
+    ditherStrength: number;
+  };
+  environmentMap: {
+    size: number;
+    intensity: number;
+  };
 }
 
 /**
@@ -57,6 +73,19 @@ export const QUALITY_PRESETS: Readonly<Record<QualityLevel, QualityPreset>> = {
     flashlightShadowMapSize: 2048,
     shadows: true,
     highDetail: true,
+    postProcessing: {
+      enabled: true,
+      msaaSamples: 4,
+      bloomStrength: 0.24,
+      bloomRadius: 0.32,
+      bloomThreshold: 0.38,
+      gtao: true,
+      gtaoResolutionScale: 0.5,
+      gradingStrength: 0.28,
+      vignetteStrength: 0.1,
+      ditherStrength: 0.55,
+    },
+    environmentMap: { size: 128, intensity: 0.82 },
   },
   cinematic: {
     label: "CINEMATIC",
@@ -65,6 +94,19 @@ export const QUALITY_PRESETS: Readonly<Record<QualityLevel, QualityPreset>> = {
     flashlightShadowMapSize: 1024,
     shadows: true,
     highDetail: true,
+    postProcessing: {
+      enabled: true,
+      msaaSamples: 2,
+      bloomStrength: 0.17,
+      bloomRadius: 0.24,
+      bloomThreshold: 0.42,
+      gtao: false,
+      gtaoResolutionScale: 0.5,
+      gradingStrength: 0.2,
+      vignetteStrength: 0.075,
+      ditherStrength: 0.42,
+    },
+    environmentMap: { size: 64, intensity: 0.68 },
   },
   performance: {
     label: "PERFORMANCE",
@@ -73,6 +115,19 @@ export const QUALITY_PRESETS: Readonly<Record<QualityLevel, QualityPreset>> = {
     flashlightShadowMapSize: 1024,
     shadows: false,
     highDetail: false,
+    postProcessing: {
+      enabled: false,
+      msaaSamples: 0,
+      bloomStrength: 0,
+      bloomRadius: 0,
+      bloomThreshold: 1.3,
+      gtao: false,
+      gtaoResolutionScale: 0.5,
+      gradingStrength: 0,
+      vignetteStrength: 0,
+      ditherStrength: 0,
+    },
+    environmentMap: { size: 32, intensity: 0.5 },
   },
 } as const;
 

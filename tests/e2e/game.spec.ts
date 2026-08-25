@@ -88,6 +88,57 @@ test("boots WebGL2 without a blank frame", async ({ page }, testInfo) => {
   await attachScreenshot(page, testInfo, "entry-screen");
 });
 
+test("applies quality-budgeted composition and regenerates environment lighting", async ({ page }) => {
+  await openDeterministicWorld(page);
+  const cinematic = await page.evaluate(() => window.__STILLPOINT_TEST__?.graphics());
+  expect(cinematic).toMatchObject({
+    webgl2: true,
+    quality: "cinematic",
+    postProcessing: true,
+    bloom: true,
+    grading: true,
+  });
+  expect(cinematic?.environmentMap.active).toBe(true);
+  expect(cinematic?.environmentMap.revision ?? 0).toBeGreaterThan(0);
+  expect(cinematic?.compositorSamples ?? 0)
+    .toBeLessThanOrEqual(cinematic?.maxSamples ?? 0);
+  const cinematicEnvironmentRevision = cinematic?.environmentMap.revision ?? 0;
+
+  await page.evaluate(() => window.__STILLPOINT_TEST__?.setQuality("performance"));
+  const performance = await page.evaluate(() => window.__STILLPOINT_TEST__?.graphics());
+  expect(performance).toMatchObject({
+    quality: "performance",
+    postProcessing: false,
+    compositorSamples: 0,
+    bloom: false,
+    gtao: false,
+    grading: false,
+  });
+
+  await page.evaluate(() => window.__STILLPOINT_TEST__?.setQuality("ultra"));
+  await expect.poll(
+    () => page.evaluate((previousRevision) => {
+      const graphics = window.__STILLPOINT_TEST__?.graphics();
+      return Boolean(
+        graphics?.quality === "ultra" &&
+        graphics.environmentMap.active &&
+        graphics.environmentMap.revision > previousRevision &&
+        graphics.environmentMap.signature?.startsWith("ultra:") &&
+        graphics.environmentMap.size === 128,
+      );
+    }, cinematicEnvironmentRevision),
+  ).toBe(true);
+  const ultra = await page.evaluate(() => window.__STILLPOINT_TEST__?.graphics());
+  expect(ultra?.quality).toBe("ultra");
+  expect(ultra?.postProcessing).toBe(true);
+  expect(ultra?.gtao).toBe(!ultra?.logarithmicDepth);
+  expect(ultra?.environmentMap.revision ?? 0)
+    .toBeGreaterThan(cinematicEnvironmentRevision);
+  expect(ultra?.environmentMap.signature).not.toBe(
+    cinematic?.environmentMap.signature,
+  );
+});
+
 test("toggles the phone field light from HUD and keyboard", async ({ page }) => {
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();

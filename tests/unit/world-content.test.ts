@@ -13,6 +13,7 @@ import {
   createAuthoredNpcTarget,
   AUTHORED_NPCS,
   updateAuthoredNpcTarget,
+  type AuthoredNpcDefinition,
 } from "../../lib/game/npcs/authoredNpc";
 import {
   applyPlacedRuntimeLighting,
@@ -104,6 +105,25 @@ describe("authored NPC schedule", () => {
     expect(target.position.x).toBe(target.root.position.x);
     expect(target.position.z).toBe(target.root.position.z);
     expect(target.position.y).toBeCloseTo(target.root.position.y + 1.35);
+  });
+
+  it("keeps the original lightweight authored-NPC contract compatible", () => {
+    const legacyDefinition: AuthoredNpcDefinition = {
+      id: "npc:compatibility-fixture:v1",
+      name: "Compatibility Fixture",
+      role: "Test Resident",
+      introduction: "A minimal legacy definition.",
+      topics: [],
+    };
+    const target = createAuthoredNpcTarget(
+      legacyDefinition,
+      "performance",
+      12 * 60,
+    );
+    expect(target.id).toBe(legacyDefinition.id);
+    expect(target.root.userData.scheduleAnchor).toBe("field-desk");
+    updateAuthoredNpcTarget(target, 23 * 60);
+    expect(target.root.userData.scheduleAnchor).toBe("survey-quarters");
   });
 });
 
