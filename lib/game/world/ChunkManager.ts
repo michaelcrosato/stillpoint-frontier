@@ -28,6 +28,7 @@ import {
   sampleClimate,
   settlementInfluence,
   settlementsNear,
+  type BiomeId,
   type Settlement,
 } from "./macroWorld";
 import {
@@ -57,6 +58,15 @@ import {
   createTenStoryBuilding,
   tenStorySupportCandidates,
 } from "./tenStoryBuilding";
+import {
+  VEGETATION_PROFILES,
+  createGroundcoverGeometry,
+  createWoodyGeometry,
+  groundcoverCount,
+  selectWoodySpecies,
+  vegetationMaterial,
+  type WoodySpeciesDefinition,
+} from "./vegetation";
 
 export type WorldTargetKind = "beacon" | "pickup" | "resource" | "door";
 export type WorldTargetAction = "scan" | "collect" | "harvest" | "toggle";
@@ -435,11 +445,12 @@ export class ChunkManager {
       colliders,
       targets,
     );
-    this.addForest(
+    this.addVegetation(
       root,
       center.x,
       center.z,
       key,
+      climate.biome.id,
       climate.biome.treeDensity,
       colliders,
       targets,
@@ -1026,33 +1037,28 @@ export class ChunkManager {
     root.add(rocks);
   }
 
-  private addForest(
+  private addVegetation(
     root: THREE.Group,
     centerX: number,
     centerZ: number,
     key: string,
+    biomeId: BiomeId,
     density: number,
     colliders: PlanarCollider[],
     targets: WorldTarget[],
   ) {
     const random = seededRandom(`${WORLD_SEED}:chunk:${key}:forest:v1`);
     const count = Math.floor(density * 18 + random() * 3);
-    if (count === 0) return;
-    const trunks = new THREE.InstancedMesh(
-      new THREE.CylinderGeometry(0.28, 0.42, 3.6, 6),
-      new THREE.MeshStandardMaterial({ color: 0x393329, roughness: 1 }),
-      count,
-    );
-    const canopies = new THREE.InstancedMesh(
-      new THREE.ConeGeometry(1.75, 4.8, 7),
-      new THREE.MeshStandardMaterial({ color: 0x283b2e, roughness: 1, flatShading: true }),
-      count,
-    );
+    const placed: Array<{
+      id: string;
+      x: number;
+      z: number;
+      baseY: number;
+      size: number;
+      species: WoodySpeciesDefinition;
+      quaternion: THREE.Quaternion;
+    }> = [];
     const matrix = new THREE.Matrix4();
-    const quaternion = new THREE.Quaternion();
-    const scale = new THREE.Vector3();
-    const position = new THREE.Vector3();
-    let renderedCount = 0;
     for (let index = 0; index < count; index += 1) {
       const size = randomRange(random, 0.78, 1.38);
       const colliderRadius = 0.42 * size;
@@ -1068,18 +1074,12 @@ export class ChunkManager {
       if (!placement) continue;
       const { x, z } = placement;
       const baseY = sampleTerrainHeight(x, z);
-      quaternion.setFromEuler(new THREE.Euler(0, random() * Math.PI * 2, 0));
-      scale.set(size, size, size);
-      position.set(x, baseY + 1.8 * size, z);
-      matrix.compose(position, quaternion, scale);
-      const instanceIndex = renderedCount;
-      const trunkPosition = position.clone();
-      trunks.setMatrixAt(instanceIndex, matrix);
-      position.set(x, baseY + 5.0 * size, z);
-      matrix.compose(position, quaternion, scale);
-      const canopyPosition = position.clone();
-      canopies.setMatrixAt(instanceIndex, matrix);
       const id = `resource:tree:v2:${key}:${index}`;
+      const styleRandom = seededRandom(
+        `${WORLD_SEED}:chunk:${key}:forest-style:v1:${index}`,
+      );
+      const species = selectWoodySpecies(biomeId, styleRandom());
+      if (!species) continue;
       colliders.push({
         shape: "circle",
         id,
@@ -1087,54 +1087,144 @@ export class ChunkManager {
         z,
         radius: colliderRadius,
       });
-      const targetRoot = new THREE.Group();
-      targetRoot.name = id;
-      targetRoot.position.set(x, baseY, z);
-      const baseScale = scale.clone();
-      const baseQuaternion = quaternion.clone();
-      this.registerInstancedResource(targets, {
+      placed.push({
         id,
+        x,
+        z,
+        baseY,
+        size,
+        species,
+        quaternion: new THREE.Quaternion().setFromEuler(
+          new THREE.Euler(0, random() * Math.PI * 2, 0),
+        ),
+      });
+    }
+
+    const speciesGroups = new Map<string, typeof placed>();
+    for (const tree of placed) {
+      const group = speciesGroups.get(tree.species.id) ?? [];
+      group.push(tree);
+      speciesGroups.set(tree.species.id, group);
+    }
+    const visualById = new Map<string, InstancedTargetVisual>();
+    for (const group of speciesGroups.values()) {
+      const species = group[0].species;
+      const trees = new THREE.InstancedMesh(
+        createWoodyGeometry(species),
+        vegetationMaterial(),
+        group.length,
+      );
+      trees.name = `forest:${key}:${species.id}`;
+      trees.userData.vegetationLayer = "woody";
+      trees.userData.speciesId = species.id;
+      trees.castShadow = this.quality === "cinematic";
+      trees.receiveShadow = true;
+      group.forEach((tree, instanceIndex) => {
+        const position = new THREE.Vector3(tree.x, tree.baseY, tree.z);
+        const scale = new THREE.Vector3(tree.size, tree.size, tree.size);
+        matrix.compose(position, tree.quaternion, scale);
+        trees.setMatrixAt(instanceIndex, matrix);
+        visualById.set(tree.id, {
+          mesh: trees,
+          index: instanceIndex,
+          position,
+          quaternion: tree.quaternion.clone(),
+          scale,
+          groundY: tree.baseY,
+        });
+      });
+      trees.instanceMatrix.needsUpdate = true;
+      trees.computeBoundingSphere();
+      root.add(trees);
+    }
+
+    for (const tree of placed) {
+      const visual = visualById.get(tree.id);
+      if (!visual) continue;
+      const targetRoot = new THREE.Group();
+      targetRoot.name = tree.id;
+      targetRoot.position.set(tree.x, tree.baseY, tree.z);
+      this.registerInstancedResource(targets, {
+        id: tree.id,
         kind: "resource",
         action: "harvest",
-        name: "Workable pine",
+        name: tree.species.harvestName,
         item: "wood",
         yieldAmount: 4,
         hitsRequired: 3,
         hits: 0,
         maxDistance: 8.4,
-        interactionRadius: Math.max(0.75, 1.25 * size),
-        position: new THREE.Vector3(x, baseY + 2.2 * size, z),
+        interactionRadius: Math.max(0.75, 1.25 * tree.size),
+        position: new THREE.Vector3(
+          tree.x,
+          tree.baseY + 2.2 * tree.size,
+          tree.z,
+        ),
         root: targetRoot,
-        instanceVisuals: [
-          {
-            mesh: trunks,
-            index: instanceIndex,
-            position: trunkPosition,
-            quaternion: baseQuaternion,
-            scale: baseScale,
-            groundY: baseY,
-          },
-          {
-            mesh: canopies,
-            index: instanceIndex,
-            position: canopyPosition,
-            quaternion: baseQuaternion.clone(),
-            scale: baseScale.clone(),
-            groundY: baseY,
-          },
-        ],
+        instanceVisuals: [visual],
       });
-      renderedCount += 1;
     }
-    trunks.count = renderedCount;
-    canopies.count = renderedCount;
-    for (const mesh of [trunks, canopies]) {
-      mesh.name = `forest:${key}`;
-      mesh.castShadow = this.quality === "cinematic";
-      mesh.receiveShadow = true;
-      mesh.instanceMatrix.needsUpdate = true;
-      mesh.computeBoundingSphere();
-      root.add(mesh);
+
+    const profile = VEGETATION_PROFILES[biomeId];
+    const decorativeCount = groundcoverCount(
+      biomeId,
+      this.quality === "cinematic" ? 1 : 0.52,
+    );
+    if (decorativeCount > 0) {
+      const groundRandom = seededRandom(
+        `${WORLD_SEED}:chunk:${key}:groundcover:v1:${profile.groundcover}`,
+      );
+      const groundcover = new THREE.InstancedMesh(
+        createGroundcoverGeometry(profile),
+        vegetationMaterial(),
+        decorativeCount,
+      );
+      groundcover.name = `groundcover:${key}:${profile.groundcover}`;
+      groundcover.userData.vegetationLayer = "decorative";
+      groundcover.userData.groundcoverKind = profile.groundcover;
+      groundcover.castShadow = false;
+      groundcover.receiveShadow = true;
+      groundcover.userData.shadow = false;
+      const quaternion = new THREE.Quaternion();
+      const position = new THREE.Vector3();
+      const scale = new THREE.Vector3();
+      let rendered = 0;
+      for (let index = 0; index < decorativeCount; index += 1) {
+        const placement = this.findSolidPlacement(
+          groundRandom,
+          centerX,
+          centerZ,
+          key,
+          0.08,
+          colliders,
+          CHUNK_SIZE * 0.48,
+          20,
+        );
+        if (!placement) continue;
+        const localClimate = sampleClimate(placement.x, placement.z);
+        if (localClimate.biome.id !== biomeId && groundRandom() > 0.28) continue;
+        const size = randomRange(groundRandom, 0.7, 1.45);
+        position.set(
+          placement.x,
+          sampleTerrainHeight(placement.x, placement.z),
+          placement.z,
+        );
+        quaternion.setFromEuler(
+          new THREE.Euler(0, groundRandom() * Math.PI * 2, 0),
+        );
+        scale.set(
+          size * randomRange(groundRandom, 0.78, 1.2),
+          size,
+          size * randomRange(groundRandom, 0.78, 1.2),
+        );
+        matrix.compose(position, quaternion, scale);
+        groundcover.setMatrixAt(rendered, matrix);
+        rendered += 1;
+      }
+      groundcover.count = rendered;
+      groundcover.instanceMatrix.needsUpdate = true;
+      groundcover.computeBoundingSphere();
+      root.add(groundcover);
     }
   }
 

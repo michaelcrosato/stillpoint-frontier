@@ -69,6 +69,7 @@ describe("streamed world collider coverage", () => {
       const key = root.name.slice("chunk:".length);
       const [chunkX, chunkZ] = key.split(":").map(Number);
       const paths = worldPathSegmentsForChunk(chunkX, chunkZ);
+      let rootTreeInstances = 0;
       const generatedSolids = colliders.filter((collider) =>
         collider.id.includes(`:${key}:`) &&
         (
@@ -133,14 +134,21 @@ describe("streamed world collider coverage", () => {
           rockInstances += object.count;
         }
 
-        if (object instanceof THREE.InstancedMesh && object.name === `forest:${key}`) {
-          expect(colliders.filter((collider) =>
-            collider.id.startsWith(`resource:tree:v2:${key}:`),
-          )).toHaveLength(object.count);
-          expect(world.targets.filter((target) =>
-            target.id.startsWith(`resource:tree:v2:${key}:`),
-          )).toHaveLength(object.count);
-          treeInstances += object.count * 0.5;
+        if (
+          object instanceof THREE.InstancedMesh &&
+          object.name.startsWith(`forest:${key}:`)
+        ) {
+          expect(object.userData.vegetationLayer).toBe("woody");
+          rootTreeInstances += object.count;
+          treeInstances += object.count;
+        }
+
+        if (
+          object instanceof THREE.InstancedMesh &&
+          object.name.startsWith(`groundcover:${key}:`)
+        ) {
+          expect(object.userData.vegetationLayer).toBe("decorative");
+          expect(object.castShadow).toBe(false);
         }
 
         if (object instanceof THREE.InstancedMesh && object.name === `ruins:${key}`) {
@@ -157,6 +165,12 @@ describe("streamed world collider coverage", () => {
           landmarkMeshes += 1;
         }
       });
+      expect(colliders.filter((collider) =>
+        collider.id.startsWith(`resource:tree:v2:${key}:`),
+      )).toHaveLength(rootTreeInstances);
+      expect(world.targets.filter((target) =>
+        target.id.startsWith(`resource:tree:v2:${key}:`),
+      )).toHaveLength(rootTreeInstances);
     }
 
     expect(buildingInstances).toBeGreaterThan(100);
@@ -312,7 +326,10 @@ describe("streamed world collider coverage", () => {
 
     const rockIndex = rockVisual.index;
     const rockKey = rock.id.split(":").slice(3, 5).join(":");
-    const treeIndices = tree.instanceVisuals.map((visual) => visual.index);
+    const treeVisuals = tree.instanceVisuals.map((visual) => ({
+      name: visual.mesh.name,
+      index: visual.index,
+    }));
     world.update(1_200, 1_200);
     world.update(0, 8);
     const reloadedRockMesh = scene.getObjectByName(`rocks:${rockKey}`);
@@ -321,12 +338,11 @@ describe("streamed world collider coverage", () => {
       reloadedRockMesh.getMatrixAt(rockIndex, matrix);
       expectZeroInstanceScale(matrix, `${rock.id}:reloaded`);
     }
-    const reloadedForest = scene.getObjectsByProperty("name", `forest:${rockKey}`);
-    expect(reloadedForest).toHaveLength(2);
-    reloadedForest.forEach((object, index) => {
+    treeVisuals.forEach((visual, index) => {
+      const object = scene.getObjectByName(visual.name);
       expect(object).toBeInstanceOf(THREE.InstancedMesh);
       if (!(object instanceof THREE.InstancedMesh)) return;
-      object.getMatrixAt(treeIndices[index], matrix);
+      object.getMatrixAt(visual.index, matrix);
       expectZeroInstanceScale(matrix, `${tree.id}:reloaded:${index}`);
     });
     expect(worldDiffs[rock.id]).toEqual({ hits: rock.hitsRequired, removed: true });
