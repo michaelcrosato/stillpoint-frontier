@@ -33,6 +33,7 @@ import type {
 } from "./navigation/NavigationService";
 import { DEFAULT_GAME_SETTINGS, type GameSettings } from "./settings";
 import type { InspectionRecord } from "./world/inspectables";
+import { WORLD_DETAIL_PRESETS } from "./world/WorldLodPolicy";
 import {
   getDiscoverableLocation,
   type DiscoverableLocation,
@@ -151,6 +152,9 @@ export interface GameSnapshot {
   horizonTiles: number;
   horizonTriangles: number;
   horizonSettlementInstances: number;
+  horizonSceneryInstances: number;
+  horizonDetailDistanceMeters: number;
+  horizonNearCellSize: number;
   citizenCount: number;
   citizenActivity: number;
   animalCount: number;
@@ -249,6 +253,11 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
   horizonTiles: 0,
   horizonTriangles: 0,
   horizonSettlementInstances: 0,
+  horizonSceneryInstances: 0,
+  horizonDetailDistanceMeters:
+    WORLD_DETAIL_PRESETS[DEFAULT_GAME_SETTINGS.worldDetail].detailBlendEnd,
+  horizonNearCellSize:
+    WORLD_DETAIL_PRESETS[DEFAULT_GAME_SETTINGS.worldDetail].nearCellSize,
   citizenCount: 0,
   citizenActivity: 0,
   animalCount: 0,

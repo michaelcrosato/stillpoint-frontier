@@ -13,6 +13,8 @@ describe("survey progression", () => {
     expect(INITIAL_SNAPSHOT.environment.clockState).toBe("paused");
     expect(INITIAL_SNAPSHOT.environment.gameMinutesPerRealSecond).toBe(1);
     expect(INITIAL_SNAPSHOT.horizonMode).toBe("standard");
+    expect(INITIAL_SNAPSHOT.settings.worldDetail).toBe(2);
+    expect(INITIAL_SNAPSHOT.horizonNearCellSize).toBe(24);
     expect(INITIAL_SNAPSHOT.drawDistanceMeters).toBeGreaterThan(0);
     expect(INITIAL_SNAPSHOT.horizonTiles).toBe(0);
     expect(INITIAL_SNAPSHOT.flashlightOn).toBe(false);

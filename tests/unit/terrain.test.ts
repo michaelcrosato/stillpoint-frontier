@@ -6,6 +6,7 @@ import {
   chunkKey,
   chunksAround,
   sampleTerrainHeight,
+  sampleTerrainHeightLod,
   worldToChunk,
 } from "../../lib/game/world/terrain";
 
@@ -63,5 +64,13 @@ describe("world coordinates", () => {
         },
       ),
     );
+  });
+
+  it("low-pass filters the shortest terrain wave for coarse HLOD grids", () => {
+    const x = 13.7;
+    const z = 29.1;
+    expect(sampleTerrainHeightLod(x, z, 0)).toBe(sampleTerrainHeight(x, z));
+    expect(sampleTerrainHeightLod(x, z, 48)).not.toBe(sampleTerrainHeight(x, z));
+    expect(Number.isFinite(sampleTerrainHeightLod(x, z, 1_536))).toBe(true);
   });
 });

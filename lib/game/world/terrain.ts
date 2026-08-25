@@ -15,17 +15,37 @@ function coastalDropAt(z: number) {
   return smoothstep(4_900, 5_900, z / WORLD_MODEL_SCALE) * 38;
 }
 
-/** Continuous analytic terrain: adjacent chunks always share exact edge heights. */
-export function sampleTerrainHeight(x: number, z: number): number {
+function terrainHeightWithDetailWeight(
+  x: number,
+  z: number,
+  detailWeight: number,
+) {
   const broad = Math.sin(x * 0.013 + seedPhase * 4.2) * 1.65;
   const cross = Math.cos(z * 0.015 - seedPhase * 2.1) * 1.3;
   const ridge = Math.sin((x + z) * 0.006 + seedPhase) * 2.4;
-  const detail = Math.sin(x * 0.071) * Math.cos(z * 0.063) * 0.38;
+  const detail =
+    Math.sin(x * 0.071) * Math.cos(z * 0.063) * 0.38 * detailWeight;
   const land =
     sampleMacroElevation(x, z) + broad + cross + ridge + detail - coastalDropAt(z);
   const riverBlend = smoothstep(riverWidth(z) + 28, riverWidth(z) - 4, distanceToRiver(x, z));
   const riverBed = WATER_LEVEL - 1.7 - Math.sin(z * 0.004) * 0.35;
   return land * (1 - riverBlend) + riverBed * riverBlend;
+}
+
+/** Continuous analytic terrain: adjacent chunks always share exact edge heights. */
+export function sampleTerrainHeight(x: number, z: number): number {
+  return terrainHeightWithDetailWeight(x, z, 1);
+}
+
+/**
+ * Analytic terrain with its shortest wave low-pass filtered for a requested
+ * grid size. This keeps coarse HLOD vertices from undersampling that wave into
+ * the large stripes visible in the middle distance.
+ */
+export function sampleTerrainHeightLod(x: number, z: number, cellSize: number) {
+  const safeCellSize = Number.isFinite(cellSize) ? Math.max(0, cellSize) : 0;
+  const detailWeight = 1 - smoothstep(22, 44, safeCellSize);
+  return terrainHeightWithDetailWeight(x, z, detailWeight);
 }
 
 /**

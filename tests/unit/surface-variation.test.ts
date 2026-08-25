@@ -64,4 +64,18 @@ describe("deterministic surface variation", () => {
     ).toBe(colors[2]);
     expect(sampleSurfaceNoise(127.3, -82.4)).not.toBe(sampleSurfaceNoise(428.9, 211.6));
   });
+
+  it("removes unresolvable color frequencies from coarse horizon cells", () => {
+    expect(sampleSurfaceNoise(127.3, -82.4, 0, 512)).toBe(0.5);
+    expect(sampleSurfaceNoise(127.3, -82.4, 0, 24)).not.toBe(0.5);
+    const color = terrainSurfaceColor(
+      new THREE.Color(),
+      127.3,
+      -82.4,
+      sampleTerrainHeight(127.3, -82.4),
+      768,
+    );
+    expect(color.toArray().every(Number.isFinite)).toBe(true);
+    expect(terrainSurfaceFactors(127.3, -82.4, 12, 24, 3).slope).toBe(1);
+  });
 });

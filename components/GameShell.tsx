@@ -800,6 +800,7 @@ export default function GameShell() {
           onSetVolume={(channel, value) => engineRef.current?.setAudioVolume(channel, value)}
           onSetQuality={(quality) => engineRef.current?.setQuality(quality)}
           onSetHorizon={(mode) => engineRef.current?.setHorizonMode(mode)}
+          onSetWorldDetail={(level) => engineRef.current?.setWorldDetail(level)}
           onRebind={(action, code) => engineRef.current?.setKeyBinding(action, code)}
           onReset={() => engineRef.current?.resetSettings()}
         />

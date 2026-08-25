@@ -125,6 +125,7 @@ import {
 import { ChunkManager } from "./world/ChunkManager";
 import type { WorldTarget } from "./world/targets";
 import { HorizonRenderer, type HorizonDiagnostics } from "./world/HorizonRenderer";
+import type { WorldDetailLevel } from "./world/WorldLodPolicy";
 import {
   getFastTravelLocation,
   resolveFastTravelArrival,
@@ -226,6 +227,7 @@ export interface GameTestBridge {
   setInvertY(enabled: boolean): boolean;
   setKeyBinding(action: GameAction, code: string): boolean;
   setQuality(quality: QualityLevel): boolean;
+  setWorldDetail(level: WorldDetailLevel): boolean;
   setPlayerHealth(health: number): number;
   applyFallImpact(speed: number): number;
   recoverPlayer(): void;
@@ -452,7 +454,11 @@ export class Engine {
       this.featureProgress.placedEntities,
       this.materialLibrary,
     );
-    this.horizon = new HorizonRenderer(this.scene, this.horizonMode);
+    this.horizon = new HorizonRenderer(
+      this.scene,
+      this.horizonMode,
+      this.settings.worldDetail,
+    );
     this.citizens = new CitizenEngine(this.scene, this.quality);
     this.animals = new AnimalEngine(this.scene, this.quality, {
       sampleHeight: sampleTerrainHeight,
@@ -610,6 +616,7 @@ export class Engine {
     this.environment.present(this.player.position, 0);
     const visualState = this.environment.getVisualState();
     this.world.presentEnvironment(visualState);
+    this.horizon.presentEnvironment(visualState);
     this.renderPipeline.presentEnvironment(visualState);
     this.synchronizeTimeDependentWorld();
     this.syncPlacedNavigationTargets();
@@ -1520,6 +1527,20 @@ export class Engine {
     return true;
   }
 
+  setWorldDetail(worldDetail: WorldDetailLevel) {
+    const next = normalizeGameSettings(
+      { ...this.settings, worldDetail },
+      this.horizonMode,
+    );
+    if (next.worldDetail === this.settings.worldDetail) return false;
+    this.settings = next;
+    this.runtime.settings = this.settings;
+    this.horizon.setDetailLevel(next.worldDetail);
+    this.persistPreferences();
+    this.emitSnapshot(true);
+    return true;
+  }
+
   setFov(fov: number) {
     const next = normalizeGameSettings({ ...this.settings, fov }, this.horizonMode);
     if (next.fov === this.settings.fov) return false;
@@ -1594,6 +1615,7 @@ export class Engine {
       this.horizon.setMode(this.horizonMode);
       this.environment.setHorizonMode(this.horizonMode);
     }
+    this.horizon.setDetailLevel(this.settings.worldDetail);
     this.persistPreferences();
     this.persist();
     this.emitSnapshot(true);
@@ -1954,6 +1976,7 @@ export class Engine {
       this.environment.present(this.player.position, delta);
       const visualState = this.environment.getVisualState();
       this.world.presentEnvironment(visualState);
+      this.horizon.presentEnvironment(visualState);
       this.renderPipeline.presentEnvironment(visualState);
       this.citizens.present(
         this.started &&
@@ -2072,6 +2095,9 @@ export class Engine {
       horizonTiles: horizon.terrainTiles,
       horizonTriangles: horizon.terrainTriangles,
       horizonSettlementInstances: horizon.settlementInstances,
+      horizonSceneryInstances: horizon.sceneryInstances,
+      horizonDetailDistanceMeters: horizon.detailDistanceMeters,
+      horizonNearCellSize: horizon.nearCellSize,
       citizenCount: this.citizens.visibleCount,
       citizenActivity: this.citizens.activityMultiplier,
       animalCount: this.animals.visibleCount,
@@ -2271,6 +2297,7 @@ export class Engine {
     this.environment.present(this.player.position, 0);
     const visualState = this.environment.getVisualState();
     this.world.presentEnvironment(visualState);
+    this.horizon.presentEnvironment(visualState);
     this.renderPipeline.presentEnvironment(visualState);
     this.synchronizeTimeDependentWorld();
     this.emitSnapshot(true);
@@ -2411,6 +2438,7 @@ export class Engine {
       setInvertY: (enabled) => this.setInvertY(enabled),
       setKeyBinding: (action, code) => this.setKeyBinding(action, code),
       setQuality: (quality) => this.setQuality(quality),
+      setWorldDetail: (level) => this.setWorldDetail(level),
       setPlayerHealth: (health) => this.setPlayerHealth(health),
       applyFallImpact: (speed) => this.applyFallImpact(speed),
       recoverPlayer: () => this.recoverPlayer(),

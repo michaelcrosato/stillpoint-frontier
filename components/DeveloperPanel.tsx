@@ -7,6 +7,7 @@ import {
 } from "../lib/game/config";
 import type { WeatherId } from "../lib/game/environment/model";
 import type { GameSnapshot } from "../lib/game/state";
+import { WORLD_DETAIL_PRESETS } from "../lib/game/world/WorldLodPolicy";
 
 interface DeveloperPanelProps {
   snapshot: GameSnapshot;
@@ -174,7 +175,9 @@ export default function DeveloperPanel({
             <span>FULL DETAIL {snapshot.loadedChunks}</span>
             <span>HLOD {snapshot.horizonTiles}</span>
             <span>FAR TRIS {Math.round(snapshot.horizonTriangles).toLocaleString()}</span>
-            <span>PROXIES {snapshot.horizonSettlementInstances}</span>
+            <span>LOD {WORLD_DETAIL_PRESETS[snapshot.settings.worldDetail].label} / {snapshot.horizonNearCellSize} M</span>
+            <span>SCENERY {snapshot.horizonSceneryInstances}</span>
+            <span>SETTLEMENTS {snapshot.horizonSettlementInstances}</span>
             <strong>OPTICAL {formatDistance(snapshot.environment.visibilityMeters)}</strong>
           </p>
           <p className="dev-horizon-note">

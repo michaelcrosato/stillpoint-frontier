@@ -23,10 +23,22 @@ describe("local preferences", () => {
       fov: 82,
       masterVolume: 0.44,
       quality: "ultra" as const,
+      worldDetail: 4 as const,
       keyBindings: { ...DEFAULT_GAME_SETTINGS.keyBindings, flashlight: "KeyP" },
     };
     expect(store.save(settings)).toBe(true);
     expect(store.load()).toEqual(settings);
+  });
+
+  it("migrates preferences saved before the world-detail slider", () => {
+    const storage = new MemoryStorage();
+    storage.value = JSON.stringify({
+      version: 1,
+      settings: { fov: 79, quality: "ultra", horizonMode: "extended" },
+    });
+    const settings = new PreferencesStore(storage).load();
+    expect(settings.fov).toBe(79);
+    expect(settings.worldDetail).toBe(DEFAULT_GAME_SETTINGS.worldDetail);
   });
 
   it("recovers from invalid versions and storage failures", () => {

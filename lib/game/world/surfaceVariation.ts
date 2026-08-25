@@ -2,7 +2,11 @@ import * as THREE from "three";
 import { WORLD_SEED } from "../config";
 import { hashString } from "../core/random";
 import { WATER_LEVEL, sampleClimate } from "./macroWorld";
-import { sampleTerrainHeight } from "./terrain";
+import {
+  sampleHorizonTerrainHeight,
+  sampleTerrainHeight,
+  sampleTerrainHeightLod,
+} from "./terrain";
 
 export type ProceduralSurfaceKind = "building" | "road" | "rock";
 
@@ -30,27 +34,46 @@ function finite(value: number) {
 }
 
 /** Continuous absolute-world noise: no chunk key, anchor, or instance order. */
-export function sampleSurfaceNoise(x: number, z: number, salt = 0) {
+export function sampleSurfaceNoise(
+  x: number,
+  z: number,
+  salt = 0,
+  cellSize = 0,
+) {
   const safeX = finite(x);
   const safeZ = finite(z);
+  const safeCellSize = Math.max(0, finite(cellSize));
   const phase = seedPhase * Math.PI * 2 + finite(salt);
-  const broad = Math.sin(safeX * 0.021 + safeZ * 0.014 + phase) * 0.5;
-  const cross = Math.cos(safeZ * 0.037 - safeX * 0.011 - phase * 0.71) * 0.3;
-  const detail = Math.sin((safeX - safeZ) * 0.083 + phase * 1.37) * 0.2;
+  const broadWeight = 1 - THREE.MathUtils.smoothstep(safeCellSize, 82, 124);
+  const broad =
+    Math.sin(safeX * 0.021 + safeZ * 0.014 + phase) * 0.5 * broadWeight;
+  const crossWeight = 1 - THREE.MathUtils.smoothstep(safeCellSize, 58, 84);
+  const detailWeight = 1 - THREE.MathUtils.smoothstep(safeCellSize, 18, 30);
+  const cross =
+    Math.cos(safeZ * 0.037 - safeX * 0.011 - phase * 0.71) * 0.3 * crossWeight;
+  const detail =
+    Math.sin((safeX - safeZ) * 0.083 + phase * 1.37) * 0.2 * detailWeight;
   return THREE.MathUtils.clamp((broad + cross + detail) * 0.5 + 0.5, 0, 1);
 }
 
-export function sampleTerrainSlope(x: number, z: number) {
+export function sampleTerrainSlope(x: number, z: number, cellSize = 0) {
   const safeX = finite(x);
   const safeZ = finite(z);
-  const interval = 3.5;
+  const safeCellSize = Math.max(0, finite(cellSize));
+  const interval = Math.max(3.5, safeCellSize * 0.5);
+  const sampleHeight = safeCellSize >= 96
+    ? sampleHorizonTerrainHeight
+    : safeCellSize > 0
+    ? (sampleX: number, sampleZ: number) =>
+        sampleTerrainHeightLod(sampleX, sampleZ, safeCellSize)
+    : sampleTerrainHeight;
   const dx = (
-    sampleTerrainHeight(safeX + interval, safeZ) -
-    sampleTerrainHeight(safeX - interval, safeZ)
+    sampleHeight(safeX + interval, safeZ) -
+    sampleHeight(safeX - interval, safeZ)
   ) / (interval * 2);
   const dz = (
-    sampleTerrainHeight(safeX, safeZ + interval) -
-    sampleTerrainHeight(safeX, safeZ - interval)
+    sampleHeight(safeX, safeZ + interval) -
+    sampleHeight(safeX, safeZ - interval)
   ) / (interval * 2);
   return THREE.MathUtils.clamp(Math.hypot(dx, dz) / 1.25, 0, 1);
 }
@@ -59,14 +82,19 @@ export function terrainSurfaceFactors(
   x: number,
   z: number,
   height: number,
+  cellSize = 0,
+  slopeOverride?: number,
 ): TerrainSurfaceFactors {
   const safeX = finite(x);
   const safeZ = finite(z);
   const safeHeight = finite(height);
+  const climate = sampleClimate(safeX, safeZ);
   return {
-    noise: sampleSurfaceNoise(safeX, safeZ),
-    slope: sampleTerrainSlope(safeX, safeZ),
-    moisture: sampleClimate(safeX, safeZ).moisture,
+    noise: sampleSurfaceNoise(safeX, safeZ, 0, cellSize),
+    slope: typeof slopeOverride === "number" && Number.isFinite(slopeOverride)
+      ? THREE.MathUtils.clamp(slopeOverride, 0, 1)
+      : sampleTerrainSlope(safeX, safeZ, cellSize),
+    moisture: climate.moisture,
     elevation: THREE.MathUtils.clamp((safeHeight + 18) / 92, 0, 1),
   };
 }
@@ -76,9 +104,17 @@ export function terrainSurfaceColor(
   x: number,
   z: number,
   height: number,
+  cellSize = 0,
+  slopeOverride?: number,
 ) {
   const safeHeight = finite(height);
-  const factors = terrainSurfaceFactors(x, z, safeHeight);
+  const factors = terrainSurfaceFactors(
+    x,
+    z,
+    safeHeight,
+    cellSize,
+    slopeOverride,
+  );
   if (safeHeight <= WATER_LEVEL + 0.04) {
     target.setHex(0x36575a);
     target.offsetHSL(0, -0.025, (factors.noise - 0.5) * 0.035);

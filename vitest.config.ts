@@ -20,6 +20,8 @@ export default defineConfig({
         "lib/game/world/roads.ts",
         "lib/game/world/vegetation.ts",
         "lib/game/world/surfaceVariation.ts",
+        "lib/game/world/WorldLodPolicy.ts",
+        "lib/game/world/sceneryLod.ts",
         "lib/game/world/WaterSurface.ts",
         "lib/game/world/authoredBuildings.ts",
         "lib/game/world/buildingTypes.ts",

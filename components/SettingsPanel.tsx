@@ -14,6 +14,10 @@ import {
   keyLabel,
   type GameAction,
 } from "../lib/game/settings";
+import {
+  WORLD_DETAIL_PRESETS,
+  type WorldDetailLevel,
+} from "../lib/game/world/WorldLodPolicy";
 import type { GameSnapshot } from "../lib/game/state";
 
 interface SettingsPanelProps {
@@ -25,6 +29,7 @@ interface SettingsPanelProps {
   onSetVolume(channel: "masterVolume" | "ambientVolume" | "effectsVolume", value: number): void;
   onSetQuality(quality: QualityLevel): void;
   onSetHorizon(mode: HorizonMode): void;
+  onSetWorldDetail(level: WorldDetailLevel): void;
   onRebind(action: GameAction, code: string): void;
   onReset(): void;
 }
@@ -38,6 +43,7 @@ export default function SettingsPanel({
   onSetVolume,
   onSetQuality,
   onSetHorizon,
+  onSetWorldDetail,
   onRebind,
   onReset,
 }: SettingsPanelProps) {
@@ -137,15 +143,37 @@ export default function SettingsPanel({
             <h3>RENDERING</h3>
             <div className="settings-button-grid quality-grid">
               {QUALITY_LEVELS.map((quality) => (
-                <button key={quality} type="button" className={snapshot.quality === quality ? "is-active" : ""} onClick={() => onSetQuality(quality)}>
+                <button key={quality} type="button" className={snapshot.quality === quality ? "is-active" : ""} aria-pressed={snapshot.quality === quality} onClick={() => onSetQuality(quality)}>
                   <span>{QUALITY_PRESETS[quality].label}</span>
                   <small>{quality === "ultra" ? "4K SHADOWS / 2× DPR" : quality === "cinematic" ? "SHADOWS / HIGH DPR" : "LEAN GPU PROFILE"}</small>
                 </button>
               ))}
             </div>
+            <label className="settings-range" htmlFor="world-detail-slider">
+              <span>
+                MID-FIELD LOD
+                <output htmlFor="world-detail-slider">
+                  {WORLD_DETAIL_PRESETS[snapshot.settings.worldDetail].label} · {WORLD_DETAIL_PRESETS[snapshot.settings.worldDetail].description.replace(" DETAIL", "")}
+                </output>
+              </span>
+              <input
+                id="world-detail-slider"
+                type="range"
+                min="0"
+                max="4"
+                step="1"
+                value={snapshot.settings.worldDetail}
+                aria-describedby="world-detail-help"
+                aria-valuetext={`${WORLD_DETAIL_PRESETS[snapshot.settings.worldDetail].label}, ${WORLD_DETAIL_PRESETS[snapshot.settings.worldDetail].description.toLowerCase()}`}
+                onChange={(event) => onSetWorldDetail(Number(event.currentTarget.value) as WorldDetailLevel)}
+              />
+            </label>
+            <p className="settings-audio-state" id="world-detail-help">
+              Refines render-only terrain and scenery between the loaded world and horizon. Simulation stays fixed.
+            </p>
             <div className="settings-button-grid horizon-grid">
               {(Object.keys(HORIZON_PRESETS) as HorizonMode[]).map((mode) => (
-                <button key={mode} type="button" className={snapshot.horizonMode === mode ? "is-active" : ""} onClick={() => onSetHorizon(mode)}>
+                <button key={mode} type="button" className={snapshot.horizonMode === mode ? "is-active" : ""} aria-pressed={snapshot.horizonMode === mode} onClick={() => onSetHorizon(mode)}>
                   <span>{HORIZON_PRESETS[mode].label}</span>
                   <small>{Math.round(HORIZON_PRESETS[mode].drawDistanceMeters / 1_000)} KM</small>
                 </button>

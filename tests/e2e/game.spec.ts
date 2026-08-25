@@ -11,6 +11,7 @@ import { getSettlement } from "../../lib/game/world/macroWorld";
 import { SPAWN_BUILDING } from "../../lib/game/world/spawnBuilding";
 import { TEN_STORY_BUILDING } from "../../lib/game/world/tenStoryBuilding";
 import { TWO_STORY_BUILDING } from "../../lib/game/world/twoStoryBuilding";
+import { WORLD_DETAIL_PRESETS } from "../../lib/game/world/WorldLodPolicy";
 
 async function openDeterministicWorld(page: Page) {
   await page.goto("/?test=1", { waitUntil: "load" });
@@ -69,7 +70,9 @@ test("boots WebGL2 without a blank frame", async ({ page }, testInfo) => {
   expect(state?.horizonMode).toBe("standard");
   expect(state?.drawDistanceMeters).toBe(HORIZON_PRESETS.standard.drawDistanceMeters);
   expect(state?.horizonTiles).toBe(HORIZON_PRESETS.standard.rings.length * 16);
-  expect(state?.horizonTriangles ?? 0).toBeLessThan(60_000);
+  expect(state?.horizonTriangles ?? 0).toBeLessThan(
+    WORLD_DETAIL_PRESETS[state?.settings.worldDetail ?? 2].maxTerrainTriangles,
+  );
   expect(state?.triangles).toBeGreaterThan(1_000);
   const wildlife = await page.evaluate(() => window.__STILLPOINT_TEST__?.animals());
   expect(wildlife?.chunks).toBe(ANIMAL_RESIDENT_CHUNKS);
@@ -477,8 +480,13 @@ test("persists horizon HLOD without expanding gameplay streaming", async ({ page
   await expect(page.getByTestId("entry-screen")).toBeVisible();
   await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
   await page.getByTestId("enter-frontier").click();
+  const simulationBefore = await page.evaluate(() => ({
+    targets: window.__STILLPOINT_TEST__?.targets().length,
+    colliders: window.__STILLPOINT_TEST__?.colliders().length,
+  }));
   await page.getByTestId("developer-launcher").click();
   await page.getByTestId("horizon-mode-unlimited").click();
+  await page.evaluate(() => window.__STILLPOINT_TEST__?.setWorldDetail(4));
 
   await expect
     .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().horizonMode))
@@ -487,14 +495,24 @@ test("persists horizon HLOD without expanding gameplay streaming", async ({ page
     state: window.__STILLPOINT_TEST__?.snapshot(),
     horizon: window.__STILLPOINT_TEST__?.horizon(),
     citizenChunks: window.__STILLPOINT_TEST__?.citizens().chunks,
+    animalChunks: window.__STILLPOINT_TEST__?.animals().chunks,
+    targets: window.__STILLPOINT_TEST__?.targets().length,
+    colliders: window.__STILLPOINT_TEST__?.colliders().length,
   }));
   expect(maximum.state?.drawDistanceMeters)
     .toBe(HORIZON_PRESETS.unlimited.drawDistanceMeters);
   expect(maximum.state?.loadedChunks).toBe(WORLD_RESIDENT_CHUNKS);
   expect(maximum.citizenChunks).toBe(CITIZEN_RESIDENT_CHUNKS);
+  expect(maximum.animalChunks).toBe(ANIMAL_RESIDENT_CHUNKS);
+  expect(maximum.targets).toBe(simulationBefore.targets);
+  expect(maximum.colliders).toBe(simulationBefore.colliders);
   expect(maximum.horizon?.terrainTiles)
     .toBe(HORIZON_PRESETS.unlimited.rings.length * 16);
-  expect(maximum.horizon?.terrainTriangles ?? 0).toBeLessThan(60_000);
+  expect(maximum.horizon?.detailLevel).toBe(4);
+  expect(maximum.horizon?.nearCellSize).toBe(12);
+  expect(maximum.horizon?.terrainTriangles ?? 0)
+    .toBeLessThan(WORLD_DETAIL_PRESETS[4].maxTerrainTriangles);
+  expect(maximum.horizon?.sceneryInstances ?? 0).toBeGreaterThan(0);
   expect(maximum.horizon?.settlementInstances ?? 0).toBeLessThan(200);
 
   await page.reload({ waitUntil: "load" });
@@ -502,6 +520,7 @@ test("persists horizon HLOD without expanding gameplay streaming", async ({ page
   await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
   const restored = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
   expect(restored?.horizonMode).toBe("unlimited");
+  expect(restored?.settings.worldDetail).toBe(4);
   expect(restored?.loadedChunks).toBe(WORLD_RESIDENT_CHUNKS);
 });
 
@@ -608,6 +627,15 @@ test("persists local view settings and a rebound control independently of the fi
     .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().settings.fov))
     .toBe(82);
 
+  const worldDetail = page.getByLabel("MID-FIELD LOD");
+  await worldDetail.fill("4");
+  await expect(worldDetail).toHaveAttribute("aria-valuetext", /maximum/i);
+  await expect
+    .poll(() => page.evaluate(
+      () => window.__STILLPOINT_TEST__?.snapshot().settings.worldDetail,
+    ))
+    .toBe(4);
+
   const forwardBinding = page.getByRole("button", { name: "Rebind Move forward" });
   await forwardBinding.click();
   await expect(forwardBinding).toContainText("PRESS KEY");
@@ -626,6 +654,7 @@ test("persists local view settings and a rebound control independently of the fi
   await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
   const restored = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
   expect(restored?.settings.fov).toBe(82);
+  expect(restored?.settings.worldDetail).toBe(4);
   expect(restored?.settings.keyBindings.moveForward).toBe("KeyZ");
   expect(restored?.saveStatus).toBe("unsaved");
 });
@@ -907,6 +936,14 @@ test("keeps GPU resource counts bounded through repeated chunk churn", async ({ 
     await page.waitForTimeout(80);
   }
 
+  for (const level of [0, 4, 1, 3, 2] as const) {
+    await page.evaluate(
+      (nextLevel) => window.__STILLPOINT_TEST__?.setWorldDetail(nextLevel),
+      level,
+    );
+    await page.waitForTimeout(80);
+  }
+
   for (const [x, z] of [
     [2_000, 2_000],
     [-3_000, 1_500],
@@ -960,6 +997,7 @@ test("entry and fixed world views are visually reviewable @visual", async ({ pag
       window.__STILLPOINT_TEST__?.setDeveloperTimeOfDay(12 * 60);
       window.__STILLPOINT_TEST__?.setDeveloperWeather("fair");
       window.__STILLPOINT_TEST__?.setHorizonMode("unlimited");
+      window.__STILLPOINT_TEST__?.setWorldDetail(4);
       window.__STILLPOINT_TEST__?.setHeading(123);
     },
     TEN_STORY_BUILDING,

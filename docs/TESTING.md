@@ -44,7 +44,7 @@ the inventory overlay and encumbrance rule.
 
 Settings tests clamp corrupt numeric preferences, reject invalid enums and key codes, keep
 every gameplay action bound exactly once, swap conflicts, and verify compact HUD labels.
-`PreferencesStore` tests round-trip view, sound, quality, horizon, and binding preferences;
+`PreferencesStore` tests round-trip view, sound, quality, horizon, world detail, and binding preferences;
 they also cover invalid versions, absent storage, and storage permission failures. Save-store
 tests migrate versions one through six into the version-seven envelope, round-trip player
 pose/condition and location discovery alongside prior world state, sanitize every new field,
@@ -132,6 +132,8 @@ budgets, resource plateaus, and screenshot stability rather than treating softwa
 FPS as representative hardware performance.
 
 The 9×9 full-detail world ring must remain 81 chunks while citizen and wildlife rings remain 25.
-Standard, Extended, and Unlimited only replace bounded HLOD geometry. Browser tests lock
+Standard, Extended, and Unlimited only replace bounded HLOD geometry. Five world-detail
+stops independently refine the render-only near ring and scenery within explicit triangle
+and instance caps while resident gameplay counts remain fixed. Browser tests lock
 that separation so a future draw-distance change cannot inflate interaction or citizen
 work, and the resource plateau test cycles horizon modes during relocation to catch leaks.

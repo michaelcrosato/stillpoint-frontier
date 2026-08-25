@@ -11,6 +11,11 @@ import {
   horizonSettlementRecipes,
 } from "../../lib/game/world/HorizonRenderer";
 import { WORLD_HALF_EXTENT } from "../../lib/game/world/macroWorld";
+import {
+  WORLD_DETAIL_PRESETS,
+  worldLodPolicy,
+} from "../../lib/game/world/WorldLodPolicy";
+import { horizonSceneryRecipes } from "../../lib/game/world/sceneryLod";
 
 const MODES = Object.keys(HORIZON_PRESETS) as HorizonMode[];
 
@@ -44,8 +49,15 @@ describe("fixed-budget horizon HLOD", () => {
       expect(diagnostics.mode).toBe(mode);
       expect(diagnostics.terrainTiles).toBe(HORIZON_PRESETS[mode].rings.length * 16);
       expect(diagnostics.terrainTriangles).toBeGreaterThan(0);
-      expect(diagnostics.terrainTriangles).toBeLessThan(60_000);
+      expect(diagnostics.terrainTriangles).toBeLessThan(
+        WORLD_DETAIL_PRESETS[diagnostics.detailLevel].maxTerrainTriangles,
+      );
       expect(diagnostics.settlementInstances).toBeLessThan(200);
+      expect(diagnostics.sceneryInstances).toBeGreaterThan(0);
+      expect(diagnostics.sceneryInstances).toBeLessThanOrEqual(
+        WORLD_DETAIL_PRESETS[diagnostics.detailLevel].maxSceneryInstances,
+      );
+      expect(diagnostics.sceneryDrawCalls).toBeLessThanOrEqual(3);
 
       scene.traverse((object) => {
         if (!object.name.startsWith("horizon-")) return;
@@ -56,6 +68,43 @@ describe("fixed-budget horizon HLOD", () => {
       horizon.dispose();
       expect(scene.getObjectByName("horizon-hlod")).toBeUndefined();
     }
+  });
+
+  it("raises only the render-only near-ring budget when world detail increases", () => {
+    const scene = new THREE.Scene();
+    const horizon = new HorizonRenderer(scene, "unlimited", 0);
+    horizon.update(0, 8);
+    const opening = horizon.diagnostics;
+    const farBefore = scene.getObjectByName("horizon-terrain:2:north:0");
+    expect(opening.nearCellSize).toBe(48);
+    expect(opening.sceneryInstances).toBe(0);
+
+    expect(horizon.setDetailLevel(4)).toBe(true);
+    const maximum = horizon.diagnostics;
+    expect(maximum.nearCellSize).toBe(12);
+    expect(maximum.detailDistanceMeters).toBe(1_920);
+    expect(maximum.terrainTriangles).toBeGreaterThan(opening.terrainTriangles);
+    expect(maximum.terrainTriangles).toBeLessThan(
+      WORLD_DETAIL_PRESETS[4].maxTerrainTriangles,
+    );
+    expect(maximum.sceneryInstances).toBeGreaterThan(0);
+    expect(scene.getObjectByName("horizon-terrain:2:north:0")).toBe(farBefore);
+    expect(horizon.setDetailLevel(4)).toBe(false);
+    horizon.dispose();
+  });
+
+  it("keeps the HLOD terrain on the same PBR wet-surface response as loaded terrain", () => {
+    const scene = new THREE.Scene();
+    const horizon = new HorizonRenderer(scene, "standard", 1);
+    horizon.update(0, 8);
+    const terrain = scene.getObjectByName("horizon-terrain:0:north:0");
+    expect(terrain).toBeInstanceOf(THREE.Mesh);
+    const material = (terrain as THREE.Mesh).material;
+    expect(material).toBeInstanceOf(THREE.MeshStandardMaterial);
+    horizon.presentEnvironment({ surfaceWetness: 1 });
+    expect((material as THREE.MeshStandardMaterial).roughness).toBeCloseTo(0.55);
+    expect((material as THREE.MeshStandardMaterial).envMapIntensity).toBeGreaterThan(0.72);
+    horizon.dispose();
   });
 
   it("only rebuilds on a snapped chunk crossing or a real mode change", () => {
@@ -92,8 +141,32 @@ describe("fixed-budget horizon HLOD", () => {
         expect(Math.abs(positions.getZ(index))).toBeLessThanOrEqual(WORLD_HALF_EXTENT);
       }
     });
-    expect(horizon.diagnostics.terrainTriangles).toBeLessThan(60_000);
+    expect(horizon.diagnostics.terrainTriangles).toBeLessThan(
+      WORLD_DETAIL_PRESETS[2].maxTerrainTriangles,
+    );
     horizon.dispose();
+  });
+
+  it("generates deterministic capped scenery with no gameplay contract", () => {
+    const policy = worldLodPolicy(4);
+    const first = horizonSceneryRecipes(0, 0, policy);
+    const second = horizonSceneryRecipes(0, 0, policy);
+    expect(second).toEqual(first);
+    expect(first.length).toBeGreaterThan(0);
+    expect(first.length).toBeLessThanOrEqual(policy.maxSceneryInstances);
+    for (const recipe of first) {
+      expect(Math.max(Math.abs(recipe.x), Math.abs(recipe.z))).toBeGreaterThan(
+        DETAILED_TERRAIN_HALF_EXTENT,
+      );
+      expect(Math.max(Math.abs(recipe.x), Math.abs(recipe.z))).toBeLessThanOrEqual(
+        policy.sceneryOuter,
+      );
+      expect(recipe.y).toBeGreaterThan(-2.4);
+      expect("collider" in recipe).toBe(false);
+      expect("target" in recipe).toBe(false);
+      expect("resource" in recipe).toBe(false);
+      expect("ai" in recipe).toBe(false);
+    }
   });
 
   it("generates stable non-interactive settlement silhouettes only inside the horizon", () => {

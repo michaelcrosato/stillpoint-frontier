@@ -17,16 +17,26 @@ import {
 import {
   chunkCenter,
   sampleHorizonTerrainHeight,
-  sampleTerrainHeight,
+  sampleTerrainHeightLod,
   worldToChunk,
 } from "./terrain";
 import {
   proceduralSurfaceColor,
   terrainSurfaceColor,
 } from "./surfaceVariation";
+import {
+  DEFAULT_WORLD_DETAIL_LEVEL,
+  normalizeWorldDetailLevel,
+  worldLodPolicy,
+  type WorldDetailLevel,
+  type WorldLodPolicy,
+} from "./WorldLodPolicy";
+import {
+  horizonSceneryRecipes,
+  type HorizonSceneryRecipe,
+} from "./sceneryLod";
 
 const TERRAIN_DEPRESSION = 0.08;
-const DETAIL_BLEND_END = 960;
 const HORIZON_SKIRT_DEPTH = 18;
 const SETTLEMENT_SECTORS = 8;
 
@@ -60,9 +70,14 @@ interface TerrainRingRuntime {
 
 export interface HorizonDiagnostics {
   mode: HorizonMode;
+  detailLevel: WorldDetailLevel;
+  detailDistanceMeters: number;
+  nearCellSize: number;
   terrainTiles: number;
   terrainTriangles: number;
   settlementInstances: number;
+  sceneryInstances: number;
+  sceneryDrawCalls: number;
   rebuilds: number;
   anchor: { x: number; z: number } | null;
 }
@@ -153,15 +168,32 @@ function patchBounds(
   return patches;
 }
 
-function blendedSurfaceHeight(x: number, z: number, anchorX: number, anchorZ: number) {
-  const horizonHeight = sampleHorizonTerrainHeight(x, z);
+function blendedSurfaceHeight(
+  x: number,
+  z: number,
+  anchorX: number,
+  anchorZ: number,
+  cellSize: number,
+  policy: Readonly<WorldLodPolicy>,
+) {
   const distance = Math.max(Math.abs(x - anchorX), Math.abs(z - anchorZ));
-  if (distance >= DETAIL_BLEND_END) return horizonHeight;
-  const detailedHeight = Math.max(WATER_LEVEL, sampleTerrainHeight(x, z));
+  if (distance >= policy.detailBlendEnd) {
+    return sampleHorizonTerrainHeight(x, z);
+  }
+  const detailedHeight = Math.max(
+    WATER_LEVEL,
+    sampleTerrainHeightLod(x, z, cellSize),
+  );
+  const blendStart = Math.max(
+    DETAILED_TERRAIN_HALF_EXTENT,
+    policy.detailBlendEnd - Math.max(CHUNK_SIZE, cellSize * 6),
+  );
+  if (distance <= blendStart) return detailedHeight;
+  const horizonHeight = sampleHorizonTerrainHeight(x, z);
   const amount = THREE.MathUtils.smoothstep(
     distance,
-    DETAILED_TERRAIN_HALF_EXTENT,
-    DETAIL_BLEND_END,
+    blendStart,
+    policy.detailBlendEnd,
   );
   return THREE.MathUtils.lerp(detailedHeight, horizonHeight, amount);
 }
@@ -172,8 +204,10 @@ function pushTerrainColor(
   x: number,
   z: number,
   height: number,
+  cellSize: number,
+  slope: number,
 ) {
-  terrainSurfaceColor(color, x, z, height);
+  terrainSurfaceColor(color, x, z, height, cellSize, slope);
   colors.push(color.r, color.g, color.b);
 }
 
@@ -214,6 +248,7 @@ function buildPatchGeometry(
   anchorX: number,
   anchorZ: number,
   verticalOffset: number,
+  policy: Readonly<WorldLodPolicy>,
 ) {
   const width = bounds.xMax - bounds.xMin;
   const depth = bounds.zMax - bounds.zMin;
@@ -230,13 +265,51 @@ function buildPatchGeometry(
     for (let xIndex = 0; xIndex <= segmentsX; xIndex += 1) {
       const rawX = THREE.MathUtils.lerp(bounds.xMin, bounds.xMax, xIndex / segmentsX);
       const x = clampToWorld(rawX);
-      const height = blendedSurfaceHeight(x, z, anchorX, anchorZ);
+      const height = blendedSurfaceHeight(
+        x,
+        z,
+        anchorX,
+        anchorZ,
+        ring.cellSize,
+        policy,
+      );
       positions.push(x, height - TERRAIN_DEPRESSION - verticalOffset, z);
-      pushTerrainColor(colors, surfaceColor, x, z, height);
     }
   }
 
   const row = segmentsX + 1;
+  for (let zIndex = 0; zIndex <= segmentsZ; zIndex += 1) {
+    for (let xIndex = 0; xIndex <= segmentsX; xIndex += 1) {
+      const index = zIndex * row + xIndex;
+      const leftIndex = zIndex * row + Math.max(0, xIndex - 1);
+      const rightIndex = zIndex * row + Math.min(segmentsX, xIndex + 1);
+      const topIndex = Math.max(0, zIndex - 1) * row + xIndex;
+      const bottomIndex = Math.min(segmentsZ, zIndex + 1) * row + xIndex;
+      const xSpan = Math.max(
+        0.001,
+        positions[rightIndex * 3] - positions[leftIndex * 3],
+      );
+      const zSpan = Math.max(
+        0.001,
+        positions[bottomIndex * 3 + 2] - positions[topIndex * 3 + 2],
+      );
+      const dx =
+        (positions[rightIndex * 3 + 1] - positions[leftIndex * 3 + 1]) / xSpan;
+      const dz =
+        (positions[bottomIndex * 3 + 1] - positions[topIndex * 3 + 1]) / zSpan;
+      const height = positions[index * 3 + 1] + TERRAIN_DEPRESSION + verticalOffset;
+      pushTerrainColor(
+        colors,
+        surfaceColor,
+        positions[index * 3],
+        positions[index * 3 + 2],
+        height,
+        ring.cellSize,
+        THREE.MathUtils.clamp(Math.hypot(dx, dz) / 1.25, 0, 1),
+      );
+    }
+  }
+
   for (let zIndex = 0; zIndex < segmentsZ; zIndex += 1) {
     const centerZ = THREE.MathUtils.lerp(
       bounds.zMin,
@@ -344,8 +417,11 @@ export function horizonSettlementRecipes(
 
 export class HorizonRenderer {
   private readonly group = new THREE.Group();
-  private readonly terrainMaterial = new THREE.MeshLambertMaterial({
+  private readonly terrainMaterial = new THREE.MeshStandardMaterial({
     color: 0xffffff,
+    roughness: 0.96,
+    metalness: 0.02,
+    flatShading: true,
     vertexColors: true,
     fog: true,
     side: THREE.DoubleSide,
@@ -359,15 +435,31 @@ export class HorizonRenderer {
     vertexColors: true,
     fog: true,
   });
+  private readonly sceneryMaterial = new THREE.MeshLambertMaterial({
+    color: 0xffffff,
+    vertexColors: true,
+    fog: true,
+  });
+  private readonly sceneryTrunkGeometry = new THREE.CylinderGeometry(0.18, 0.26, 1, 5);
+  private readonly sceneryCrownGeometry = new THREE.ConeGeometry(1, 2, 5);
+  private readonly sceneryRockGeometry = new THREE.DodecahedronGeometry(1, 0);
   private terrainRings = new Map<number, TerrainRingRuntime>();
   private settlementMeshes: THREE.InstancedMesh[] = [];
+  private sceneryMeshes: THREE.InstancedMesh[] = [];
   private mode: HorizonMode;
+  private detailLevel: WorldDetailLevel;
   private anchor: { x: number; z: number } | null = null;
   private settlementInstances = 0;
+  private sceneryInstances = 0;
   private rebuilds = 0;
 
-  constructor(private readonly scene: THREE.Scene, mode: HorizonMode) {
+  constructor(
+    private readonly scene: THREE.Scene,
+    mode: HorizonMode,
+    detailLevel: WorldDetailLevel = DEFAULT_WORLD_DETAIL_LEVEL,
+  ) {
     this.mode = mode;
+    this.detailLevel = normalizeWorldDetailLevel(detailLevel);
     this.group.name = "horizon-hlod";
     this.group.renderOrder = -1;
     this.scene.add(this.group);
@@ -380,6 +472,33 @@ export class HorizonRenderer {
     return true;
   }
 
+  setDetailLevel(detailLevel: WorldDetailLevel) {
+    const normalized = normalizeWorldDetailLevel(detailLevel);
+    if (normalized === this.detailLevel) return false;
+    this.detailLevel = normalized;
+    if (this.anchor) {
+      const nearRing = this.terrainRings.get(0);
+      if (nearRing) {
+        this.disposeTerrainRing(nearRing);
+        this.terrainRings.delete(0);
+      }
+      this.reconcileTerrainRings();
+      this.rebuildScenery();
+      this.rebuilds += 1;
+    }
+    return true;
+  }
+
+  presentEnvironment(state: { surfaceWetness: number }) {
+    const wetness = THREE.MathUtils.clamp(
+      Number.isFinite(state.surfaceWetness) ? state.surfaceWetness : 0,
+      0,
+      1,
+    );
+    this.terrainMaterial.roughness = THREE.MathUtils.lerp(0.96, 0.55, wetness);
+    this.terrainMaterial.envMapIntensity = 0.72 * (1 + 0.48 * wetness);
+  }
+
   update(playerX: number, playerZ: number) {
     const coordinate = worldToChunk(playerX, playerZ);
     const center = chunkCenter(coordinate);
@@ -387,13 +506,18 @@ export class HorizonRenderer {
     this.anchor = center;
     this.reconcileTerrainRings();
     this.rebuildSettlements(HORIZON_PRESETS[this.mode].drawDistanceMeters);
+    this.rebuildScenery();
     this.rebuilds += 1;
     return true;
   }
 
   get diagnostics(): HorizonDiagnostics {
+    const policy = worldLodPolicy(this.detailLevel);
     return {
       mode: this.mode,
+      detailLevel: this.detailLevel,
+      detailDistanceMeters: policy.detailBlendEnd,
+      nearCellSize: policy.nearCellSize,
       terrainTiles: [...this.terrainRings.values()].reduce(
         (total, ring) => total + ring.meshes.length,
         0,
@@ -403,6 +527,8 @@ export class HorizonRenderer {
         0,
       ),
       settlementInstances: this.settlementInstances,
+      sceneryInstances: this.sceneryInstances,
+      sceneryDrawCalls: this.sceneryMeshes.length,
       rebuilds: this.rebuilds,
       anchor: this.anchor ? { ...this.anchor } : null,
     };
@@ -414,12 +540,17 @@ export class HorizonRenderer {
     this.terrainMaterial.dispose();
     this.settlementGeometry.dispose();
     this.settlementMaterial.dispose();
+    this.sceneryTrunkGeometry.dispose();
+    this.sceneryCrownGeometry.dispose();
+    this.sceneryRockGeometry.dispose();
+    this.sceneryMaterial.dispose();
   }
 
   private clearRuntimeMeshes() {
     for (const ring of this.terrainRings.values()) this.disposeTerrainRing(ring);
     this.terrainRings.clear();
     this.clearSettlementMeshes();
+    this.clearSceneryMeshes();
   }
 
   private clearSettlementMeshes() {
@@ -429,6 +560,15 @@ export class HorizonRenderer {
     }
     this.settlementMeshes = [];
     this.settlementInstances = 0;
+  }
+
+  private clearSceneryMeshes() {
+    for (const mesh of this.sceneryMeshes) {
+      this.group.remove(mesh);
+      mesh.dispose();
+    }
+    this.sceneryMeshes = [];
+    this.sceneryInstances = 0;
   }
 
   private disposeTerrainRing(ring: TerrainRingRuntime) {
@@ -443,12 +583,14 @@ export class HorizonRenderer {
     this.clearRuntimeMeshes();
     this.reconcileTerrainRings();
     this.rebuildSettlements(HORIZON_PRESETS[this.mode].drawDistanceMeters);
+    this.rebuildScenery();
     this.rebuilds += 1;
   }
 
   private reconcileTerrainRings() {
     if (!this.anchor) return;
     const preset = HORIZON_PRESETS[this.mode];
+    const policy = worldLodPolicy(this.detailLevel);
     for (const [ringIndex, runtime] of this.terrainRings) {
       if (ringIndex < preset.rings.length) continue;
       this.disposeTerrainRing(runtime);
@@ -456,16 +598,24 @@ export class HorizonRenderer {
     }
 
     for (const [ringIndex, ring] of preset.rings.entries()) {
-      const snap = ringIndex === 0 ? CHUNK_SIZE : Math.max(CHUNK_SIZE, ring.cellSize);
+      const effectiveCellSize = ringIndex === 0
+        ? policy.nearCellSize
+        : ring.cellSize;
+      const snap = ringIndex === 0
+        ? CHUNK_SIZE
+        : Math.max(CHUNK_SIZE, effectiveCellSize);
       const anchorX = Math.round(this.anchor.x / snap) * snap;
       const anchorZ = Math.round(this.anchor.z / snap) * snap;
       const existing = this.terrainRings.get(ringIndex);
       if (existing?.anchorX === anchorX && existing.anchorZ === anchorZ) continue;
       if (existing) this.disposeTerrainRing(existing);
 
-      const overlap = ringIndex === 0 ? ring.cellSize : ring.cellSize * 1.08;
+      const overlap = ringIndex === 0
+        ? effectiveCellSize
+        : effectiveCellSize * 1.08;
       const renderRing: HorizonRingDefinition = {
         ...ring,
+        cellSize: effectiveCellSize,
         inner:
           ringIndex === 0
             ? ring.inner
@@ -481,6 +631,7 @@ export class HorizonRenderer {
           anchorX,
           anchorZ,
           ringIndex * 0.34,
+          policy,
         );
         if (!geometry) continue;
         const mesh = new THREE.Mesh(geometry, this.terrainMaterial);
@@ -496,6 +647,104 @@ export class HorizonRenderer {
       }
       this.terrainRings.set(ringIndex, { anchorX, anchorZ, meshes, triangles });
     }
+  }
+
+  private rebuildScenery() {
+    if (!this.anchor) return;
+    this.clearSceneryMeshes();
+    const recipes = horizonSceneryRecipes(
+      this.anchor.x,
+      this.anchor.z,
+      worldLodPolicy(this.detailLevel),
+    );
+    const trees = recipes.filter(
+      (recipe): recipe is Extract<HorizonSceneryRecipe, { kind: "tree" }> =>
+        recipe.kind === "tree",
+    );
+    const rocks = recipes.filter(
+      (recipe): recipe is Extract<HorizonSceneryRecipe, { kind: "rock" }> =>
+        recipe.kind === "rock",
+    );
+    const matrix = new THREE.Matrix4();
+    const position = new THREE.Vector3();
+    const rotation = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    const color = new THREE.Color();
+
+    const prepareMesh = (
+      name: string,
+      geometry: THREE.BufferGeometry,
+      count: number,
+    ) => {
+      const mesh = new THREE.InstancedMesh(
+        geometry,
+        this.sceneryMaterial,
+        count,
+      );
+      mesh.name = name;
+      mesh.castShadow = false;
+      mesh.receiveShadow = false;
+      mesh.frustumCulled = true;
+      mesh.renderOrder = -0.5;
+      mesh.userData.shadow = false;
+      return mesh;
+    };
+    const finishMesh = (mesh: THREE.InstancedMesh) => {
+      mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      mesh.computeBoundingBox();
+      mesh.computeBoundingSphere();
+      this.sceneryMeshes.push(mesh);
+      this.group.add(mesh);
+    };
+
+    if (trees.length > 0) {
+      const trunks = prepareMesh(
+        "horizon-scenery:tree-trunks",
+        this.sceneryTrunkGeometry,
+        trees.length,
+      );
+      const crowns = prepareMesh(
+        "horizon-scenery:tree-crowns",
+        this.sceneryCrownGeometry,
+        trees.length,
+      );
+      trees.forEach((recipe, index) => {
+        rotation.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, recipe.yaw);
+        position.set(recipe.x, recipe.y + recipe.height * 0.25, recipe.z);
+        scale.set(recipe.width * 0.5, recipe.height * 0.5, recipe.width * 0.5);
+        matrix.compose(position, rotation, scale);
+        trunks.setMatrixAt(index, matrix);
+        trunks.setColorAt(index, color.setHex(recipe.trunkColor));
+
+        position.set(recipe.x, recipe.y + recipe.height * 0.69, recipe.z);
+        scale.set(recipe.width, recipe.height * 0.31, recipe.width);
+        matrix.compose(position, rotation, scale);
+        crowns.setMatrixAt(index, matrix);
+        crowns.setColorAt(index, color.setHex(recipe.foliageColor));
+      });
+      finishMesh(trunks);
+      finishMesh(crowns);
+    }
+
+    if (rocks.length > 0) {
+      const rockMesh = prepareMesh(
+        "horizon-scenery:rocks",
+        this.sceneryRockGeometry,
+        rocks.length,
+      );
+      rocks.forEach((recipe, index) => {
+        position.set(recipe.x, recipe.y + recipe.height * 0.45, recipe.z);
+        rotation.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, recipe.yaw);
+        scale.set(recipe.width, recipe.height * 0.72, recipe.width * 0.78);
+        matrix.compose(position, rotation, scale);
+        rockMesh.setMatrixAt(index, matrix);
+        rockMesh.setColorAt(index, color.setHex(recipe.color));
+      });
+      finishMesh(rockMesh);
+    }
+    this.sceneryInstances = recipes.length;
   }
 
   private rebuildSettlements(drawDistanceMeters: number) {

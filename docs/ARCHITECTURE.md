@@ -14,7 +14,7 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
   pause/context-loss behavior, save/load orchestration, player-facing overlays, and the
   narrow deterministic test bridge.
 - `settings` defines the complete action catalog and normalized view, control, audio,
-  quality, horizon, and keybinding preferences. `PreferencesStore` keeps those local
+  quality, horizon, world-detail, and keybinding preferences. `PreferencesStore` keeps those local
   preferences in a version-one slot separate from world progression, so resetting or
   loading a game does not silently replace the player's controls. Rebinding swaps a
   conflicting action instead of leaving duplicate or unbound controls, and `InputManager`
@@ -32,8 +32,12 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
   a 16 m uniform grid narrows each swept movement query. Placement reserves roads, water,
   beacons, opening objectives, and existing solids before an instance becomes visible.
 - `HorizonRenderer` is an independent render-only clipmap outside that 9×9 ring. Three
-  saved profiles build at most four concentric terrain LODs, split into small cardinal tiles
-  for frustum culling, plus fewer than 200 deterministic settlement silhouettes. The
+  saved distance profiles build at most four concentric terrain LODs, split into small cardinal tiles
+  for frustum culling, plus deterministic settlement silhouettes. A separate five-stop
+  world-detail policy refines the first ring from 48 m to 12 m cells and adds capped,
+  instanced tree and rock silhouettes between the populated world and macro horizon. Its
+  scale-aware height and color sampling removes frequencies that a coarse grid cannot resolve,
+  preventing middle-distance alias bands at every slider stop. The
   layer never owns interiors, individual resources, collision, targets, citizens, or
   shadows. The near LOD follows chunk crossings while outer LODs snap to progressively
   coarser cells and are reused, so walking does not rebuild the atlas horizon every 96 m;
@@ -189,8 +193,10 @@ The initial target is an RTX 3060-class machine at 1440p/60:
 
 - Fixed simulation: 60 Hz, with large frame deltas clamped and spiral-of-death protection.
 - Resident terrain: 81 chunks in a 9×9 visual ring; decorative props are instanced per chunk.
-- Far terrain: 16–64 frustum-cullable HLOD tiles, under 60,000 triangles and 200 settlement
-  proxies. Standard reaches 1.84 km, Extended 12 km, and Unlimited the finite atlas horizon
+- Far terrain: 16–64 frustum-cullable HLOD tiles. The saved world-detail slider ranges from
+  a sub-60,000-triangle coarse ring to a hard 300,000-triangle Maximum budget with no more
+  than 2,600 visual-only scenery recipes and 200 settlement proxies. Standard reaches 1.84 km,
+  Extended 12 km, and Unlimited the finite atlas horizon
   at 70 km, with reverse-depth used when the browser exposes `EXT_clip_control`.
 - Gameplay queries, ambient citizens, and sparse wildlife: independent 25-chunk inner rings.
 - Collision broad phase: streamed 16 m spatial cells, followed by swept-circle narrow phase;

@@ -1,4 +1,9 @@
 import { isQualityLevel, type HorizonMode, type QualityLevel } from "./config";
+import {
+  DEFAULT_WORLD_DETAIL_LEVEL,
+  normalizeWorldDetailLevel,
+  type WorldDetailLevel,
+} from "./world/WorldLodPolicy";
 
 export const GAME_ACTIONS = [
   "moveForward",
@@ -31,6 +36,7 @@ export interface GameSettings {
   effectsVolume: number;
   quality: QualityLevel;
   horizonMode: HorizonMode;
+  worldDetail: WorldDetailLevel;
   keyBindings: KeyBindings;
 }
 
@@ -62,6 +68,7 @@ export const DEFAULT_GAME_SETTINGS: GameSettings = Object.freeze({
   effectsVolume: 0.8,
   quality: "cinematic",
   horizonMode: "standard",
+  worldDetail: DEFAULT_WORLD_DETAIL_LEVEL,
   keyBindings: DEFAULT_KEY_BINDINGS,
 });
 
@@ -137,6 +144,7 @@ export function normalizeGameSettings(
       source.horizonMode === "unlimited"
         ? source.horizonMode
         : horizonFallback,
+    worldDetail: normalizeWorldDetailLevel(source.worldDetail),
     keyBindings: normalizeKeyBindings(source.keyBindings),
   };
 }
