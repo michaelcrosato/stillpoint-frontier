@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CompassTape, WaypointGuide } from "./NavigationDisplay";
 import DeveloperPanel from "./DeveloperPanel";
+import BenchmarkHud from "./BenchmarkHud";
 import ContainerPanel from "./ContainerPanel";
 import DialoguePanel from "./DialoguePanel";
 import InventoryPanel from "./InventoryPanel";
@@ -529,6 +530,8 @@ export default function GameShell() {
 
           <WaypointGuide store={presentationStore} />
 
+          <BenchmarkHud snapshot={snapshot} />
+
           {snapshot.scanner.active && (
             <div className="scanner-readout" data-testid="scanner-readout" aria-live="polite">
               <header>
@@ -722,6 +725,11 @@ export default function GameShell() {
           onSetHealth={(health) => engineRef.current?.setPlayerHealth(health)}
           onApplyFall={(speed) => engineRef.current?.applyFallImpact(speed)}
           onRecover={() => engineRef.current?.recoverPlayer()}
+          onTravelToForestStressTest={() => engineRef.current?.travelToForestStressTest()}
+          onSetForestStressLevel={(level) => engineRef.current?.setForestStressLevel(level)}
+          onSetGraphicsBenchmarkTarget={(target) => engineRef.current?.setGraphicsBenchmarkTarget(target)}
+          onStartGraphicsBenchmark={() => engineRef.current?.startGraphicsBenchmark()}
+          onCancelGraphicsBenchmark={() => engineRef.current?.cancelGraphicsBenchmark()}
           onReset={() => engineRef.current?.resetDeveloperOverrides()}
         />
       )}

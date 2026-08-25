@@ -8,6 +8,7 @@ import {
   smoothstep,
   WORLD_MODEL_SCALE,
 } from "./macroWorld";
+import { applyCanopyBenchmarkTerrainHeight } from "./benchmarkZone";
 
 const seedPhase = (hashString(WORLD_SEED) % 4096) / 4096;
 
@@ -29,7 +30,11 @@ function terrainHeightWithDetailWeight(
     sampleMacroElevation(x, z) + broad + cross + ridge + detail - coastalDropAt(z);
   const riverBlend = smoothstep(riverWidth(z) + 28, riverWidth(z) - 4, distanceToRiver(x, z));
   const riverBed = WATER_LEVEL - 1.7 - Math.sin(z * 0.004) * 0.35;
-  return land * (1 - riverBlend) + riverBed * riverBlend;
+  return applyCanopyBenchmarkTerrainHeight(
+    land * (1 - riverBlend) + riverBed * riverBlend,
+    x,
+    z,
+  );
 }
 
 /** Continuous analytic terrain: adjacent chunks always share exact edge heights. */
@@ -61,7 +66,11 @@ export function sampleHorizonTerrainHeight(x: number, z: number): number {
     distanceToRiver(x, z),
   );
   const surface = land * (1 - riverBlend) + WATER_LEVEL * riverBlend;
-  return Math.max(WATER_LEVEL, surface);
+  return applyCanopyBenchmarkTerrainHeight(
+    Math.max(WATER_LEVEL, surface),
+    x,
+    z,
+  );
 }
 
 export interface ChunkCoordinate {

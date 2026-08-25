@@ -36,6 +36,16 @@ condition tags, save status, audio diagnostics, and current/discovered locations
 gameplay does not depend on the bridge, and environmental audio is intentionally disabled in
 test mode so Web Audio permissions cannot make deterministic automation flaky.
 
+The bridge also exposes the render-only Canopy Load Lab, forest load selection, full graphics
+diagnostics, and benchmark capture state. Browser coverage uses the developer UI to travel to
+the lab and change load, verifies the analytic lake and fixed 81-chunk residency, proves
+increasing visual density does not increase targets or colliders, and confirms lab travel is
+excluded from the normal player save. Unit tests enforce deterministic load prefixes, lake and path
+exclusions, monotonic instance budgets, terrain continuity, percentile/headroom math, delayed
+GPU sample joining and coverage, immutable report context, foreground-hitch retention,
+unsupported-timer fallback, invalid-result safety, and disjoint-query cleanup. CI never asserts
+an absolute FPS, GPU time, or extension availability.
+
 Macro-world tests enforce the 9,216 km² area, biome coverage, settlement hierarchy,
 economic metadata, bounds, road connectivity, and river continuity. Gathering tests prove
 that partial work persists, final hits grant loot exactly once, and removed objects cannot
@@ -127,7 +137,13 @@ tests attach full-page candidate screenshots even when golden comparison is not 
 Use a reviewed golden-update job; never update baselines automatically on every CI run.
 
 Absolute GPU timing should run on a pinned RTX 3060/3070 self-hosted lane after shader
-warmup. Ordinary headless CI should gate deterministic state, draw-call/triangle/chunk
+warmup. Use Developer Tools → Performance Lab, travel to grid `64:-60`, choose a forest
+stop and refresh target, then run the 10-second capture. Use the fixed arrival viewpoint and
+stand still for directly comparable runs. Copy Report emits the run timestamp, world seed,
+hardware/browser, quality, horizon/world-detail, framebuffer, weather/time, load counts,
+GPU-query coverage, engine/delivery classifications, percentiles, 1% low, and headroom as JSON.
+Ordinary headless CI
+should gate deterministic state, draw-call/triangle/chunk
 budgets, resource plateaus, and screenshot stability rather than treating software-renderer
 FPS as representative hardware performance.
 

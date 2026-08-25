@@ -14,6 +14,7 @@ import {
 import { proceduralSurfaceColor } from "./surfaceVariation";
 import { sampleTerrainHeightLod } from "./terrain";
 import { selectWoodySpecies } from "./vegetation";
+import { isCanopyBenchmarkClearing } from "./benchmarkZone";
 
 export interface HorizonTreeRecipe {
   kind: "tree";
@@ -83,6 +84,7 @@ export function horizonSceneryRecipes(
 
       const climate = sampleClimate(x, z);
       if (climate.riverDistance <= riverWidth(z) + 12) continue;
+      if (isCanopyBenchmarkClearing(x, z, 2)) continue;
       const y = sampleTerrainHeightLod(x, z, policy.nearCellSize);
       if (y <= WATER_LEVEL + 0.3) continue;
 

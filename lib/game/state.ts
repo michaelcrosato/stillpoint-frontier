@@ -38,6 +38,11 @@ import {
   getDiscoverableLocation,
   type DiscoverableLocation,
 } from "./world/locationDiscovery";
+import {
+  initialGraphicsBenchmarkSnapshot,
+  type GraphicsBenchmarkSnapshot,
+} from "./developer/GraphicsBenchmark";
+import type { ForestStressDiagnostics } from "./developer/ForestStressTest";
 
 export interface NearbyTargetSnapshot {
   id: string;
@@ -161,8 +166,18 @@ export interface GameSnapshot {
   animalSpecies: number;
   crowdDensity: "WILDERNESS" | "QUIET" | "LOCAL" | "ACTIVE" | "BUSY" | "SURGE";
   triangles: number;
+  drawCalls: number;
   geometries: number;
   textures: number;
+  drawingBufferWidth: number;
+  drawingBufferHeight: number;
+  pixelRatio: number;
+  cpuRenderMilliseconds: number;
+  gpuRenderMilliseconds: number | null;
+  gpuTimerSupported: boolean;
+  gpuTimerStatus: "unsupported" | "ready" | "pending" | "disjoint";
+  graphicsBenchmark: GraphicsBenchmarkSnapshot;
+  forestStress: ForestStressDiagnostics;
   quality: QualityLevel;
   scanned: BeaconId[];
   inventory: InventoryState;
@@ -264,8 +279,41 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
   animalSpecies: 0,
   crowdDensity: "WILDERNESS",
   triangles: 0,
+  drawCalls: 0,
   geometries: 0,
   textures: 0,
+  drawingBufferWidth: 0,
+  drawingBufferHeight: 0,
+  pixelRatio: 1,
+  cpuRenderMilliseconds: 0,
+  gpuRenderMilliseconds: null,
+  gpuTimerSupported: false,
+  gpuTimerStatus: "unsupported",
+  graphicsBenchmark: initialGraphicsBenchmarkSnapshot(),
+  forestStress: {
+    id: "canopy-load-lab",
+    label: "Canopy Load Lab",
+    active: false,
+    level: 2,
+    levelLabel: "DENSE",
+    distanceMeters: -1,
+    trees: 0,
+    groundcover: 0,
+    rocks: 0,
+    reeds: 0,
+    authoredInstances: 0,
+    allocatedInstances: 0,
+    activeLodInstances: 0,
+    estimatedActiveLodTriangles: 0,
+    estimatedActiveLodDrawCalls: 0,
+    tiles: 0,
+    nearTiles: 0,
+    midTiles: 0,
+    farTiles: 0,
+    rebuilds: 0,
+    buildMilliseconds: 0,
+    renderOnly: true,
+  },
   quality: "cinematic",
   scanned: [],
   inventory: createEmptyInventory(),

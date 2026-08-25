@@ -284,7 +284,8 @@ describe("world-content lifecycle", () => {
     }]);
     expect(world.targets).toHaveLength(1);
     expect(world.colliders).toHaveLength(1);
-    expect(scene.children).toHaveLength(1);
+    expect(scene.children).toHaveLength(2);
+    expect(scene.getObjectByName("canopy-benchmark-lake")).toBeDefined();
 
     world.dispose();
 

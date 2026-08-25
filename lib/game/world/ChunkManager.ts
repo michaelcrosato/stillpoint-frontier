@@ -61,6 +61,10 @@ import {
   sampleTerrainHeight,
   worldToChunk,
 } from "./terrain";
+import {
+  CANOPY_BENCHMARK_ZONE,
+  isCanopyBenchmarkClearing,
+} from "./benchmarkZone";
 import { selectWalkableSupport } from "./buildingTypes";
 import {
   AUTHORED_BUILDINGS,
@@ -179,6 +183,7 @@ export class ChunkManager {
   private placedLightFocusZ = 0;
   private disposed = false;
   private readonly waterSurface: WaterSurfaceRuntime;
+  private readonly benchmarkLake: THREE.Mesh;
   private readonly sharedMaterials: Set<THREE.Material>;
   private readonly materialLibrary: WorldMaterialLibrary;
   private readonly ownsMaterialLibrary: boolean;
@@ -195,11 +200,13 @@ export class ChunkManager {
     this.materialLibrary = materialLibrary ?? new WorldMaterialLibrary();
     this.ownsMaterialLibrary = materialLibrary === undefined;
     this.waterSurface = new WaterSurfaceRuntime(this.quality);
+    this.benchmarkLake = this.createBenchmarkLake();
     this.sharedMaterials = new Set([this.waterSurface.material]);
     this.placedRecords = normalizePlacedEntities(placedEntities);
     this.placedRuntime = createPlacedRuntime(this.placedRecords, this.quality);
     this.materialLibrary.track(this.placedRuntime.root);
     this.scene.add(this.placedRuntime.root);
+    this.scene.add(this.benchmarkLake);
   }
 
   update(playerX: number, playerZ: number) {
@@ -546,6 +553,8 @@ export class ChunkManager {
     for (const chunk of this.loaded.values()) this.disposeChunk(chunk);
     this.loaded.clear();
     this.disposeObjectTree(this.placedRuntime.root);
+    this.scene.remove(this.benchmarkLake);
+    this.benchmarkLake.geometry.dispose();
     this.placedRuntime = {
       root: new THREE.Group(),
       targets: [],
@@ -802,6 +811,7 @@ export class ChunkManager {
       const x = centerX + randomRange(random, -maxOffset, maxOffset);
       const z = centerZ + randomRange(random, -maxOffset, maxOffset);
       if (Math.abs(x - riverCenterX(z)) <= riverWidth(z) + radius + 1.25) continue;
+      if (isCanopyBenchmarkClearing(x, z, radius + 0.4)) continue;
       if (
         key === "0:0" &&
         OPENING_RESERVATIONS.some(
@@ -873,6 +883,28 @@ export class ChunkManager {
       this.waterSurface.bind(sea, "sea");
       root.add(sea);
     }
+  }
+
+  private createBenchmarkLake() {
+    const zone = CANOPY_BENCHMARK_ZONE;
+    const geometry = new THREE.CircleGeometry(
+      zone.lakeRadius + zone.lakeSurfaceOverlap,
+      128,
+    );
+    geometry.rotateX(-Math.PI / 2);
+    const lake = new THREE.Mesh(geometry, this.waterSurface.material);
+    lake.name = "canopy-benchmark-lake";
+    lake.position.set(
+      zone.center.x,
+      zone.lakeSurfaceY + zone.lakeRenderOffset,
+      zone.center.z,
+    );
+    lake.receiveShadow = true;
+    lake.userData.shadow = false;
+    lake.userData.benchmarkFixture = true;
+    lake.userData.persistentWorldSurface = true;
+    this.waterSurface.bind(lake, "river");
+    return lake;
   }
 
   private addRoads(root: THREE.Group, centerX: number, centerZ: number, key: string) {

@@ -542,6 +542,104 @@ test("opens developer tools from the keyboard while paused and protects form inp
   await expect(page.getByTestId("developer-panel")).toBeHidden();
 });
 
+test("travels to the render-only canopy lab and scales graphics without simulation load", async ({ page }) => {
+  await openDeterministicWorld(page);
+  await page.getByTestId("enter-frontier").click();
+  await page.getByTestId("developer-launcher").click();
+  await page.getByTestId("developer-mode-toggle").click();
+  await page.getByTestId("forest-stress-travel").click();
+  await expect.poll(
+    () => page.evaluate(() => window.__STILLPOINT_TEST__?.forestStress().active),
+  ).toBe(true);
+  const arrival = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
+  expect(arrival?.position.x).toBeCloseTo(6_144, 4);
+  expect(arrival?.position.z).toBeCloseTo(-5_930, 4);
+  expect(arrival?.loadedChunks).toBe(WORLD_RESIDENT_CHUNKS);
+  expect(arrival?.lastFastTravel).toBeNull();
+  expect(arrival?.forestStress).toMatchObject({
+    active: true,
+    level: 2,
+    trees: 3_000,
+    groundcover: 12_000,
+    renderOnly: true,
+  });
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.groundHeight(6_144, -5_760)))
+    .toBeLessThan(6);
+
+  await page.getByTestId("developer-launcher").click();
+  const loadControl = page.getByTestId("forest-stress-level");
+  await loadControl.fill("0");
+  await expect.poll(
+    () => page.evaluate(() => window.__STILLPOINT_TEST__?.forestStress().level),
+  ).toBe(0);
+  const baseline = await page.evaluate(() => ({
+    fixture: window.__STILLPOINT_TEST__?.forestStress(),
+    targets: window.__STILLPOINT_TEST__?.targets().length,
+    colliders: window.__STILLPOINT_TEST__?.colliders().length,
+  }));
+  await loadControl.fill("3");
+  await expect.poll(
+    () => page.evaluate(() => window.__STILLPOINT_TEST__?.forestStress().level),
+  ).toBe(3);
+  const heavy = await page.evaluate(() => ({
+    fixture: window.__STILLPOINT_TEST__?.forestStress(),
+    targets: window.__STILLPOINT_TEST__?.targets().length,
+    colliders: window.__STILLPOINT_TEST__?.colliders().length,
+    state: window.__STILLPOINT_TEST__?.snapshot(),
+  }));
+  expect(baseline.fixture).toMatchObject({
+    levelLabel: "BASELINE",
+    authoredInstances: 0,
+  });
+  expect(heavy.fixture?.trees).toBeGreaterThan(baseline.fixture?.trees ?? 0);
+  expect(heavy.fixture?.groundcover).toBeGreaterThan(
+    baseline.fixture?.groundcover ?? 0,
+  );
+  expect(heavy.fixture?.activeLodInstances).toBeGreaterThan(
+    baseline.fixture?.activeLodInstances ?? 0,
+  );
+  expect(heavy.targets).toBe(baseline.targets);
+  expect(heavy.colliders).toBe(baseline.colliders);
+  expect(heavy.state?.loadedChunks).toBe(WORLD_RESIDENT_CHUNKS);
+  expect(heavy.state?.citizenCount).toBeLessThan(100);
+  expect(heavy.state?.forestStress.allocatedInstances).toBeGreaterThan(
+    heavy.state?.forestStress.authoredInstances ?? 0,
+  );
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("benchmark-hud")).toBeVisible();
+});
+
+test("keeps opt-in canopy lab travel out of the normal player save", async ({ page }) => {
+  await page.goto("/?test=1&storage=1", { waitUntil: "load" });
+  await page.evaluate(() => window.localStorage.clear());
+  await page.reload({ waitUntil: "load" });
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  await page.getByTestId("enter-frontier").click();
+  const origin = await page.evaluate(
+    () => window.__STILLPOINT_TEST__?.snapshot().position,
+  );
+  await page.evaluate(() => {
+    window.__STILLPOINT_TEST__?.setDeveloperMode(true);
+    window.__STILLPOINT_TEST__?.travelToForestStressTest();
+    window.__STILLPOINT_TEST__?.saveNow();
+  });
+  await expect.poll(
+    () => page.evaluate(() => window.__STILLPOINT_TEST__?.forestStress().active),
+  ).toBe(true);
+
+  await page.reload({ waitUntil: "load" });
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  await page.getByTestId("enter-frontier").click();
+  const restored = await page.evaluate(
+    () => window.__STILLPOINT_TEST__?.snapshot(),
+  );
+  expect(restored?.position.x).toBeCloseTo(origin?.x ?? 0, 4);
+  expect(restored?.position.z).toBeCloseTo(origin?.z ?? 8, 4);
+  expect(restored?.devTools.enabled).toBe(false);
+  expect(restored?.forestStress.active).toBe(false);
+  await expect(page.getByTestId("benchmark-hud")).toBeHidden();
+});
+
 test("streams proportional ambient citizens without making them interaction targets", async ({ page }) => {
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();

@@ -13,6 +13,7 @@ import {
 } from "../world/macroWorld";
 import { distanceToPathSegment, worldPathSegmentsForChunk } from "../world/roads";
 import { chunkCenter, chunkKey, sampleTerrainHeight } from "../world/terrain";
+import { isCanopyBenchmarkClearing } from "../world/benchmarkZone";
 
 export type AnimalBodyKind = "grazer" | "stocky" | "small" | "reptile" | "bird";
 
@@ -285,6 +286,7 @@ export function generateAnimalChunk(chunkX: number, chunkZ: number): AnimalRecip
   for (let attempt = 0; attempt < 24; attempt += 1) {
     const x = center.x + randomRange(random, -CHUNK_SIZE * 0.37, CHUNK_SIZE * 0.37);
     const z = center.z + randomRange(random, -CHUNK_SIZE * 0.37, CHUNK_SIZE * 0.37);
+    if (isCanopyBenchmarkClearing(x, z, species.scale + 1.5)) continue;
     const terrainY = sampleTerrainHeight(x, z);
     if (terrainY <= WATER_LEVEL + 0.18) continue;
     const localSettlement = nearestSettlement(x, z);

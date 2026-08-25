@@ -6,6 +6,7 @@ import {
   QUALITY_LEVELS,
   PLAYER_HEIGHT,
   PLAYER_RADIUS,
+  WORLD_SEED,
   WAYPOINT_WORLD_MARKER_DISTANCE,
   type BeaconId,
   type HorizonMode,
@@ -156,9 +157,27 @@ import {
   type DiscoverableLocation,
 } from "./world/locationDiscovery";
 import type { InspectionRecord } from "./world/inspectables";
+import {
+  GraphicsBenchmark,
+  type GraphicsBenchmarkContext,
+  type GraphicsBenchmarkSnapshot,
+} from "./developer/GraphicsBenchmark";
+import {
+  ForestStressTest,
+  type ForestStressDiagnostics,
+} from "./developer/ForestStressTest";
+import { CANOPY_BENCHMARK_ZONE } from "./world/benchmarkZone";
 
 const FIXED_STEP = 1 / 60;
 const MAX_FRAME_DELTA = 0.075;
+
+interface BenchmarkTravelOrigin {
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  pitch: number;
+}
 
 function audioLevelsFromSettings(
   settings: Pick<
@@ -220,6 +239,13 @@ export interface GameTestBridge {
   };
   audio(): EnvironmentalAudio["diagnostics"];
   graphics(): GraphicsDiagnostics;
+  graphicsBenchmark(): GraphicsBenchmarkSnapshot;
+  forestStress(): ForestStressDiagnostics;
+  setGraphicsBenchmarkTarget(target: number): boolean;
+  startGraphicsBenchmark(): boolean;
+  cancelGraphicsBenchmark(): boolean;
+  setForestStressLevel(level: number): boolean;
+  travelToForestStressTest(): boolean;
   saveNow(): boolean;
   loadGame(): boolean;
   setFov(fov: number): boolean;
@@ -289,6 +315,7 @@ export class Engine {
   private readonly materialLibrary: WorldMaterialLibrary;
   private readonly input: InputManager;
   private readonly world: ChunkManager;
+  private readonly forestStress: ForestStressTest;
   private readonly horizon: HorizonRenderer;
   private readonly citizens: CitizenEngine;
   private readonly animals: AnimalEngine;
@@ -296,6 +323,7 @@ export class Engine {
   private readonly audio: EnvironmentalAudio;
   private readonly navigation = new NavigationService();
   private readonly environment: EnvironmentRuntime;
+  private readonly graphicsBenchmark = new GraphicsBenchmark();
   private readonly pipeline = new SystemPipeline<GameRuntimeContext>();
   private readonly onSnapshot: (snapshot: GameSnapshot) => void;
   private readonly onPresentation: (presentation: GamePresentation) => void;
@@ -370,6 +398,7 @@ export class Engine {
   private saveStatus: GameSnapshot["saveStatus"] = "unavailable";
   private lastSavedAt: number | null = null;
   private lastClockPersistTime = 0;
+  private benchmarkTravelOrigin: BenchmarkTravelOrigin | null = null;
   private snapshot = { ...INITIAL_SNAPSHOT };
   private disposed = false;
 
@@ -452,6 +481,11 @@ export class Engine {
       this.doorStates,
       this.featureProgress.containerStates,
       this.featureProgress.placedEntities,
+      this.materialLibrary,
+    );
+    this.forestStress = new ForestStressTest(
+      this.scene,
+      this.quality,
       this.materialLibrary,
     );
     this.horizon = new HorizonRenderer(
@@ -585,6 +619,11 @@ export class Engine {
   async initialize() {
     this.resize();
     this.world.update(this.player.position.x, this.player.position.z);
+    this.forestStress.update(
+      this.player.position.x,
+      this.player.position.z,
+      this.environment.getDeveloperState().enabled,
+    );
     const current = { x: this.player.position.x, z: this.player.position.z };
     const supportY = this.world.sampleGroundHeight(
       current.x,
@@ -814,6 +853,7 @@ export class Engine {
       : null;
     this.input.reset();
     if (overlay) {
+      this.graphicsBenchmark.cancel("Capture cancelled by an overlay");
       this.mapOpen = false;
       this.inventoryOpen = false;
       this.settingsOpen = false;
@@ -1350,6 +1390,7 @@ export class Engine {
   setMapOpen(open: boolean) {
     this.mapOpen = open;
     if (open) {
+      this.graphicsBenchmark.cancel("Capture cancelled by the map");
       this.developerPanelOpen = false;
       this.inventoryOpen = false;
       this.settingsOpen = false;
@@ -1366,6 +1407,7 @@ export class Engine {
     this.inventoryOpen = open;
     this.input.reset();
     if (open) {
+      this.graphicsBenchmark.cancel("Capture cancelled by inventory");
       this.mapOpen = false;
       this.settingsOpen = false;
       this.activeInspection = null;
@@ -1382,6 +1424,7 @@ export class Engine {
     this.settingsOpen = open;
     this.input.reset();
     if (open) {
+      this.graphicsBenchmark.cancel("Capture cancelled by settings");
       this.mapOpen = false;
       this.inventoryOpen = false;
       this.activeInspection = null;
@@ -1398,6 +1441,7 @@ export class Engine {
     this.activeInspection = inspection ? { ...inspection } : null;
     this.input.reset();
     if (inspection) {
+      this.graphicsBenchmark.cancel("Capture cancelled by inspection");
       this.mapOpen = false;
       this.inventoryOpen = false;
       this.settingsOpen = false;
@@ -1414,6 +1458,7 @@ export class Engine {
     this.developerPanelOpen = open;
     this.input.reset();
     if (open) {
+      this.graphicsBenchmark.cancel("Capture cancelled by developer panel");
       this.mapOpen = false;
       this.inventoryOpen = false;
       this.settingsOpen = false;
@@ -1428,34 +1473,160 @@ export class Engine {
   }
 
   setDeveloperMode(enabled: boolean) {
+    if (!enabled) {
+      this.graphicsBenchmark.invalidate("Developer mode disabled");
+    }
     this.environment.setDeveloperMode(enabled);
     this.refreshEnvironment();
   }
 
   setDeveloperTimeOfDay(minutes: number) {
+    this.graphicsBenchmark.invalidate("Time of day changed");
     this.environment.setDeveloperMinuteOfDay(minutes);
     this.refreshEnvironment();
   }
 
   advanceDeveloperMinutes(minutes: number) {
+    this.graphicsBenchmark.invalidate("Time of day changed");
     this.environment.advanceDeveloperMinutes(minutes);
     this.refreshEnvironment();
   }
 
   setDeveloperClockPaused(paused: boolean) {
+    this.graphicsBenchmark.invalidate("Clock policy changed");
     this.environment.setDeveloperClockPaused(paused);
     this.refreshEnvironment(false);
   }
 
   setDeveloperWeather(weatherId: WeatherId | null) {
     const accepted = this.environment.setDeveloperWeather(weatherId);
+    if (accepted) this.graphicsBenchmark.invalidate("Weather profile changed");
     this.refreshEnvironment();
     return accepted;
   }
 
   resetDeveloperOverrides() {
     this.environment.resetDeveloperOverrides();
+    this.graphicsBenchmark.reset(60);
+    this.forestStress.setLevel(2);
     this.refreshEnvironment();
+  }
+
+  setGraphicsBenchmarkTarget(target: number) {
+    const changed = this.graphicsBenchmark.setTarget(target);
+    if (changed) this.emitSnapshot(true);
+    return changed;
+  }
+
+  startGraphicsBenchmark() {
+    if (
+      !this.started ||
+      !this.environment.getDeveloperState().enabled ||
+      this.contextStatus !== "ready"
+    ) {
+      return false;
+    }
+    const graphics = this.renderPipeline.diagnostics;
+    const forest = this.forestStress.diagnostics;
+    const atmosphere = this.environment.getSample();
+    const deviceMemory = Number(
+      (navigator as Navigator & { deviceMemory?: number }).deviceMemory,
+    );
+    const context: GraphicsBenchmarkContext = {
+      capturedAt: new Date().toISOString(),
+      worldSeed: WORLD_SEED,
+      quality: this.quality,
+      horizonMode: this.horizonMode,
+      worldDetail: this.settings.worldDetail,
+      resolution: {
+        width: graphics.drawingBufferWidth,
+        height: graphics.drawingBufferHeight,
+        pixelRatio: graphics.pixelRatio,
+      },
+      forest: {
+        active: forest.active,
+        level: forest.level,
+        label: forest.levelLabel,
+        trees: forest.trees,
+        groundcover: forest.groundcover,
+        rocks: forest.rocks,
+        reeds: forest.reeds,
+      },
+      viewpoint: {
+        x: this.player.position.x,
+        y: this.player.position.y,
+        z: this.player.position.z,
+        heading: headingFromYaw(this.player.yaw),
+        fov: this.camera.fov,
+      },
+      environment: {
+        worldMinutes: atmosphere.totalMinutes,
+        weatherId: atmosphere.weatherId,
+        weatherLabel: atmosphere.weatherLabel,
+        visibilityMeters: atmosphere.visibilityMeters,
+        precipitation: atmosphere.precipitation,
+      },
+      flashlightOn: this.flashlight.isEnabled,
+      hardware: {
+        userAgent: navigator.userAgent,
+        hardwareConcurrency: Number.isFinite(navigator.hardwareConcurrency)
+          ? navigator.hardwareConcurrency
+          : null,
+        deviceMemoryGb: Number.isFinite(deviceMemory) ? deviceMemory : null,
+        gpuVendor: graphics.gpuVendor,
+        gpuRenderer: graphics.gpuRenderer,
+      },
+    };
+    const started = this.graphicsBenchmark.start(
+      performance.now(),
+      graphics.gpuTimerSupported,
+      context,
+    );
+    if (!started) return false;
+    this.developerPanelOpen = false;
+    this.resume();
+    return true;
+  }
+
+  cancelGraphicsBenchmark() {
+    const cancelled = this.graphicsBenchmark.cancel();
+    if (cancelled) this.emitSnapshot(true);
+    return cancelled;
+  }
+
+  setForestStressLevel(level: number) {
+    if (!this.environment.getDeveloperState().enabled) return false;
+    const changed = this.forestStress.setLevel(level);
+    if (!changed) return false;
+    this.graphicsBenchmark.invalidate("Forest load changed");
+    this.emitSnapshot(true);
+    return true;
+  }
+
+  travelToForestStressTest() {
+    if (!this.environment.getDeveloperState().enabled) return false;
+    const { arrival, center } = CANOPY_BENCHMARK_ZONE;
+    if (this.benchmarkTravelOrigin === null) {
+      this.benchmarkTravelOrigin = {
+        x: this.player.position.x,
+        y: this.player.position.y,
+        z: this.player.position.z,
+        yaw: this.player.yaw,
+        pitch: this.player.pitch,
+      };
+    }
+    this.graphicsBenchmark.invalidate("Viewpoint changed");
+    this.relocatePlayer(
+      arrival.x,
+      arrival.z,
+      this.world.sampleGroundHeight(arrival.x, arrival.z),
+      center.x,
+      center.z,
+    );
+    this.developerPanelOpen = false;
+    this.resume();
+    this.emitSnapshot(true);
+    return true;
   }
 
   setManualWaypoint(x: number, z: number) {
@@ -1502,6 +1673,7 @@ export class Engine {
   }
 
   setWorldMinutes(minutes: number) {
+    this.graphicsBenchmark.invalidate("World time changed");
     this.environment.setWorldMinutes(minutes);
     this.environment.sync(this.player.position, true);
     this.environment.present(this.player.position, 0);
@@ -1512,6 +1684,7 @@ export class Engine {
 
   setHorizonMode(mode: HorizonMode) {
     if (!isHorizonMode(mode) || mode === this.horizonMode) return false;
+    this.graphicsBenchmark.invalidate("Horizon profile changed");
     this.horizonMode = mode;
     this.settings = { ...this.settings, horizonMode: mode };
     this.runtime.settings = this.settings;
@@ -1533,6 +1706,7 @@ export class Engine {
       this.horizonMode,
     );
     if (next.worldDetail === this.settings.worldDetail) return false;
+    this.graphicsBenchmark.invalidate("World LOD changed");
     this.settings = next;
     this.runtime.settings = this.settings;
     this.horizon.setDetailLevel(next.worldDetail);
@@ -1544,6 +1718,7 @@ export class Engine {
   setFov(fov: number) {
     const next = normalizeGameSettings({ ...this.settings, fov }, this.horizonMode);
     if (next.fov === this.settings.fov) return false;
+    this.graphicsBenchmark.invalidate("Field of view changed");
     this.settings = next;
     this.runtime.settings = this.settings;
     this.camera.fov = next.fov;
@@ -1598,6 +1773,7 @@ export class Engine {
   }
 
   resetSettings() {
+    this.graphicsBenchmark.invalidate("Graphics settings reset");
     this.settings = {
       ...DEFAULT_GAME_SETTINGS,
       keyBindings: { ...DEFAULT_GAME_SETTINGS.keyBindings },
@@ -1660,6 +1836,7 @@ export class Engine {
     this.navigation.removeTarget(MANUAL_WAYPOINT_ID);
     if (saved.manualWaypoint) this.navigation.setManualWaypoint(saved.manualWaypoint);
     this.environment.setWorldMinutes(saved.worldMinutes);
+    this.benchmarkTravelOrigin = null;
     this.player.yaw = playerState?.yaw ?? -0.565;
     this.player.pitch = playerState?.pitch ?? -0.035;
     this.player.condition = playerState && playerState.health > 0
@@ -1838,12 +2015,16 @@ export class Engine {
   }
 
   toggleFlashlight() {
+    this.graphicsBenchmark.invalidate("Flashlight state changed");
     const enabled = this.flashlight.toggle();
     this.emitSnapshot(true);
     return enabled;
   }
 
   setFlashlightEnabled(enabled: boolean) {
+    if (enabled !== this.flashlight.isEnabled) {
+      this.graphicsBenchmark.invalidate("Flashlight state changed");
+    }
     this.flashlight.setEnabled(enabled);
     this.emitSnapshot(true);
     return this.flashlight.isEnabled;
@@ -1876,6 +2057,20 @@ export class Engine {
     this.runtime.nearbyTarget = null;
     this.runtime.nearbyDistance = null;
     this.world.update(x, z);
+    if (
+      this.benchmarkTravelOrigin &&
+      Math.hypot(
+        x - CANOPY_BENCHMARK_ZONE.center.x,
+        z - CANOPY_BENCHMARK_ZONE.center.z,
+      ) > CANOPY_BENCHMARK_ZONE.unloadRadius
+    ) {
+      this.benchmarkTravelOrigin = null;
+    }
+    this.forestStress.update(
+      x,
+      z,
+      this.environment.getDeveloperState().enabled,
+    );
     this.horizon.update(x, z);
     this.citizens.update(x, z, 0, true);
     this.animals.update(x, z, 0, true);
@@ -1890,6 +2085,23 @@ export class Engine {
 
   private persist() {
     const manualWaypoint = this.navigation.getTarget(MANUAL_WAYPOINT_ID)?.position ?? null;
+    const travelOrigin = this.benchmarkTravelOrigin;
+    const preserveTravelOrigin =
+      travelOrigin !== null &&
+      Math.hypot(
+        this.player.position.x - CANOPY_BENCHMARK_ZONE.center.x,
+        this.player.position.z - CANOPY_BENCHMARK_ZONE.center.z,
+      ) <= CANOPY_BENCHMARK_ZONE.unloadRadius;
+    if (!preserveTravelOrigin) this.benchmarkTravelOrigin = null;
+    const persistedPose = preserveTravelOrigin
+      ? travelOrigin!
+      : {
+          x: this.player.position.x,
+          y: this.player.position.y,
+          z: this.player.position.z,
+          yaw: this.player.yaw,
+          pitch: this.player.pitch,
+        };
     const saved = this.saveStore.save({
       scanned: this.scanned,
       inventory: this.inventory,
@@ -1899,11 +2111,11 @@ export class Engine {
       worldMinutes: this.environment.getPersistentWorldMinutes(),
       horizonMode: this.horizonMode,
       player: {
-        x: this.player.position.x,
-        y: this.player.position.y,
-        z: this.player.position.z,
-        yaw: this.player.yaw,
-        pitch: this.player.pitch,
+        x: persistedPose.x,
+        y: persistedPose.y,
+        z: persistedPose.z,
+        yaw: persistedPose.yaw,
+        pitch: persistedPose.pitch,
         health: this.player.condition.health,
         wetness: this.player.condition.wetness,
         coldStress: this.player.condition.coldStress,
@@ -1936,6 +2148,7 @@ export class Engine {
     this.animals.dispose();
     this.flashlight.dispose();
     this.audio.dispose();
+    this.forestStress.dispose();
     this.world.dispose();
     this.materialLibrary.dispose();
     this.horizon.dispose();
@@ -1946,8 +2159,12 @@ export class Engine {
 
   private frame = (timestamp: number) => {
     if (this.disposed) return;
+    const cpuFrameStartedAt = performance.now();
+    const frameIntervalMilliseconds = this.previousTime
+      ? timestamp - this.previousTime
+      : FIXED_STEP * 1_000;
     const delta = this.previousTime
-      ? Math.min((timestamp - this.previousTime) / 1000, MAX_FRAME_DELTA)
+      ? Math.min(frameIntervalMilliseconds / 1000, MAX_FRAME_DELTA)
       : FIXED_STEP;
     this.previousTime = timestamp;
 
@@ -1974,6 +2191,20 @@ export class Engine {
       if (steps === 5) this.accumulator = 0;
 
       this.environment.present(this.player.position, delta);
+      this.forestStress.update(
+        this.player.position.x,
+        this.player.position.z,
+        this.environment.getDeveloperState().enabled,
+      );
+      if (
+        this.benchmarkTravelOrigin &&
+        Math.hypot(
+          this.player.position.x - CANOPY_BENCHMARK_ZONE.center.x,
+          this.player.position.z - CANOPY_BENCHMARK_ZONE.center.z,
+        ) > CANOPY_BENCHMARK_ZONE.unloadRadius
+      ) {
+        this.benchmarkTravelOrigin = null;
+      }
       const visualState = this.environment.getVisualState();
       this.world.presentEnvironment(visualState);
       this.horizon.presentEnvironment(visualState);
@@ -2004,7 +2235,11 @@ export class Engine {
       );
       this.flashlight.present(this.camera);
       this.emitPresentation();
-      this.renderPipeline.render(delta);
+      const renderMetrics = this.renderPipeline.render(
+        delta,
+        this.graphicsBenchmark.isMeasuringGpu,
+      );
+      this.graphicsBenchmark.resolveGpuSamples(renderMetrics.gpuSamples);
       this.trackPerformance(timestamp);
       if (
         this.started &&
@@ -2014,6 +2249,18 @@ export class Engine {
         this.persist();
         this.lastClockPersistTime = timestamp;
       }
+      const graphics = this.renderPipeline.diagnostics;
+      this.graphicsBenchmark.recordFrame({
+        frameToken: renderMetrics.frameToken,
+        timestampMs: timestamp,
+        frameIntervalMs: frameIntervalMilliseconds,
+        cpuWorkMs: performance.now() - cpuFrameStartedAt,
+        cpuRenderMs: renderMetrics.cpuRenderMilliseconds,
+        drawCalls: graphics.drawCalls,
+        triangles: graphics.triangles,
+        gpuQuerySubmitted: renderMetrics.gpuQuerySubmitted,
+        hidden: document.hidden,
+      });
       this.emitSnapshot(timestamp - this.lastSnapshotTime > 140);
     }
     this.animationFrame = requestAnimationFrame(this.frame);
@@ -2053,6 +2300,7 @@ export class Engine {
     const developer = this.environment.getDeveloperState();
     const nearbyTarget = this.runtime.nearbyTarget;
     const horizon = this.horizon.diagnostics;
+    const graphics = this.renderPipeline.diagnostics;
     const carriedWeight = inventoryWeight(this.inventory);
     const carriedItems = inventoryItemCount(this.inventory);
     const conditionInput = {
@@ -2104,8 +2352,18 @@ export class Engine {
       animalSpecies: this.animals.visibleSpeciesCount,
       crowdDensity: this.citizens.density,
       triangles: this.renderer.info.render.triangles,
+      drawCalls: graphics.drawCalls,
       geometries: this.renderer.info.memory.geometries,
       textures: this.renderer.info.memory.textures,
+      drawingBufferWidth: graphics.drawingBufferWidth,
+      drawingBufferHeight: graphics.drawingBufferHeight,
+      pixelRatio: graphics.pixelRatio,
+      cpuRenderMilliseconds: graphics.cpuRenderMilliseconds,
+      gpuRenderMilliseconds: graphics.gpuRenderMilliseconds,
+      gpuTimerSupported: graphics.gpuTimerSupported,
+      gpuTimerStatus: graphics.gpuTimerStatus,
+      graphicsBenchmark: this.graphicsBenchmark.snapshot,
+      forestStress: this.forestStress.diagnostics,
       quality: this.quality,
       scanned: [...this.scanned],
       inventory: { ...this.inventory },
@@ -2323,10 +2581,12 @@ export class Engine {
   }
 
   private applyQuality(quality: QualityLevel) {
+    this.graphicsBenchmark.invalidate("Quality profile changed");
     this.quality = quality;
     this.renderPipeline.setQuality(quality);
     this.environment.setQuality(this.quality);
     this.world.setQuality(this.quality);
+    this.forestStress.setQuality(this.quality);
     this.citizens.setQuality(this.quality);
     this.animals.setQuality(this.quality);
     this.flashlight.setQuality(this.quality);
@@ -2339,6 +2599,7 @@ export class Engine {
   }
 
   private resize = () => {
+    this.graphicsBenchmark.invalidate("Render resolution changed");
     const width = Math.max(1, this.canvas.clientWidth || window.innerWidth);
     const height = Math.max(1, this.canvas.clientHeight || window.innerHeight);
     this.renderPipeline.resize(width, height, window.devicePixelRatio);
@@ -2348,6 +2609,9 @@ export class Engine {
 
   private handlePointerLockChange = (locked: boolean) => {
     if (!this.started || this.testMode) return;
+    if (!locked) {
+      this.graphicsBenchmark.cancel("Capture cancelled when pointer lock ended");
+    }
     this.paused =
       this.developerPanelOpen ||
       this.mapOpen ||
@@ -2362,6 +2626,7 @@ export class Engine {
 
   private handleVisibilityChange = () => {
     if (document.hidden && this.started) {
+      this.graphicsBenchmark.cancel("Capture cancelled when the tab was hidden");
       this.paused = true;
       if (this.input.isLocked()) document.exitPointerLock?.();
       this.persist();
@@ -2372,6 +2637,7 @@ export class Engine {
   private handleContextLost = (event: Event) => {
     event.preventDefault();
     this.contextStatus = "lost";
+    this.graphicsBenchmark.cancel("WebGL context lost during capture");
     this.paused = true;
     if (this.input.isLocked()) document.exitPointerLock?.();
     this.emitSnapshot(true);
@@ -2431,6 +2697,14 @@ export class Engine {
       flashlight: () => this.flashlight.diagnostics,
       audio: () => this.audio.diagnostics,
       graphics: () => this.renderPipeline.diagnostics,
+      graphicsBenchmark: () => this.graphicsBenchmark.snapshot,
+      forestStress: () => this.forestStress.diagnostics,
+      setGraphicsBenchmarkTarget: (target) =>
+        this.setGraphicsBenchmarkTarget(target),
+      startGraphicsBenchmark: () => this.startGraphicsBenchmark(),
+      cancelGraphicsBenchmark: () => this.cancelGraphicsBenchmark(),
+      setForestStressLevel: (level) => this.setForestStressLevel(level),
+      travelToForestStressTest: () => this.travelToForestStressTest(),
       saveNow: () => this.saveNow(),
       loadGame: () => this.loadGame(),
       setFov: (fov) => this.setFov(fov),

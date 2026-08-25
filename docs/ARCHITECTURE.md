@@ -31,6 +31,18 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
   rendered solid is paired with a circle or exact oriented-box collider from the same recipe;
   a 16 m uniform grid narrows each swept movement query. Placement reserves roads, water,
   beacons, opening objectives, and existing solids before an instance becomes visible.
+- `world/benchmarkZone` and `developer/ForestStressTest` form a technical proving ground,
+  not a content location. Grid `64:-60` carries one analytic shallow lake, a cleared shore
+  approach, a persistent shared-water lake surface, and a lazily resident seven-by-seven
+  tile canopy. Six bounded session-only stops include a zero-instance baseline, then scale
+  from 1,500 to 20,000 trees and 6,000 to 80,000 understory instances. Each
+  tile selects full, simplified, or silhouette tree geometry through `THREE.LOD`; only
+  near trees cast shadows and only near tiles draw ground cover and rocks. The additional
+  vegetation is render-only: it contributes no targets, colliders, harvest IDs, AI,
+  discoveries, or save data. Ordinary sparse harvestable vegetation remains the physical
+  gameplay layer. The canopy is developer-gated; leaving the site or disabling developer
+  mode disposes all instance buffers while shared fixture assets remain owned by the module
+  until engine shutdown. Developer travel preserves the pre-lab pose for normal saves.
 - `HorizonRenderer` is an independent render-only clipmap outside that 9×9 ring. Three
   saved distance profiles build at most four concentric terrain LODs, split into small cardinal tiles
   for frustum culling, plus deterministic settlement silhouettes. A separate five-stop
@@ -132,6 +144,15 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
   distance, and near-target screen projection once per rendered frame, so the scrolling
   compass remains smooth without repainting the entire shell at 60+ Hz. The renderer never
   reaches into React state.
+- `rendering/GpuFrameTimer` wraps the complete presented frame in a non-blocking
+  `EXT_disjoint_timer_query_webgl2` query only during an active capture. It polls once on
+  later frames, caps outstanding queries, discards disjoint epochs, and never stalls the GPU.
+  The pure
+  `developer/GraphicsBenchmark` collector excludes shader warmup, joins delayed samples by
+  frame token, and reports rAF, CPU work, CPU render submission, GPU, draw-call, and submitted
+  triangle percentiles. Captures freeze their quality, LOD, framebuffer, load, viewpoint,
+  environment, browser, and GPU context so completed reports cannot be mislabeled. Captures
+  and reports are session-only.
 
 ## Adding a feature
 
@@ -230,8 +251,23 @@ The initial target is an RTX 3060-class machine at 1440p/60:
   wind-driven clouds without texture assets. One shared world-space water shader renders all
   river and sea chunks with seamless ripples, Fresnel tinting, and weather-aware sun glint.
 - Renderer diagnostics expose FPS, active chunks, selected horizon, far tiles, far triangles,
-  settlement proxies, and optical visibility to the HUD and tests. Weather remains the final
-  visibility limit, with fog and storms restoring dense extinction in every profile.
+  settlement proxies, optical visibility, drawing-buffer resolution/DPR, draw calls, and
+  CPU/GPU render time to the HUD and tests. A deliberate 10-second capture compares p95
+  work against selectable 60–240 Hz frame budgets. CPU and GPU are pipelined, so headroom
+  uses `max(CPU p95, GPU p95)`, not their sum; 1% low comes from the rAF-interval p99. GPU
+  submission/resolution coverage and a minimum foreground sample count prevent partial
+  query sets or single-frame hitches from producing a confident grade. If the timer extension
+  is unavailable the UI explicitly labels the result CPU-only. Weather
+  remains the final visibility limit, with fog and storms restoring dense extinction in
+  every profile.
+- The Canopy Load Lab is opt-in developer load, never a production baseline. Its maximum
+  stop authors 20,000 trees, 80,000 understory instances, 1,600 rocks, and 4,096 shoreline
+  reeds while keeping the 81/25/25 world, citizen, and wildlife resident rings unchanged.
+  Engine-budget classifications are `PASS` at or below 75% of the target budget, `MARGIN`
+  up to 90%, and `FAIL` above 90%; insufficient sampling is `INCOMPLETE`. Observed delivery
+  is reported separately as `PASS`, `MISS`, or `CAP_LIMITED`, so a 144 Hz target measured on
+  a stable 60 Hz display is not mistaken for an engine-budget failure. Real acceptance
+  captures belong on pinned hardware.
 - Every unloaded chunk explicitly disposes geometries and materials.
 
 The next production hardening modules are worker-based chunk recipes, floating-origin

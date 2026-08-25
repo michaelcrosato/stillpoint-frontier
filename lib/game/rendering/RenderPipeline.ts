@@ -21,6 +21,11 @@ import {
   gtaoIsSupported,
   renderPixelRatio,
 } from "./RenderingPolicy";
+import {
+  GpuFrameTimer,
+  type GpuFrameTimingSample,
+  type GpuFrameTimerStatus,
+} from "./GpuFrameTimer";
 
 export {
   composerSampleCount,
@@ -48,7 +53,28 @@ export interface GraphicsDiagnostics {
   bloom: boolean;
   gtao: boolean;
   grading: boolean;
+  drawCalls: number;
+  triangles: number;
+  lines: number;
+  points: number;
+  drawingBufferWidth: number;
+  drawingBufferHeight: number;
+  pixelRatio: number;
+  cpuRenderMilliseconds: number;
+  gpuRenderMilliseconds: number | null;
+  gpuTimerSupported: boolean;
+  gpuTimerStatus: GpuFrameTimerStatus;
+  gpuQueriesPending: number;
+  gpuVendor: string;
+  gpuRenderer: string;
   environmentMap: EnvironmentMapDiagnostics;
+}
+
+export interface RenderFrameMetrics {
+  frameToken: number;
+  cpuRenderMilliseconds: number;
+  gpuQuerySubmitted: boolean;
+  gpuSamples: GpuFrameTimingSample[];
 }
 
 class ShortRangeGtaoPass extends GTAOPass {
@@ -102,6 +128,8 @@ export class RenderPipeline {
   private readonly gradePass: ShaderPass;
   private readonly outputPass: OutputPass;
   private readonly environmentMap: EnvironmentMapRuntime;
+  private readonly gpuFrameTimer: GpuFrameTimer;
+  private readonly drawingBufferSize = new THREE.Vector2();
   private readonly bloomBackground = new THREE.Color(0x000000);
   private readonly bloomLayer = new THREE.Layers();
   private readonly bloomOccluderMaterial = new THREE.MeshBasicMaterial({
@@ -120,6 +148,8 @@ export class RenderPipeline {
   private width = 1;
   private height = 1;
   private pixelRatio = 1;
+  private frameToken = 0;
+  private lastCpuRenderMilliseconds = 0;
   private disposed = false;
 
   constructor(private readonly options: RenderPipelineOptions) {
@@ -154,6 +184,9 @@ export class RenderPipeline {
     // One presented frame can contain bloom, world, GTAO and fullscreen draws.
     // Keep Three from resetting counters for each internal renderer.render call.
     this.renderer.info.autoReset = false;
+    this.gpuFrameTimer = new GpuFrameTimer(
+      this.renderer.getContext() as WebGL2RenderingContext,
+    );
 
     this.composer = new EffectComposer(
       this.renderer,
@@ -223,15 +256,40 @@ export class RenderPipeline {
     }
   }
 
-  render(deltaSeconds = 0) {
-    if (this.disposed) return;
-    this.renderer.info.reset();
-    if (QUALITY_PRESETS[this.quality].postProcessing.enabled) {
-      if (this.bloomPass.enabled) this.renderSelectiveBloom(deltaSeconds);
-      this.composer.render(deltaSeconds);
-    } else {
-      this.renderer.render(this.options.scene, this.options.camera);
+  render(deltaSeconds = 0, measureGpu = false): RenderFrameMetrics {
+    if (this.disposed) {
+      return {
+        frameToken: this.frameToken,
+        cpuRenderMilliseconds: 0,
+        gpuQuerySubmitted: false,
+        gpuSamples: [],
+      };
     }
+    const timerBeforeFrame = this.gpuFrameTimer.diagnostics;
+    const gpuSamples = measureGpu || timerBeforeFrame.pendingQueries > 0
+      ? this.gpuFrameTimer.poll()
+      : [];
+    const frameToken = ++this.frameToken;
+    const gpuQuerySubmitted = measureGpu && this.gpuFrameTimer.begin(frameToken);
+    const cpuStartedAt = performance.now();
+    this.renderer.info.reset();
+    try {
+      if (QUALITY_PRESETS[this.quality].postProcessing.enabled) {
+        if (this.bloomPass.enabled) this.renderSelectiveBloom(deltaSeconds);
+        this.composer.render(deltaSeconds);
+      } else {
+        this.renderer.render(this.options.scene, this.options.camera);
+      }
+    } finally {
+      if (gpuQuerySubmitted) this.gpuFrameTimer.end();
+      this.lastCpuRenderMilliseconds = performance.now() - cpuStartedAt;
+    }
+    return {
+      frameToken,
+      cpuRenderMilliseconds: this.lastCpuRenderMilliseconds,
+      gpuQuerySubmitted,
+      gpuSamples,
+    };
   }
 
   presentEnvironment(state: Readonly<EnvironmentVisualState>) {
@@ -284,6 +342,9 @@ export class RenderPipeline {
   handleContextRestored() {
     if (this.disposed) return;
     this.renderer.resetState();
+    this.gpuFrameTimer.handleContextRestored(
+      this.renderer.getContext() as WebGL2RenderingContext,
+    );
     this.environmentMap.handleContextRestored();
     this.composer.reset(this.createComposerTarget(this.quality));
     this.bloomComposer.reset(this.createBloomTarget());
@@ -293,6 +354,8 @@ export class RenderPipeline {
   get diagnostics(): GraphicsDiagnostics {
     const context = this.renderer.getContext();
     const preset = QUALITY_PRESETS[this.quality];
+    const timer = this.gpuFrameTimer.diagnostics;
+    this.renderer.getDrawingBufferSize(this.drawingBufferSize);
     return {
       webgl2: this.renderer.capabilities.isWebGL2,
       reversedDepth: this.renderer.capabilities.reversedDepthBuffer,
@@ -305,6 +368,20 @@ export class RenderPipeline {
       bloom: this.bloomPass.enabled,
       gtao: this.gtaoPass.enabled,
       grading: this.gradePass.enabled,
+      drawCalls: this.renderer.info.render.calls,
+      triangles: this.renderer.info.render.triangles,
+      lines: this.renderer.info.render.lines,
+      points: this.renderer.info.render.points,
+      drawingBufferWidth: Math.round(this.drawingBufferSize.x),
+      drawingBufferHeight: Math.round(this.drawingBufferSize.y),
+      pixelRatio: this.pixelRatio,
+      cpuRenderMilliseconds: this.lastCpuRenderMilliseconds,
+      gpuRenderMilliseconds: timer.lastMilliseconds,
+      gpuTimerSupported: timer.supported,
+      gpuTimerStatus: timer.status,
+      gpuQueriesPending: timer.pendingQueries,
+      gpuVendor: gpuIdentityString(context, "vendor"),
+      gpuRenderer: gpuIdentityString(context, "renderer"),
       environmentMap: this.environmentMap.diagnostics,
     };
   }
@@ -312,6 +389,7 @@ export class RenderPipeline {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    this.gpuFrameTimer.dispose();
     this.environmentMap.dispose();
     this.renderPass.dispose();
     this.gtaoPass.dispose();
@@ -438,4 +516,41 @@ export class RenderPipeline {
     }
     if (this.bloomHidden.delete(object)) object.visible = true;
   };
+}
+
+function safeContextString(
+  context: WebGLRenderingContext | WebGL2RenderingContext,
+  key: number,
+) {
+  try {
+    return String(context.getParameter(key) ?? "UNKNOWN");
+  } catch {
+    return "UNAVAILABLE";
+  }
+}
+
+function gpuIdentityString(
+  context: WebGLRenderingContext | WebGL2RenderingContext,
+  kind: "vendor" | "renderer",
+) {
+  try {
+    const extension = context.getExtension("WEBGL_debug_renderer_info") as {
+      UNMASKED_VENDOR_WEBGL: number;
+      UNMASKED_RENDERER_WEBGL: number;
+    } | null;
+    if (extension) {
+      return safeContextString(
+        context,
+        kind === "vendor"
+          ? extension.UNMASKED_VENDOR_WEBGL
+          : extension.UNMASKED_RENDERER_WEBGL,
+      );
+    }
+  } catch {
+    // Privacy-restricted contexts intentionally fall through to masked data.
+  }
+  return safeContextString(
+    context,
+    kind === "vendor" ? context.VENDOR : context.RENDERER,
+  );
 }
