@@ -8,6 +8,7 @@ import {
 
 export const MINUTES_PER_WORLD_DAY = 1_440;
 export const WORLD_START_MINUTES = 7 * 60 + 30;
+export const MAX_WORLD_MINUTES = 10_000_000;
 export const GAME_MINUTES_PER_REAL_SECOND = 1;
 export const WEATHER_EPOCH_MINUTES = 180;
 export const WEATHER_TRANSITION_MINUTES = 36;
@@ -134,7 +135,9 @@ export const BIOME_WEATHER_PROFILES: Record<
 };
 
 export function sanitizeWorldMinutes(value: number) {
-  return Number.isFinite(value) ? Math.max(0, value) : WORLD_START_MINUTES;
+  return Number.isFinite(value)
+    ? Math.min(MAX_WORLD_MINUTES, Math.max(0, value))
+    : WORLD_START_MINUTES;
 }
 
 function phaseForMinute(minuteOfDay: number): DayPhase {

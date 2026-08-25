@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   PlanarCollisionIndex,
   colliderIntersectsVerticalRange,
+  isColliderLineOfSightClear,
   isPlanarPositionClear,
+  isTerrainLineOfSightClear,
   resolvePlanarMovement,
   type BoxCollider,
   type CircleCollider,
@@ -317,5 +319,53 @@ describe("collision spatial index", () => {
     expect(index.querySweep({ x: -8, z: 0 }, { x: 8, z: 0 }, PLAYER_RADIUS))
       .toHaveLength(1);
     expect(() => new PlanarCollisionIndex(0)).toThrow(/positive and finite/i);
+  });
+});
+
+describe("line-of-sight collision", () => {
+  const origin = { x: 0, y: 1.6, z: 0 };
+  const target = { x: 0, y: 1.6, z: -4 };
+  const wall: BoxCollider = {
+    ...building,
+    id: "sight-wall",
+    z: -2,
+    halfWidth: 2,
+    halfDepth: 0.1,
+    minY: 0,
+    maxY: 3,
+  };
+
+  it("blocks an interior prism but respects height and ignored target surfaces", () => {
+    expect(isColliderLineOfSightClear(origin, target, [wall])).toBe(false);
+    expect(isColliderLineOfSightClear(
+      { ...origin, y: 4 },
+      { ...target, y: 4 },
+      [wall],
+    )).toBe(true);
+    expect(isColliderLineOfSightClear(
+      origin,
+      target,
+      [wall],
+      new Set([wall.id]),
+    )).toBe(true);
+  });
+
+  it("does not flicker closed on a mathematical tangent", () => {
+    expect(isColliderLineOfSightClear(
+      { x: 1, y: 1, z: -2 },
+      { x: 1, y: 1, z: 2 },
+      [{ ...circle, minY: 0, maxY: 2 }],
+    )).toBe(true);
+  });
+
+  it("rejects terrain ridges while leaving a clear sampled segment visible", () => {
+    const far = { x: 0, y: 1.6, z: -10 };
+    expect(isTerrainLineOfSightClear(origin, far, () => 0)).toBe(true);
+    expect(isTerrainLineOfSightClear(
+      origin,
+      far,
+      (_x, z) => z < -4 && z > -6 ? 2.2 : 0,
+    )).toBe(false);
+    expect(isTerrainLineOfSightClear(origin, far, () => Number.NaN)).toBe(false);
   });
 });

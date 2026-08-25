@@ -36,10 +36,47 @@ import { PreferencesStore } from "./persistence/PreferencesStore";
 import { applyGather, type EntityDiff } from "./gameplay/interactions";
 import {
   EMPTY_INVENTORY,
+  ITEM_DEFINITIONS,
+  addItem,
   inventoryItemCount,
   inventoryWeight,
+  itemUseKind,
+  removeItem,
   type InventoryState,
+  type ItemId,
 } from "./gameplay/items";
+import type { GameplayEvent } from "./gameplay/events";
+import {
+  acceptContract as acceptContractProgress,
+  contractById,
+  currentContractObjective,
+  progressContracts,
+  turnInContract as turnInContractProgress,
+  type ContractJournalState,
+} from "./gameplay/contracts";
+import { reconcileContractEvidence } from "./gameplay/contractEvidence";
+import {
+  craftRecipe as resolveCraftRecipe,
+  recipeById,
+  type CraftingStationKind,
+} from "./gameplay/crafting";
+import {
+  addFieldGuideEntry,
+  fieldGuideEntry,
+} from "./gameplay/fieldGuide";
+import {
+  ensureContainerState,
+  takeAllContainerItems as resolveTakeAllContainerItems,
+  takeContainerItem as resolveTakeContainerItem,
+} from "./gameplay/loot";
+import {
+  createFeatureProgress,
+  type FeatureProgressState,
+} from "./gameplay/progression";
+import {
+  resolveRest,
+  type RestOptionId,
+} from "./gameplay/resting";
 import { interactionPromptFor } from "./gameplay/interactionPrompt";
 import {
   INITIAL_PLAYER_CONDITION,
@@ -51,6 +88,7 @@ import {
   recoverPlayerCondition,
 } from "./gameplay/playerCondition";
 import { InteractionSystem } from "./systems/InteractionSystem";
+import { ScannerSystem } from "./systems/ScannerSystem";
 import { CitizenCrowdSystem } from "./systems/CitizenCrowdSystem";
 import { AmbientAnimalSystem } from "./systems/AmbientAnimalSystem";
 import { PlayerEquipmentSystem } from "./systems/PlayerEquipmentSystem";
@@ -70,6 +108,8 @@ import type { GameRuntimeContext } from "./systems/runtime";
 import { WorldStreamingSystem } from "./systems/WorldStreamingSystem";
 import {
   type GameSnapshot,
+  type FeatureNotice,
+  type FeatureOverlayState,
   type LastGatherSnapshot,
   INITIAL_SNAPSHOT,
   addDiscovery,
@@ -81,7 +121,18 @@ import {
   resolveFastTravelArrival,
 } from "./world/fastTravel";
 import { WORLD_HALF_EXTENT, nearestSettlement, sampleClimate } from "./world/macroWorld";
+import { WATER_LEVEL } from "./world/macroWorld";
 import { sampleTerrainHeight, worldToChunk } from "./world/terrain";
+import {
+  MAX_PLACED_SERIAL,
+  nearbyCampModifiers,
+  type PlacementArchetype,
+  type PlacedEntity,
+} from "./world/deployments";
+import {
+  authoredNpcScheduleAnchor,
+  npcById,
+} from "./npcs/authoredNpc";
 import {
   DEFAULT_GAME_SETTINGS,
   normalizeGameSettings,
@@ -261,6 +312,7 @@ export class Engine {
   private inventoryOpen = false;
   private settingsOpen = false;
   private activeInspection: InspectionRecord | null = null;
+  private featureOverlay: FeatureOverlayState = null;
   private developerPanelOpen = false;
   private contextStatus: "ready" | "lost" = "ready";
   private quality: QualityLevel = "cinematic";
@@ -273,6 +325,15 @@ export class Engine {
   private inventory: InventoryState = { ...EMPTY_INVENTORY };
   private worldDiffs: Record<string, EntityDiff> = {};
   private doorStates: Record<string, boolean> = {};
+  private featureProgress: FeatureProgressState = createFeatureProgress();
+  private readonly scanner = {
+    active: false,
+    focusId: null as string | null,
+    focusEntryId: null as string | null,
+    focusName: null as string | null,
+    progress: 0,
+  };
+  private lastFeatureNotice: FeatureNotice | null = null;
   private lastDiscovery: BeaconId | null = null;
   private lastGather: LastGatherSnapshot | null = null;
   private lastFastTravel: GameSnapshot["lastFastTravel"] = null;
@@ -307,6 +368,13 @@ export class Engine {
     this.inventory = saved.inventory;
     this.worldDiffs = saved.worldDiffs;
     this.doorStates = saved.doorStates;
+    this.featureProgress = saved.featureProgress;
+    this.featureProgress = {
+      ...this.featureProgress,
+      contractJournal: this.reconcilePersistentContractEvidence(
+        this.featureProgress.contractJournal,
+      ),
+    };
     this.discoveredLocations = saved.discoveredLocations;
     this.horizonMode = this.settings.horizonMode;
     this.quality = this.settings.quality;
@@ -373,10 +441,16 @@ export class Engine {
       this.quality,
       this.worldDiffs,
       this.doorStates,
+      this.featureProgress.containerStates,
+      this.featureProgress.placedEntities,
     );
     this.horizon = new HorizonRenderer(this.scene, this.horizonMode);
     this.citizens = new CitizenEngine(this.scene, this.quality);
-    this.animals = new AnimalEngine(this.scene, this.quality);
+    this.animals = new AnimalEngine(this.scene, this.quality, {
+      sampleHeight: sampleTerrainHeight,
+      queryColliders: (current, desired, radius, minY, maxY) =>
+        this.world.queryColliders(current, desired, radius, minY, maxY),
+    });
     this.flashlight = new PlayerFlashlight(this.scene, this.quality);
     this.audio = new EnvironmentalAudio(this.settings, this.testMode);
     this.environment = createEnvironment(
@@ -415,6 +489,7 @@ export class Engine {
       started: false,
       paused: false,
       testMode: this.testMode,
+      scanner: this.scanner,
       nearbyTarget: null,
       nearbyDistance: null,
       discover: (beaconId) => this.discover(beaconId),
@@ -424,6 +499,14 @@ export class Engine {
       toggleQuality: () => this.toggleQuality(),
       toggleFlashlight: () => this.toggleFlashlight(),
       toggleDeveloperPanel: () => this.toggleDeveloperPanel(),
+      toggleOperations: () => this.toggleOperations(),
+      scanCandidates: () => [
+        ...this.world.scanCandidates,
+        ...this.animals.scanCandidates(),
+      ],
+      completeScan: (entryId) => this.completeScan(entryId),
+      hasFieldGuideEntry: (entryId) =>
+        this.featureProgress.fieldGuideEntries.includes(entryId),
       discoverCurrentLocation: () => this.discoverCurrentLocation(),
       applyFallImpact: (speed) => this.applyFallImpact(speed),
       recoverPlayer: () => this.recoverPlayer(),
@@ -458,6 +541,7 @@ export class Engine {
             .system(new PlayerConditionSystem())
             .system(new WorldStreamingSystem())
             .system(new LocationDiscoverySystem())
+            .system(new ScannerSystem())
             .system(new InteractionSystem());
         },
       })
@@ -514,6 +598,8 @@ export class Engine {
     this.environment.sync(this.player.position, true);
     this.environment.present(this.player.position, 0);
     this.synchronizeTimeDependentWorld();
+    this.syncPlacedNavigationTargets();
+    this.syncContractNavigation();
     for (const beaconId of this.scanned) this.world.markScanned(beaconId);
     window.addEventListener("resize", this.resize);
     document.addEventListener("visibilitychange", this.handleVisibilityChange);
@@ -544,6 +630,7 @@ export class Engine {
     this.inventoryOpen = false;
     this.settingsOpen = false;
     this.activeInspection = null;
+    this.featureOverlay = null;
     this.developerPanelOpen = false;
     this.paused = !this.testMode;
     this.lastClockPersistTime = performance.now();
@@ -558,6 +645,7 @@ export class Engine {
     this.inventoryOpen = false;
     this.settingsOpen = false;
     this.activeInspection = null;
+    this.featureOverlay = null;
     this.developerPanelOpen = false;
     void this.audio.unlock();
     if (this.testMode) this.paused = false;
@@ -583,6 +671,8 @@ export class Engine {
 
   performInteraction(target: WorldTarget) {
     if (target.action === "inspect" && target.inspection) {
+      this.applyGameplayEvent({ type: "object.inspected", targetId: target.id });
+      this.persist();
       this.setInspection(target.inspection);
       this.audio.playCue("inspect");
       return;
@@ -604,6 +694,53 @@ export class Engine {
     }
     if (target.action === "scan" && target.beaconId) {
       this.discover(target.beaconId);
+      return;
+    }
+    if (target.action === "craft" && target.stationKind) {
+      this.setFeatureOverlay({
+        kind: "operations",
+        tab: "crafting",
+        station: target.stationKind,
+      });
+      this.audio.playCue("inspect");
+      return;
+    }
+    if (target.action === "loot" && target.containerId && target.lootTableId) {
+      const ensured = ensureContainerState(
+        this.featureProgress.containerStates,
+        target.containerId,
+        target.lootTableId,
+      );
+      this.featureProgress = {
+        ...this.featureProgress,
+        containerStates: ensured.states,
+      };
+      this.world.setContainerStates(ensured.states);
+      this.persist();
+      this.setFeatureOverlay({ kind: "container", containerId: target.containerId });
+      this.audio.playCue("inspect");
+      return;
+    }
+    if (target.action === "rest" && target.restSite) {
+      const modifiers = nearbyCampModifiers(
+        this.featureProgress.placedEntities,
+        this.player.position.x,
+        this.player.position.z,
+        this.player.position.y,
+      );
+      this.setFeatureOverlay({
+        kind: "rest",
+        site: {
+          ...target.restSite,
+          sheltered: target.restSite.sheltered || modifiers.sheltered,
+          warmth: Math.max(target.restSite.warmth, modifiers.warmth),
+        },
+      });
+      this.audio.playCue("inspect");
+      return;
+    }
+    if (target.action === "talk" && target.npcId) {
+      this.talkToNpc(target.npcId);
       return;
     }
     if (
@@ -632,9 +769,549 @@ export class Engine {
       result: outcome.result,
       remainingHits: outcome.remainingHits,
     };
+    if ((outcome.loot?.quantity ?? 0) > 0) {
+      this.applyGameplayEvent({
+        type: "item.collected",
+        item: target.item,
+        quantity: outcome.loot!.quantity,
+      });
+    }
     this.persist();
     this.audio.playCue(outcome.result === "hit" ? "harvest" : "collect");
     this.emitSnapshot(true);
+  }
+
+  setFeatureOverlay(overlay: FeatureOverlayState) {
+    if (!this.started && overlay) return false;
+    this.featureOverlay = overlay
+      ? structuredClone(overlay)
+      : null;
+    this.input.reset();
+    if (overlay) {
+      this.mapOpen = false;
+      this.inventoryOpen = false;
+      this.settingsOpen = false;
+      this.activeInspection = null;
+      this.developerPanelOpen = false;
+      this.paused = true;
+      if (!this.testMode && this.input.isLocked()) document.exitPointerLock?.();
+    }
+    this.emitSnapshot(true);
+    return true;
+  }
+
+  acceptContract(contractId: string) {
+    const definition = contractById(contractId);
+    if (!definition || this.featureProgress.contractJournal.contracts[definition.id]) {
+      return false;
+    }
+    const acceptedJournal = acceptContractProgress(
+      this.featureProgress.contractJournal,
+      definition.id,
+      this.environment.getPersistentWorldMinutes(),
+    );
+    this.featureProgress = {
+      ...this.featureProgress,
+      contractJournal: this.reconcilePersistentContractEvidence(
+        acceptedJournal,
+      ),
+    };
+    this.lastFeatureNotice = {
+      type: "contract",
+      title: `${definition.code} accepted`,
+      detail: definition.title,
+    };
+    this.syncContractNavigation();
+    this.persist();
+    this.audio.playCue("discover");
+    this.emitSnapshot(true);
+    return true;
+  }
+
+  turnInContract(contractId: string) {
+    const definition = contractById(contractId);
+    if (!definition) return false;
+    const progress = this.featureProgress.contractJournal.contracts[definition.id];
+    if (!progress || progress.status !== "ready") return false;
+    for (const [item, quantity] of Object.entries(definition.rewards)) {
+      const itemId = item as ItemId;
+      if (this.inventory[itemId] + (quantity ?? 0) > ITEM_DEFINITIONS[itemId].stackLimit) {
+        this.lastFeatureNotice = {
+          type: "contract",
+          title: "Reward capacity exceeded",
+          detail: `Make room for ${ITEM_DEFINITIONS[itemId].name.toLowerCase()} before reporting.`,
+        };
+        this.emitSnapshot(true);
+        return false;
+      }
+    }
+    const outcome = turnInContractProgress(
+      this.featureProgress.contractJournal,
+      definition.id,
+      this.environment.getPersistentWorldMinutes(),
+    );
+    if (!outcome.rewards) return false;
+    let nextInventory = { ...this.inventory };
+    for (const [item, quantity] of Object.entries(outcome.rewards)) {
+      nextInventory = addItem(nextInventory, item as ItemId, quantity ?? 0);
+    }
+    this.inventory = nextInventory;
+    this.featureProgress = {
+      ...this.featureProgress,
+      contractJournal: outcome.state,
+    };
+    this.lastFeatureNotice = {
+      type: "contract",
+      title: `${definition.code} complete`,
+      detail: "Rewards transferred to the field kit.",
+    };
+    this.syncContractNavigation();
+    this.persist();
+    this.audio.playCue("discover");
+    this.emitSnapshot(true);
+    return true;
+  }
+
+  craftRecipe(recipeId: string, station: CraftingStationKind) {
+    const recipe = recipeById(recipeId);
+    const outcome = resolveCraftRecipe(
+      this.inventory,
+      recipeId,
+      station,
+      this.featureProgress.unlockedRecipeIds,
+    );
+    if (!recipe || outcome.result !== "crafted" || !outcome.item) {
+      this.lastFeatureNotice = {
+        type: "craft",
+        title: "Fabrication unavailable",
+        detail:
+          outcome.result === "wrong_station"
+            ? "This recipe requires the Field Unit fabrication bench."
+            : outcome.result === "locked"
+              ? "The recipe has not been unlocked."
+              : "Required materials or inventory capacity are unavailable.",
+      };
+      this.emitSnapshot(true);
+      return false;
+    }
+    this.inventory = outcome.inventory;
+    this.applyGameplayEvent({
+      type: "item.crafted",
+      recipeId: recipe.id,
+      item: outcome.item,
+      quantity: outcome.quantity,
+    });
+    this.lastFeatureNotice = {
+      type: "craft",
+      title: `${recipe.label} fabricated`,
+      detail: `${outcome.quantity} added to the field kit.`,
+    };
+    this.persist();
+    this.audio.playCue("collect");
+    this.emitSnapshot(true);
+    return true;
+  }
+
+  useInventoryItem(item: ItemId) {
+    if (!(item in ITEM_DEFINITIONS) || this.inventory[item] <= 0) return false;
+    const useKind = itemUseKind(item);
+    if (!useKind) return false;
+    if (useKind === "heal") {
+      if (this.player.condition.health >= MAX_HEALTH) {
+        this.lastFeatureNotice = {
+          type: "item",
+          title: "Vitals nominal",
+          detail: "The first-aid kit was not consumed.",
+        };
+        this.emitSnapshot(true);
+        return false;
+      }
+      const inventory = removeItem(this.inventory, item, 1);
+      if (!inventory) return false;
+      this.inventory = inventory;
+      this.player.condition = {
+        ...this.player.condition,
+        health: Math.min(MAX_HEALTH, this.player.condition.health + 35),
+        damageRecoveryDelay: 0,
+      };
+      this.applyGameplayEvent({ type: "item.used", item });
+      this.lastFeatureNotice = {
+        type: "item",
+        title: "First aid applied",
+        detail: "Health restored by 35 points.",
+      };
+      this.persist();
+      this.audio.playCue("recover");
+      this.emitSnapshot(true);
+      return true;
+    }
+    const archetypeByUse = {
+      deploy_bedroll: "bedroll",
+      deploy_campfire: "campfire",
+      deploy_marker: "survey_marker",
+      deploy_shelter: "weather_shelter",
+      deploy_torch: "field_torch",
+    } as const satisfies Record<Exclude<typeof useKind, "heal">, PlacementArchetype>;
+    return this.placeInventoryItem(item, archetypeByUse[useKind]);
+  }
+
+  takeContainerItem(
+    containerId: string,
+    item: ItemId,
+    quantity = 1,
+  ) {
+    const outcome = resolveTakeContainerItem(
+      this.inventory,
+      this.featureProgress.containerStates,
+      containerId,
+      item,
+      quantity,
+    );
+    if (outcome.quantity <= 0) return false;
+    this.inventory = outcome.inventory;
+    this.featureProgress = {
+      ...this.featureProgress,
+      containerStates: outcome.states,
+    };
+    this.world.setContainerStates(outcome.states);
+    this.applyGameplayEvent({
+      type: "container.looted",
+      containerId,
+      quantity: outcome.quantity,
+    });
+    this.applyGameplayEvent({
+      type: "item.collected",
+      item,
+      quantity: outcome.quantity,
+    });
+    this.lastFeatureNotice = {
+      type: "loot",
+      title: `${ITEM_DEFINITIONS[item].name} recovered`,
+      detail: `${outcome.quantity} transferred to the field kit.`,
+    };
+    this.persist();
+    this.audio.playCue("collect");
+    this.emitSnapshot(true);
+    return true;
+  }
+
+  takeAllContainerItems(containerId: string) {
+    const previousInventory = this.inventory;
+    const outcome = resolveTakeAllContainerItems(
+      this.inventory,
+      this.featureProgress.containerStates,
+      containerId,
+    );
+    if (outcome.quantity <= 0) return false;
+    this.inventory = outcome.inventory;
+    this.featureProgress = {
+      ...this.featureProgress,
+      containerStates: outcome.states,
+    };
+    this.world.setContainerStates(outcome.states);
+    this.applyGameplayEvent({
+      type: "container.looted",
+      containerId,
+      quantity: outcome.quantity,
+    });
+    for (const item of Object.keys(ITEM_DEFINITIONS) as ItemId[]) {
+      const quantity = outcome.inventory[item] - previousInventory[item];
+      if (quantity > 0) {
+        this.applyGameplayEvent({ type: "item.collected", item, quantity });
+      }
+    }
+    this.lastFeatureNotice = {
+      type: "loot",
+      title: "Container transfer complete",
+      detail: `${outcome.quantity} item${outcome.quantity === 1 ? "" : "s"} recovered.`,
+    };
+    this.persist();
+    this.audio.playCue("collect");
+    this.emitSnapshot(true);
+    return true;
+  }
+
+  completeRest(optionId: RestOptionId) {
+    if (!this.featureOverlay || this.featureOverlay.kind !== "rest") return false;
+    const site = this.featureOverlay.site;
+    const outcome = resolveRest(
+      this.player.condition,
+      site,
+      optionId,
+      this.environment.getPersistentWorldMinutes(),
+    );
+    if (!outcome.accepted) return false;
+    this.player.condition = outcome.condition;
+    this.environment.setWorldMinutes(
+      this.environment.getPersistentWorldMinutes() + outcome.minutes,
+    );
+    this.environment.sync(this.player.position, true);
+    this.environment.present(this.player.position, 0);
+    this.synchronizeTimeDependentWorld();
+    this.featureProgress = {
+      ...this.featureProgress,
+      lastRestAt: this.environment.getPersistentWorldMinutes(),
+    };
+    this.applyGameplayEvent({
+      type: "rest.completed",
+      siteId: site.id,
+      minutes: outcome.minutes,
+    });
+    this.lastFeatureNotice = {
+      type: "rest",
+      title: "Rest cycle complete",
+      detail: `${Math.round(outcome.minutes / 60)} game hour${outcome.minutes === 60 ? "" : "s"} elapsed.`,
+    };
+    this.persist();
+    this.audio.playCue("recover");
+    this.emitSnapshot(true);
+    return true;
+  }
+
+  talkToNpc(npcId: string) {
+    const npc = npcById(npcId);
+    if (!npc) return false;
+    this.applyGameplayEvent({ type: "npc.talked", npcId: npc.id });
+    this.persist();
+    this.setFeatureOverlay({ kind: "dialogue", npcId: npc.id });
+    this.audio.playCue("inspect");
+    return true;
+  }
+
+  clearFeatureNotice() {
+    this.lastFeatureNotice = null;
+    this.emitSnapshot(true);
+  }
+
+  private completeScan(entryId: string) {
+    const entry = fieldGuideEntry(entryId);
+    if (!entry || this.featureProgress.fieldGuideEntries.includes(entry.id)) return false;
+    this.featureProgress = {
+      ...this.featureProgress,
+      fieldGuideEntries: addFieldGuideEntry(
+        this.featureProgress.fieldGuideEntries,
+        entry.id,
+      ),
+    };
+    this.applyGameplayEvent({ type: "subject.scanned", entryId: entry.id });
+    this.lastFeatureNotice = {
+      type: "scan",
+      title: `${entry.title} catalogued`,
+      detail: `${entry.category.toUpperCase()} entry added to the field guide.`,
+    };
+    this.persist();
+    this.audio.playCue("scan");
+    this.emitSnapshot(true);
+    return true;
+  }
+
+  private placeInventoryItem(item: ItemId, archetypeId: PlacementArchetype) {
+    if (this.featureProgress.placedEntities.length >= 64) {
+      this.lastFeatureNotice = {
+        type: "placement",
+        title: "Deployment registry full",
+        detail: "The current field build supports up to 64 persistent placements.",
+      };
+      this.emitSnapshot(true);
+      return false;
+    }
+    const distance = archetypeId === "weather_shelter" ? 3.1 : 2.35;
+    const x = this.player.position.x - Math.sin(this.player.yaw) * distance;
+    const z = this.player.position.z - Math.cos(this.player.yaw) * distance;
+    const y = this.world.sampleGroundHeight(x, z, this.player.position.y);
+    const radius = archetypeId === "weather_shelter" ? 1.5 : archetypeId === "bedroll" ? 0.95 : 0.55;
+    const supportHeights = [
+      this.world.sampleGroundHeight(x + radius, z, y),
+      this.world.sampleGroundHeight(x - radius, z, y),
+      this.world.sampleGroundHeight(x, z + radius, y),
+      this.world.sampleGroundHeight(x, z - radius, y),
+    ];
+    const overlap = this.featureProgress.placedEntities.some((record) => {
+      const existingRadius = record.archetypeId === "weather_shelter"
+        ? 1.5
+        : record.archetypeId === "bedroll"
+          ? 0.95
+          : 0.55;
+      return Math.abs(record.y - y) < 1.5 &&
+        Math.hypot(record.x - x, record.z - z) < existingRadius + radius + 0.25;
+    });
+    if (
+      !Number.isFinite(y) ||
+      !supportHeights.every(Number.isFinite) ||
+      y <= WATER_LEVEL + 0.12 ||
+      Math.abs(y - this.player.position.y) > 1.1 ||
+      Math.max(...supportHeights) - Math.min(...supportHeights) > 0.65 ||
+      Math.abs(x) > WORLD_HALF_EXTENT ||
+      Math.abs(z) > WORLD_HALF_EXTENT ||
+      overlap ||
+      !this.world.canStandAt(x, z, y, radius)
+    ) {
+      this.lastFeatureNotice = {
+        type: "placement",
+        title: "Clear ground required",
+        detail: "Face a dry, unobstructed patch of terrain and try again.",
+      };
+      this.emitSnapshot(true);
+      return false;
+    }
+    const serial = this.featureProgress.nextPlacedSerial;
+    if (
+      !Number.isSafeInteger(serial) ||
+      serial < 1 ||
+      serial > MAX_PLACED_SERIAL ||
+      this.featureProgress.placedEntities.some((record) =>
+        record.id === `placed:${archetypeId}:${serial}`)
+    ) {
+      this.lastFeatureNotice = {
+        type: "placement",
+        title: "Deployment registry unavailable",
+        detail: "No safe persistent identifier is available for this placement.",
+      };
+      this.emitSnapshot(true);
+      return false;
+    }
+    const inventory = removeItem(this.inventory, item, 1);
+    if (!inventory) return false;
+    const record: PlacedEntity = {
+      id: `placed:${archetypeId}:${serial}`,
+      archetypeId,
+      x,
+      y,
+      z,
+      yaw: this.player.yaw,
+    };
+    this.inventory = inventory;
+    const placedEntities = [...this.featureProgress.placedEntities, record];
+    this.featureProgress = {
+      ...this.featureProgress,
+      placedEntities,
+      nextPlacedSerial: serial + 1,
+    };
+    this.world.setPlacedEntities(placedEntities);
+    if (archetypeId === "survey_marker") {
+      this.navigation.setTarget({
+        id: record.id,
+        label: `Survey marker ${serial}`,
+        position: { x, z },
+        source: { kind: "system", systemId: "survey-markers" },
+        arrivalRadius: 3,
+        clearOnArrival: false,
+      });
+    }
+    this.applyGameplayEvent({ type: "item.used", item });
+    this.applyGameplayEvent({ type: "structure.placed", archetypeId });
+    this.lastFeatureNotice = {
+      type: "placement",
+      title: `${ITEM_DEFINITIONS[item].name} deployed`,
+      detail: "Placement registered in the persistent world record.",
+    };
+    this.persist();
+    this.audio.playCue("collect");
+    this.emitSnapshot(true);
+    return true;
+  }
+
+  private applyGameplayEvent(event: GameplayEvent) {
+    const previous = JSON.stringify(this.featureProgress.contractJournal);
+    const contractJournal = this.reconcilePersistentContractEvidence(
+      progressContracts(this.featureProgress.contractJournal, event),
+    );
+    if (JSON.stringify(contractJournal) === previous) return false;
+    this.featureProgress = { ...this.featureProgress, contractJournal };
+    const activeId = contractJournal.activeContractId;
+    const definition = activeId ? contractById(activeId) : null;
+    const progress = definition ? contractJournal.contracts[definition.id] : null;
+    const objective = definition && progress
+      ? currentContractObjective(definition, progress)
+      : null;
+    this.lastFeatureNotice = {
+      type: "contract",
+      title: definition ? `${definition.code} updated` : "Contract updated",
+      detail: objective?.label ?? "Objectives complete. Report to the issuer.",
+    };
+    this.syncContractNavigation();
+    return true;
+  }
+
+  private reconcilePersistentContractEvidence(
+    journal: Readonly<ContractJournalState>,
+  ): ContractJournalState {
+    return reconcileContractEvidence(journal, {
+      inventory: this.inventory,
+      fieldGuideEntries: this.featureProgress.fieldGuideEntries,
+      containerStates: this.featureProgress.containerStates,
+      placedEntities: this.featureProgress.placedEntities,
+      lastRestAt: this.featureProgress.lastRestAt,
+    });
+  }
+
+  private syncContractNavigation(activate = true) {
+    const navigationId = "contract:active-objective";
+    const activeId = this.featureProgress.contractJournal.activeContractId;
+    const definition = activeId ? contractById(activeId) : null;
+    const progress = definition
+      ? this.featureProgress.contractJournal.contracts[definition.id]
+      : null;
+    const objective = definition && progress?.status === "active"
+      ? currentContractObjective(definition, progress)
+      : null;
+    const scheduleAnchor = objective?.matcher.type === "return"
+      ? authoredNpcScheduleAnchor(this.environment.getSample().totalMinutes)
+      : null;
+    const targetPosition = scheduleAnchor
+      ? { x: scheduleAnchor.x, z: scheduleAnchor.z }
+      : objective?.target;
+    if (!definition || !objective || !targetPosition) {
+      this.navigation.removeTarget(navigationId);
+      return;
+    }
+    const target: NavigationTargetInput = {
+      id: navigationId,
+      label: objective.label,
+      position: targetPosition,
+      source: {
+        kind: "quest",
+        questId: definition.id,
+        objectiveId: objective.id,
+      },
+      arrivalRadius: 4,
+      clearOnArrival: false,
+    };
+    const existing = this.navigation.getTarget(navigationId);
+    const shouldActivate = activate &&
+      this.navigation.getActiveTarget()?.id !== MANUAL_WAYPOINT_ID;
+    const unchanged = existing &&
+      existing.label === target.label &&
+      existing.position.x === target.position.x &&
+      existing.position.z === target.position.z &&
+      existing.source.kind === "quest" &&
+      existing.source.questId === definition.id &&
+      existing.source.objectiveId === objective.id;
+    if (!unchanged) {
+      this.navigation.setTarget(target, shouldActivate);
+    } else if (shouldActivate && this.navigation.getActiveTarget()?.id !== navigationId) {
+      this.navigation.activateTarget(navigationId);
+    }
+  }
+
+  private syncPlacedNavigationTargets() {
+    for (const target of this.navigation.targetsSnapshot()) {
+      if (target.source.kind === "system" && target.source.systemId === "survey-markers") {
+        this.navigation.removeTarget(target.id);
+      }
+    }
+    for (const record of this.featureProgress.placedEntities) {
+      if (record.archetypeId !== "survey_marker") continue;
+      const serial = record.id.split(":").at(-1) ?? "?";
+      this.navigation.setTarget({
+        id: record.id,
+        label: `Survey marker ${serial}`,
+        position: { x: record.x, z: record.z },
+        source: { kind: "system", systemId: "survey-markers" },
+        arrivalRadius: 3,
+        clearOnArrival: false,
+      }, false);
+    }
   }
 
   setMapOpen(open: boolean) {
@@ -644,6 +1321,7 @@ export class Engine {
       this.inventoryOpen = false;
       this.settingsOpen = false;
       this.activeInspection = null;
+      this.featureOverlay = null;
     }
     this.input.reset();
     if (open && !this.testMode && this.input.isLocked()) document.exitPointerLock?.();
@@ -658,6 +1336,7 @@ export class Engine {
       this.mapOpen = false;
       this.settingsOpen = false;
       this.activeInspection = null;
+      this.featureOverlay = null;
       this.developerPanelOpen = false;
       this.paused = true;
       if (!this.testMode && this.input.isLocked()) document.exitPointerLock?.();
@@ -673,6 +1352,7 @@ export class Engine {
       this.mapOpen = false;
       this.inventoryOpen = false;
       this.activeInspection = null;
+      this.featureOverlay = null;
       this.developerPanelOpen = false;
       if (this.started) this.paused = true;
       if (!this.testMode && this.input.isLocked()) document.exitPointerLock?.();
@@ -689,6 +1369,7 @@ export class Engine {
       this.inventoryOpen = false;
       this.settingsOpen = false;
       this.developerPanelOpen = false;
+      this.featureOverlay = null;
       this.paused = true;
       if (!this.testMode && this.input.isLocked()) document.exitPointerLock?.();
     }
@@ -704,6 +1385,7 @@ export class Engine {
       this.inventoryOpen = false;
       this.settingsOpen = false;
       this.activeInspection = null;
+      this.featureOverlay = null;
       this.paused = true;
       if (!this.testMode && this.input.isLocked()) document.exitPointerLock?.();
       this.emitSnapshot(true);
@@ -903,6 +1585,13 @@ export class Engine {
     this.scanned = [...saved.scanned];
     this.inventory = { ...saved.inventory };
     this.discoveredLocations = [...saved.discoveredLocations];
+    this.featureProgress = saved.featureProgress;
+    this.featureProgress = {
+      ...this.featureProgress,
+      contractJournal: this.reconcilePersistentContractEvidence(
+        this.featureProgress.contractJournal,
+      ),
+    };
     const playerState = saved.player;
     const x = playerState?.x ?? 0;
     const z = playerState?.z ?? 8;
@@ -912,6 +1601,8 @@ export class Engine {
       this.scanned,
       x,
       z,
+      this.featureProgress.containerStates,
+      this.featureProgress.placedEntities,
     );
     for (const key of Object.keys(this.worldDiffs)) delete this.worldDiffs[key];
     Object.assign(this.worldDiffs, saved.worldDiffs);
@@ -935,13 +1626,23 @@ export class Engine {
     this.currentLocation = currentDiscoverableLocation(x, z);
     this.lastDiscovery = null;
     this.lastGather = null;
+    this.lastFastTravel = null;
     this.lastLocationDiscovery = null;
+    this.lastFeatureNotice = null;
     this.saveStatus = "saved";
     this.inventoryOpen = false;
     this.settingsOpen = false;
     this.activeInspection = null;
     this.mapOpen = false;
     this.developerPanelOpen = false;
+    this.featureOverlay = null;
+    this.scanner.active = false;
+    this.scanner.focusId = null;
+    this.scanner.focusEntryId = null;
+    this.scanner.focusName = null;
+    this.scanner.progress = 0;
+    this.syncPlacedNavigationTargets();
+    this.syncContractNavigation();
     this.emitSnapshot(true);
     return true;
   }
@@ -955,6 +1656,7 @@ export class Engine {
     this.inventoryOpen = false;
     this.settingsOpen = false;
     this.activeInspection = null;
+    this.featureOverlay = null;
     this.developerPanelOpen = false;
     this.paused = !this.testMode;
     this.persist();
@@ -1059,6 +1761,7 @@ export class Engine {
       location.id,
     );
     this.lastLocationDiscovery = location;
+    this.applyGameplayEvent({ type: "location.discovered", locationId: location.id });
     this.persist();
     this.audio.playCue("discover");
     this.emitSnapshot(true);
@@ -1152,6 +1855,7 @@ export class Engine {
         coldStress: this.player.condition.coldStress,
       },
       discoveredLocations: this.discoveredLocations,
+      featureProgress: this.featureProgress,
     });
     this.saveStatus = saved ? "saved" : "unavailable";
     if (saved) this.lastSavedAt = Date.now();
@@ -1203,6 +1907,7 @@ export class Engine {
           this.inventoryOpen ||
           this.settingsOpen ||
           this.activeInspection !== null ||
+          this.featureOverlay !== null ||
           this.developerPanelOpen ||
           this.player.condition.health <= 0;
         this.runtime.developerPanelOpen = this.developerPanelOpen;
@@ -1221,6 +1926,7 @@ export class Engine {
           !this.inventoryOpen &&
           !this.settingsOpen &&
           !this.activeInspection &&
+          !this.featureOverlay &&
           !this.developerPanelOpen
           ? this.accumulator
           : 0,
@@ -1232,6 +1938,7 @@ export class Engine {
           !this.inventoryOpen &&
           !this.settingsOpen &&
           !this.activeInspection &&
+          !this.featureOverlay &&
           !this.developerPanelOpen
           ? this.accumulator
           : 0,
@@ -1278,6 +1985,7 @@ export class Engine {
   private emitSnapshot(force = false) {
     if (!force) return;
     this.lastSnapshotTime = performance.now();
+    this.syncContractNavigation(false);
     const chunk = worldToChunk(this.player.position.x, this.player.position.z);
     const heading = headingFromYaw(this.player.yaw);
     const climate = sampleClimate(this.player.position.x, this.player.position.z);
@@ -1302,6 +2010,7 @@ export class Engine {
       settingsOpen: this.settingsOpen,
       inspectionOpen: this.activeInspection !== null,
       activeInspection: this.activeInspection ? { ...this.activeInspection } : null,
+      featureOverlay: this.featureOverlay ? structuredClone(this.featureOverlay) : null,
       devTools: {
         enabled: developer.enabled,
         panelOpen: this.developerPanelOpen,
@@ -1367,6 +2076,15 @@ export class Engine {
       saveStatus: this.saveStatus,
       lastSavedAt: this.lastSavedAt,
       audio: this.audio.diagnostics,
+      scanner: { ...this.scanner },
+      contractJournal: structuredClone(this.featureProgress.contractJournal),
+      fieldGuideEntryIds: [...this.featureProgress.fieldGuideEntries],
+      containerStates: structuredClone(this.featureProgress.containerStates),
+      placedEntityCount: this.featureProgress.placedEntities.length,
+      unlockedRecipeIds: [...this.featureProgress.unlockedRecipeIds],
+      lastFeatureNotice: this.lastFeatureNotice
+        ? { ...this.lastFeatureNotice }
+        : null,
       biome: {
         id: climate.biome.id,
         name: climate.biome.name,
@@ -1397,6 +2115,7 @@ export class Engine {
                     !this.inventoryOpen &&
                     !this.settingsOpen &&
                     !this.activeInspection &&
+                    !this.featureOverlay &&
                     !this.developerPanelOpen
                 ? "running"
                 : "paused",
@@ -1421,6 +2140,8 @@ export class Engine {
             hitsRequired: nearbyTarget.hitsRequired,
             beaconId: nearbyTarget.beaconId ?? null,
             open: nearbyTarget.open ?? null,
+            empty: nearbyTarget.empty ?? null,
+            fieldGuideId: nearbyTarget.fieldGuideId ?? null,
           }
         : null,
       interactionPrompt: nearbyTarget
@@ -1495,6 +2216,19 @@ export class Engine {
     this.setDeveloperPanelOpen(!this.developerPanelOpen);
   }
 
+  private toggleOperations() {
+    if (this.featureOverlay?.kind === "operations") {
+      this.setFeatureOverlay(null);
+      this.resume();
+      return;
+    }
+    this.setFeatureOverlay({
+      kind: "operations",
+      tab: "fieldGuide",
+      station: "field",
+    });
+  }
+
   private refreshEnvironment(snap = true) {
     this.environment.sync(this.player.position, snap);
     this.environment.present(this.player.position, 0);
@@ -1505,7 +2239,9 @@ export class Engine {
   private synchronizeTimeDependentWorld() {
     const atmosphere = this.environment.getSample();
     this.world.setNightLighting(atmosphere.night);
+    this.world.setWorldMinutes(atmosphere.totalMinutes);
     this.citizens.setWorldMinutes(atmosphere.totalMinutes);
+    this.syncContractNavigation(false);
   }
 
   setQuality(quality: QualityLevel) {
@@ -1559,6 +2295,7 @@ export class Engine {
       this.inventoryOpen ||
       this.settingsOpen ||
       this.activeInspection !== null ||
+      this.featureOverlay !== null ||
       this.player.condition.health <= 0 ||
       !locked;
     this.emitSnapshot(true);

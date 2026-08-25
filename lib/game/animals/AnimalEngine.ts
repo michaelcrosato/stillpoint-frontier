@@ -14,7 +14,23 @@ import {
   type AnimalRecipe,
   type AnimalSpeciesDefinition,
   type AnimalSpeciesId,
+  type AnimalPose,
 } from "./animalRecipes";
+import type { ScanCandidate } from "../gameplay/fieldGuide";
+import {
+  applyAnimalReactionPose,
+  createAnimalReactionState,
+  reactionProfile,
+  stepAnimalReaction,
+  type AnimalReactionState,
+} from "./reactions";
+import {
+  DEFAULT_ANIMAL_GROUND_NAVIGATION,
+  resampleGroundAnimalPose,
+  resolveGroundAnimalMovement,
+  type AnimalGroundNavigation,
+  type GroundAnimalDimensions,
+} from "./groundMotion";
 import { chunkKey, chunksAround, worldToChunk } from "../world/terrain";
 
 function coloredPart(source: THREE.BufferGeometry, color: number) {
@@ -98,6 +114,25 @@ function createAnimalGeometry(species: AnimalSpeciesDefinition) {
   return geometry;
 }
 
+function groundDimensions(
+  species: Readonly<AnimalSpeciesDefinition>,
+  scale: number,
+): GroundAnimalDimensions {
+  const safeScale = Number.isFinite(scale) ? Math.max(0.1, scale) : species.scale;
+  switch (species.body) {
+    case "grazer":
+      return { radius: 0.58 * safeScale, height: 1.72 * safeScale };
+    case "stocky":
+      return { radius: 0.56 * safeScale, height: 1.08 * safeScale };
+    case "reptile":
+      return { radius: 0.34 * safeScale, height: 0.48 * safeScale };
+    case "small":
+      return { radius: 0.32 * safeScale, height: 0.9 * safeScale };
+    case "bird":
+      return { radius: 0.34 * safeScale, height: 0.7 * safeScale };
+  }
+}
+
 /**
  * Sparse, non-interactive wildlife. Rigid analytic poses avoid skeletons and
  * animation clips while render-frame interpolation keeps movement smooth.
@@ -116,11 +151,17 @@ export class AnimalEngine {
   private readonly visibleRecipes = new Map<AnimalSpeciesId, AnimalRecipe[]>();
   private activeChunkKey = "";
   private elapsedSeconds = 0;
+  private playerX = 0;
+  private playerZ = 0;
+  private readonly reactions = new Map<string, AnimalReactionState>();
+  private readonly presentedPoses = new Map<string, AnimalPose>();
   private disposed = false;
 
   constructor(
     private readonly scene: THREE.Scene,
     private quality: QualityLevel,
+    private readonly groundNavigation: Readonly<AnimalGroundNavigation> =
+      DEFAULT_ANIMAL_GROUND_NAVIGATION,
   ) {
     for (const species of Object.values(ANIMAL_SPECIES)) {
       const geometry = createAnimalGeometry(species);
@@ -145,9 +186,14 @@ export class AnimalEngine {
   }
 
   update(playerX: number, playerZ: number, deltaSeconds: number, paused: boolean) {
+    this.playerX = playerX;
+    this.playerZ = playerZ;
     this.updateStreaming(playerX, playerZ);
     const safeDelta = Number.isFinite(deltaSeconds) ? Math.max(0, deltaSeconds) : 0;
-    if (!paused) this.elapsedSeconds += safeDelta;
+    if (!paused) {
+      this.elapsedSeconds += safeDelta;
+      this.updateReactions(safeDelta);
+    }
   }
 
   present(interpolationSeconds = 0) {
@@ -164,7 +210,13 @@ export class AnimalEngine {
       const recipes = this.visibleRecipes.get(speciesId) ?? [];
       mesh.count = recipes.length;
       recipes.forEach((recipe, index) => {
-        const pose = sampleAnimalPose(recipe, presentationTime);
+        const basePose = sampleAnimalPose(recipe, presentationTime);
+        const reaction = this.reactions.get(recipe.id) ?? createAnimalReactionState(recipe);
+        const reactedPose = applyAnimalReactionPose(basePose, reaction);
+        const pose = ANIMAL_SPECIES[recipe.speciesId].flying
+          ? reactedPose
+          : resampleGroundAnimalPose(reactedPose, this.groundNavigation);
+        this.presentedPoses.set(recipe.id, pose);
         position.set(pose.x, pose.y, pose.z);
         quaternion.setFromAxisAngle(up, pose.yaw);
         scale.setScalar(recipe.scale);
@@ -231,6 +283,24 @@ export class AnimalEngine {
     return [...this.visibleRecipes.values()].filter((recipes) => recipes.length > 0).length;
   }
 
+  scanCandidates(): ScanCandidate[] {
+    const candidates: ScanCandidate[] = [];
+    for (const [speciesId, recipes] of this.visibleRecipes) {
+      const species = ANIMAL_SPECIES[speciesId];
+      for (const recipe of recipes) {
+        const pose = this.presentedPoses.get(recipe.id) ?? sampleAnimalPose(recipe, this.elapsedSeconds);
+        candidates.push({
+          id: recipe.id,
+          entryId: `guide:animal:${speciesId}:v1`,
+          name: species.label,
+          position: { x: pose.x, y: pose.y + species.scale, z: pose.z },
+          maxDistance: 45,
+        });
+      }
+    }
+    return candidates;
+  }
+
   debugSnapshot(maxIds = 96) {
     const bySpecies: Record<string, number> = {};
     for (const [speciesId, recipes] of this.visibleRecipes) {
@@ -240,6 +310,10 @@ export class AnimalEngine {
       .flatMap((recipes) => recipes.map((recipe) => recipe.id))
       .sort()
       .slice(0, Math.max(0, maxIds));
+    const reactions: Record<string, number> = {};
+    for (const state of this.reactions.values()) {
+      reactions[state.mode] = (reactions[state.mode] ?? 0) + 1;
+    }
     return {
       visible: this.visibleCount,
       generated: this.generatedCount,
@@ -248,6 +322,7 @@ export class AnimalEngine {
       updateHz: 60,
       ids,
       bySpecies,
+      reactions,
     };
   }
 
@@ -264,6 +339,8 @@ export class AnimalEngine {
     this.material.dispose();
     this.loaded.clear();
     this.visibleRecipes.clear();
+    this.reactions.clear();
+    this.presentedPoses.clear();
   }
 
   private rebuildVisibleRecipes() {
@@ -274,6 +351,53 @@ export class AnimalEngine {
       const recipes = this.visibleRecipes.get(recipe.speciesId) ?? [];
       recipes.push(recipe);
       this.visibleRecipes.set(recipe.speciesId, recipes);
+      if (!this.reactions.has(recipe.id)) {
+        this.reactions.set(recipe.id, createAnimalReactionState(recipe));
+      }
+    }
+    const visibleIds = new Set(visible.map((recipe) => recipe.id));
+    for (const id of this.reactions.keys()) {
+      if (!visibleIds.has(id)) this.reactions.delete(id);
+    }
+    for (const id of this.presentedPoses.keys()) {
+      if (!visibleIds.has(id)) this.presentedPoses.delete(id);
+    }
+  }
+
+  private updateReactions(deltaSeconds: number) {
+    for (const [speciesId, recipes] of this.visibleRecipes) {
+      const species = ANIMAL_SPECIES[speciesId];
+      const profile = reactionProfile(species.body, species.flying);
+      for (const recipe of recipes) {
+        const current = this.reactions.get(recipe.id) ?? createAnimalReactionState(recipe);
+        const basePose = sampleAnimalPose(recipe, this.elapsedSeconds);
+        const next = stepAnimalReaction(
+          current,
+          basePose,
+          { x: this.playerX, z: this.playerZ },
+          profile,
+          deltaSeconds,
+        );
+        if (species.flying) {
+          this.reactions.set(recipe.id, next);
+          continue;
+        }
+
+        const currentPose = applyAnimalReactionPose(basePose, current);
+        const desiredPose = applyAnimalReactionPose(basePose, next);
+        const resolved = resolveGroundAnimalMovement(
+          recipe.id,
+          currentPose,
+          desiredPose,
+          groundDimensions(species, recipe.scale),
+          this.groundNavigation,
+        );
+        this.reactions.set(recipe.id, {
+          ...next,
+          offsetX: resolved.x - basePose.x,
+          offsetZ: resolved.z - basePose.z,
+        });
+      }
     }
   }
 }

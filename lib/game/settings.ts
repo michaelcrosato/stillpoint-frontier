@@ -13,6 +13,8 @@ export const GAME_ACTIONS = [
   "flashlight",
   "map",
   "inventory",
+  "scanner",
+  "fieldGuide",
   "quality",
   "recover",
 ] as const;
@@ -45,6 +47,8 @@ export const DEFAULT_KEY_BINDINGS: KeyBindings = Object.freeze({
   flashlight: "KeyL",
   map: "KeyM",
   inventory: "KeyI",
+  scanner: "KeyG",
+  fieldGuide: "KeyJ",
   quality: "KeyQ",
   recover: "KeyR",
 });
@@ -74,6 +78,8 @@ const ACTION_LABELS: Record<GameAction, string> = {
   flashlight: "Phone light",
   map: "Map",
   inventory: "Inventory",
+  scanner: "Field scanner",
+  fieldGuide: "Field operations",
   quality: "Quality profile",
   recover: "Recover",
 };

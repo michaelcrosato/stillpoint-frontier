@@ -31,5 +31,19 @@ describe("unified interaction prompts", () => {
     expect(interactionPromptFor(target("toggle", { open: true }), DEFAULT_KEY_BINDINGS).verb).toBe("CLOSE DOOR");
     expect(interactionPromptFor(target("collect"), DEFAULT_KEY_BINDINGS).verb).toBe("COLLECT");
     expect(interactionPromptFor(target("scan"), DEFAULT_KEY_BINDINGS).verb).toBe("RECOVER RECORD");
+    expect(interactionPromptFor(target("scan", {
+      beaconId: "amber-relay",
+      fieldGuideId: "guide:landmark:amber-relay:v1",
+    }), DEFAULT_KEY_BINDINGS)).toMatchObject({
+      keyCode: DEFAULT_KEY_BINDINGS.interact,
+      verb: "RECOVER RECORD",
+    });
+    expect(interactionPromptFor(target("scan", {
+      kind: "scannable",
+      fieldGuideId: "guide:landmark:field-unit-weather-mast:v1",
+    }), DEFAULT_KEY_BINDINGS)).toMatchObject({
+      keyCode: DEFAULT_KEY_BINDINGS.scanner,
+      verb: "HOLD FIELD SCANNER",
+    });
   });
 });

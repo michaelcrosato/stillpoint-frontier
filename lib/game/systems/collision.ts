@@ -3,6 +3,10 @@ export interface PlanarPosition {
   z: number;
 }
 
+export interface SpatialPosition extends PlanarPosition {
+  y: number;
+}
+
 interface ColliderBase extends PlanarPosition {
   id: string;
   /** Optional absolute vertical bounds; omitted colliders remain infinite. */
@@ -45,14 +49,26 @@ interface Bounds {
   maxZ: number;
 }
 
+interface SegmentInterval {
+  min: number;
+  max: number;
+}
+
 const EPSILON = 1e-9;
 const TIME_EPSILON = 1e-7;
 const CONTACT_SKIN = 1e-4;
 const MAX_DEPENETRATION_ITERATIONS = 16;
 const MAX_SWEEP_ITERATIONS = 8;
+const LINE_OF_SIGHT_ENDPOINT_EPSILON = 1e-4;
+const LINE_OF_SIGHT_TERRAIN_CLEARANCE = 0.04;
+const MAX_TERRAIN_SIGHT_SAMPLES = 128;
 
 function isFinitePosition(position: PlanarPosition) {
   return Number.isFinite(position.x) && Number.isFinite(position.z);
+}
+
+function isFiniteSpatialPosition(position: SpatialPosition) {
+  return isFinitePosition(position) && Number.isFinite(position.y);
 }
 
 function isValidCollider(collider: PlanarCollider) {
@@ -141,6 +157,171 @@ function colliderBounds(collider: PlanarCollider): Bounds {
     minZ: collider.z - extentZ,
     maxZ: collider.z + extentZ,
   };
+}
+
+function intersectIntervals(
+  first: Readonly<SegmentInterval>,
+  second: Readonly<SegmentInterval>,
+): SegmentInterval | null {
+  const min = Math.max(first.min, second.min);
+  const max = Math.min(first.max, second.max);
+  return max >= min - EPSILON ? { min, max } : null;
+}
+
+function segmentCircleInterval(
+  start: Readonly<PlanarPosition>,
+  movement: Readonly<PlanarPosition>,
+  collider: Readonly<CircleCollider>,
+): SegmentInterval | null {
+  const offsetX = start.x - collider.x;
+  const offsetZ = start.z - collider.z;
+  const movementSquared = movement.x * movement.x + movement.z * movement.z;
+  const radiusSquared = collider.radius * collider.radius;
+  if (movementSquared <= EPSILON) {
+    return offsetX * offsetX + offsetZ * offsetZ <= radiusSquared + EPSILON
+      ? { min: 0, max: 1 }
+      : null;
+  }
+  const projection = offsetX * movement.x + offsetZ * movement.z;
+  const constant = offsetX * offsetX + offsetZ * offsetZ - radiusSquared;
+  const discriminant = projection * projection - movementSquared * constant;
+  if (discriminant < -EPSILON) return null;
+  const root = Math.sqrt(Math.max(0, discriminant));
+  const entry = (-projection - root) / movementSquared;
+  const exit = (-projection + root) / movementSquared;
+  return intersectIntervals(
+    { min: Math.min(entry, exit), max: Math.max(entry, exit) },
+    { min: 0, max: 1 },
+  );
+}
+
+function clipSegmentAxis(
+  interval: Readonly<SegmentInterval>,
+  start: number,
+  movement: number,
+  halfExtent: number,
+): SegmentInterval | null {
+  if (Math.abs(movement) <= EPSILON) {
+    return Math.abs(start) <= halfExtent + EPSILON ? { ...interval } : null;
+  }
+  const first = (-halfExtent - start) / movement;
+  const second = (halfExtent - start) / movement;
+  return intersectIntervals(interval, {
+    min: Math.min(first, second),
+    max: Math.max(first, second),
+  });
+}
+
+function segmentBoxInterval(
+  start: Readonly<PlanarPosition>,
+  movement: Readonly<PlanarPosition>,
+  collider: Readonly<BoxCollider>,
+): SegmentInterval | null {
+  const localStart = toLocal(start, collider);
+  const localMovement = vectorToLocal(movement, collider.rotation);
+  const clippedX = clipSegmentAxis(
+    { min: 0, max: 1 },
+    localStart.x,
+    localMovement.x,
+    collider.halfWidth,
+  );
+  if (!clippedX) return null;
+  return clipSegmentAxis(
+    clippedX,
+    localStart.z,
+    localMovement.z,
+    collider.halfDepth,
+  );
+}
+
+function segmentVerticalInterval(
+  startY: number,
+  movementY: number,
+  collider: Readonly<PlanarCollider>,
+): SegmentInterval | null {
+  const minY = collider.minY ?? -Infinity;
+  const maxY = collider.maxY ?? Infinity;
+  if (Math.abs(movementY) <= EPSILON) {
+    return startY >= minY - EPSILON && startY <= maxY + EPSILON
+      ? { min: 0, max: 1 }
+      : null;
+  }
+  const first = (minY - startY) / movementY;
+  const second = (maxY - startY) / movementY;
+  return intersectIntervals(
+    { min: Math.min(first, second), max: Math.max(first, second) },
+    { min: 0, max: 1 },
+  );
+}
+
+/**
+ * Tests a sight segment against vertical collider prisms. Endpoint-only
+ * contact is ignored so the viewer and the selected object's own surface do
+ * not self-occlude; callers should also pass the selected collider IDs in the
+ * ignore set.
+ */
+export function isColliderLineOfSightClear(
+  origin: Readonly<SpatialPosition>,
+  target: Readonly<SpatialPosition>,
+  colliders: readonly PlanarCollider[],
+  ignoredColliderIds: ReadonlySet<string> = new Set(),
+) {
+  if (!isFiniteSpatialPosition(origin) || !isFiniteSpatialPosition(target)) return false;
+  const movement = {
+    x: target.x - origin.x,
+    z: target.z - origin.z,
+  };
+  const movementY = target.y - origin.y;
+  for (const collider of colliders) {
+    if (ignoredColliderIds.has(collider.id) || !isValidCollider(collider)) continue;
+    const planarInterval = collider.shape === "circle"
+      ? segmentCircleInterval(origin, movement, collider)
+      : segmentBoxInterval(origin, movement, collider);
+    if (!planarInterval) continue;
+    const verticalInterval = segmentVerticalInterval(origin.y, movementY, collider);
+    if (!verticalInterval) continue;
+    const overlap = intersectIntervals(planarInterval, verticalInterval);
+    if (!overlap) continue;
+    const interiorMin = Math.max(overlap.min, LINE_OF_SIGHT_ENDPOINT_EPSILON);
+    const interiorMax = Math.min(overlap.max, 1 - LINE_OF_SIGHT_ENDPOINT_EPSILON);
+    // A mathematical tangent has no interior length and should not make a
+    // target flicker between visible and hidden at exact silhouette contact.
+    if (interiorMax - interiorMin > EPSILON) return false;
+  }
+  return true;
+}
+
+/**
+ * Bounded terrain ray sampling for short interaction/scanner segments. The
+ * endpoints are intentionally excluded: both the camera and ground subjects
+ * are expected to sit above their own terrain samples.
+ */
+export function isTerrainLineOfSightClear(
+  origin: Readonly<SpatialPosition>,
+  target: Readonly<SpatialPosition>,
+  sampleHeight: (x: number, z: number) => number,
+  sampleSpacing = 1.25,
+) {
+  if (!isFiniteSpatialPosition(origin) || !isFiniteSpatialPosition(target)) return false;
+  const horizontalDistance = Math.hypot(target.x - origin.x, target.z - origin.z);
+  if (horizontalDistance <= EPSILON) return true;
+  const safeSpacing = Number.isFinite(sampleSpacing) && sampleSpacing > 0
+    ? Math.max(0.25, sampleSpacing)
+    : 1.25;
+  const sampleCount = Math.min(
+    MAX_TERRAIN_SIGHT_SAMPLES,
+    Math.max(1, Math.ceil(horizontalDistance / safeSpacing)),
+  );
+  for (let index = 1; index < sampleCount; index += 1) {
+    const time = index / sampleCount;
+    const x = origin.x + (target.x - origin.x) * time;
+    const z = origin.z + (target.z - origin.z) * time;
+    const sightY = origin.y + (target.y - origin.y) * time;
+    const terrainY = sampleHeight(x, z);
+    if (!Number.isFinite(terrainY)) return false;
+    if (terrainY >= sightY - LINE_OF_SIGHT_TERRAIN_CLEARANCE) return false;
+  }
+  return true;
 }
 
 /**

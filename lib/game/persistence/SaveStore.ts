@@ -13,7 +13,15 @@ import {
 } from "../gameplay/items";
 import type { EntityDiff } from "../gameplay/interactions";
 import { MAX_HEALTH } from "../gameplay/playerCondition";
-import { WORLD_START_MINUTES } from "../environment/model";
+import {
+  createFeatureProgress,
+  normalizeFeatureProgress,
+  type FeatureProgressState,
+} from "../gameplay/progression";
+import {
+  MAX_WORLD_MINUTES,
+  WORLD_START_MINUTES,
+} from "../environment/model";
 import { WORLD_HALF_EXTENT } from "../world/macroWorld";
 import { isKnownLocationId } from "../world/locationDiscovery";
 
@@ -24,8 +32,8 @@ const VALID_ITEMS = new Set<string>(Object.keys(ITEM_DEFINITIONS));
 const ENTITY_ID = /^[a-z0-9][a-z0-9:._-]{0,119}$/i;
 const MAX_WORLD_DIFFS = 10_000;
 const MAX_DOOR_STATES = 256;
-const MAX_WORLD_MINUTES = 10_000_000;
 const MAX_DISCOVERED_LOCATIONS = 128;
+const CURRENT_SAVE_VERSION = 8;
 
 export interface StorageAdapter {
   getItem(key: string): string | null;
@@ -33,7 +41,7 @@ export interface StorageAdapter {
 }
 
 export interface FrontierSave {
-  version: 7;
+  version: 8;
   scanned: BeaconId[];
   inventory: InventoryState;
   worldDiffs: Record<string, EntityDiff>;
@@ -43,6 +51,7 @@ export interface FrontierSave {
   horizonMode: HorizonMode;
   player: SavedPlayerState | null;
   discoveredLocations: string[];
+  featureProgress: FeatureProgressState;
 }
 
 export interface FrontierSaveInput {
@@ -55,6 +64,7 @@ export interface FrontierSaveInput {
   horizonMode: HorizonMode;
   player?: Readonly<SavedPlayerState> | null;
   discoveredLocations?: readonly string[];
+  featureProgress?: Readonly<FeatureProgressState>;
 }
 
 export interface SavedMapWaypoint {
@@ -75,7 +85,7 @@ export interface SavedPlayerState {
 
 function emptySave(): FrontierSave {
   return {
-    version: 7,
+    version: 8,
     scanned: [],
     inventory: { ...EMPTY_INVENTORY },
     worldDiffs: {},
@@ -85,6 +95,7 @@ function emptySave(): FrontierSave {
     horizonMode: DEFAULT_HORIZON_MODE,
     player: null,
     discoveredLocations: [],
+    featureProgress: createFeatureProgress(),
   };
 }
 
@@ -115,7 +126,10 @@ function normalizeInventory(value: unknown): InventoryState {
   for (const [item, quantity] of Object.entries(value)) {
     if (!VALID_ITEMS.has(item)) continue;
     if (!Number.isSafeInteger(quantity) || (quantity as number) < 0) continue;
-    inventory[item as ItemId] = Math.min(quantity as number, 999_999);
+    inventory[item as ItemId] = Math.min(
+      quantity as number,
+      ITEM_DEFINITIONS[item as ItemId].stackLimit,
+    );
   }
   return inventory;
 }
@@ -207,7 +221,16 @@ export class SaveStore {
   hasSave() {
     if (!this.storage) return false;
     try {
-      return this.storage.getItem(SAVE_KEY) !== null;
+      const raw = this.storage.getItem(SAVE_KEY);
+      if (!raw) return false;
+      const parsed = JSON.parse(raw) as { version?: unknown };
+      return Boolean(
+        parsed &&
+        typeof parsed === "object" &&
+        Number.isSafeInteger(parsed.version) &&
+        (parsed.version as number) >= 1 &&
+        (parsed.version as number) <= CURRENT_SAVE_VERSION,
+      );
     } catch {
       return false;
     }
@@ -229,53 +252,35 @@ export class SaveStore {
         horizonMode?: unknown;
         player?: unknown;
         discoveredLocations?: unknown;
+        featureProgress?: unknown;
       };
-      if (parsed.version === 1) {
+      const version = typeof parsed.version === "number" && Number.isSafeInteger(parsed.version)
+        ? parsed.version
+        : 0;
+      if (version === 1) {
         return { ...emptySave(), scanned: normalizeScanned(parsed.scanned) };
       }
-      if (
-        parsed.version !== 2 &&
-        parsed.version !== 3 &&
-        parsed.version !== 4 &&
-        parsed.version !== 5 &&
-        parsed.version !== 6 &&
-        parsed.version !== 7
-      ) {
-        return emptySave();
-      }
+      if (version < 2 || version > CURRENT_SAVE_VERSION) return emptySave();
       return {
-        version: 7,
+        version: 8,
         scanned: normalizeScanned(parsed.scanned),
         inventory: normalizeInventory(parsed.inventory),
         worldDiffs: normalizeWorldDiffs(parsed.worldDiffs),
-        doorStates:
-          parsed.version === 5 || parsed.version === 6 || parsed.version === 7
-            ? normalizeDoorStates(parsed.doorStates)
-            : {},
-        manualWaypoint:
-          parsed.version === 3 ||
-          parsed.version === 4 ||
-          parsed.version === 5 ||
-          parsed.version === 6 ||
-          parsed.version === 7
-            ? normalizeManualWaypoint(parsed.manualWaypoint)
-            : null,
-        worldMinutes:
-          parsed.version === 4 ||
-          parsed.version === 5 ||
-          parsed.version === 6 ||
-          parsed.version === 7
-            ? normalizeWorldMinutes(parsed.worldMinutes)
-            : WORLD_START_MINUTES,
-        horizonMode:
-          parsed.version === 6 || parsed.version === 7
-            ? normalizeHorizonMode(parsed.horizonMode)
-            : DEFAULT_HORIZON_MODE,
-        player: parsed.version === 7 ? normalizePlayerState(parsed.player) : null,
-        discoveredLocations:
-          parsed.version === 7
-            ? normalizeDiscoveredLocations(parsed.discoveredLocations)
-            : [],
+        doorStates: version >= 5 ? normalizeDoorStates(parsed.doorStates) : {},
+        manualWaypoint: version >= 3 ? normalizeManualWaypoint(parsed.manualWaypoint) : null,
+        worldMinutes: version >= 4
+          ? normalizeWorldMinutes(parsed.worldMinutes)
+          : WORLD_START_MINUTES,
+        horizonMode: version >= 6
+          ? normalizeHorizonMode(parsed.horizonMode)
+          : DEFAULT_HORIZON_MODE,
+        player: version >= 7 ? normalizePlayerState(parsed.player) : null,
+        discoveredLocations: version >= 7
+          ? normalizeDiscoveredLocations(parsed.discoveredLocations)
+          : [],
+        featureProgress: version >= 8
+          ? normalizeFeatureProgress(parsed.featureProgress)
+          : createFeatureProgress(),
       };
     } catch {
       return emptySave();
@@ -285,8 +290,22 @@ export class SaveStore {
   save(input: Readonly<FrontierSaveInput>) {
     if (!this.storage) return false;
     try {
+      // Never replace data written by a newer client with this client's
+      // defaults. A future save remains intact until a compatible build loads.
+      const existing = this.storage.getItem(SAVE_KEY);
+      if (existing) {
+        try {
+          const parsed = JSON.parse(existing) as { version?: unknown };
+          if (
+            Number.isSafeInteger(parsed?.version) &&
+            (parsed.version as number) > CURRENT_SAVE_VERSION
+          ) return false;
+        } catch {
+          // A malformed legacy payload is recoverable and may be replaced.
+        }
+      }
       const payload: FrontierSave = {
-        version: 7,
+        version: 8,
         scanned: normalizeScanned(input.scanned),
         inventory: normalizeInventory(input.inventory),
         worldDiffs: normalizeWorldDiffs(input.worldDiffs),
@@ -296,6 +315,7 @@ export class SaveStore {
         horizonMode: normalizeHorizonMode(input.horizonMode),
         player: normalizePlayerState(input.player),
         discoveredLocations: normalizeDiscoveredLocations(input.discoveredLocations),
+        featureProgress: normalizeFeatureProgress(input.featureProgress),
       };
       this.storage.setItem(SAVE_KEY, JSON.stringify(payload));
       return true;

@@ -8,6 +8,8 @@ export class WorldStreamingSystem implements GameSystem<GameRuntimeContext> {
   update(context: GameRuntimeContext) {
     context.world.update(context.player.position.x, context.player.position.z);
     context.horizon.update(context.player.position.x, context.player.position.z);
-    context.world.setNightLighting(context.environment.getSample().night);
+    const atmosphere = context.environment.getSample();
+    context.world.setNightLighting(atmosphere.night);
+    context.world.setWorldMinutes(atmosphere.totalMinutes);
   }
 }

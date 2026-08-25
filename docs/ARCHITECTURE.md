@@ -5,7 +5,8 @@ skeletal rigs, animation clips, `AnimationMixer` instances, or ambient-character
 machines in the engine core. Variety comes from deterministic terrain, sightlines,
 discovery, lighting, navigation, state changes, and rigid instanced citizens translating
 along authored procedural lanes. Ambient animals use the same rigid analytic approach:
-they walk or glide without skeletons, clips, or pathfinding state.
+they walk or glide without skeletons, clips, or pathfinding. A small transient reaction reducer
+adds alert, flee, and return modes while keeping presentation rigid and unsaved.
 
 ## Runtime layers
 
@@ -22,7 +23,7 @@ they walk or glide without skeletons, clips, or pathfinding state.
   more ordered systems without editing the engine kernel.
 - `SystemPipeline` executes systems in stable phase order. The current feature contributes
   player control, player condition, chunk streaming, location discovery, navigation,
-  interaction, equipment, environment, and environmental-audio systems.
+  scanning, interaction, equipment, environment, and environmental-audio systems.
 - `ChunkManager` maintains a 9×9 visual ring, creates deterministic chunk content from
   the world seed and integer chunk coordinates, and owns every render resource that must
   be disposed when a chunk leaves the ring. Collider and target caches remain limited to
@@ -44,8 +45,12 @@ they walk or glide without skeletons, clips, or pathfinding state.
   persistence systems.
 - `AnimalEngine` independently streams another 5×5 render-only ring. Pure habitat recipes
   select sparse biome-native groups outside settlement cores and roads. A handful of shared
-  rigid primitive models move along smooth analytic routes each rendered frame; wildlife
-  never enters collision, interaction, dialogue, inventory, or save state.
+  rigid primitive models move along smooth analytic routes each rendered frame. Per-resident
+  transient reaction state lets nearby animals alert, flee, and return without skeletons or
+  persistent AI. Ground reactions pass through a narrow deterministic navigation adapter that
+  resamples terrain, clips water crossings, and queries streamed solids without registering
+  animals as colliders. Lightweight scan candidates expose presented poses without creating
+  scene nodes; wildlife never enters dialogue, inventory, or save state.
 - `PlayerFlashlight` is a reusable field-equipment module rather than environment state.
   A camera-aligned 48 m warm core and short cool spill provide a phone-style beam; only the
   core casts a 1K shadow, and only while enabled in cinematic quality. The spotlight shader
@@ -92,18 +97,33 @@ they walk or glide without skeletons, clips, or pathfinding state.
   render recipes; the complete map is never resident as geometry.
 - Pure modules (`terrain`, `random`, `collision`, `locomotion`, `interactions`, and `state`) contain simulation rules that
   are testable without React, a browser, or a GPU. The same rule applies to settings,
-  player-condition, interaction-prompt, audio-model, items, and location-discovery modules.
+  player-condition, interaction-prompt, audio-model, items, contracts, crafting, field-guide,
+  loot, rest, wildlife reactions, progression, and location-discovery modules.
 - `InteractionSystem` performs one nearest-target selection pass and publishes a unified
-  `WorldTarget` contract for resources, pickups, doors, records, and inspectables. Prompt
+  `WorldTarget` contract for resources, pickups, doors, records, workbenches, containers,
+  rest sites, scannables, and authored NPCs. Short bounded line-of-sight tests against terrain
+  and vertical collider prisms prevent interactions and scans through walls or floors. Prompt
   copy is derived from target action plus current bindings. `world/inspectables` adds stable,
   low-cost readable records at the starting compound; opening one pauses simulation and
   presents its title, source, and body through the same interaction path.
-- `gameplay/items` is the inventory catalog and arithmetic seam. Every item has a stable ID,
-  category, description, and unit weight; gathering mutates counts through pure functions,
-  while the inventory overlay remains a projection of serialized engine state. This leaves
-  crafting, containers, equipment slots, and recipes free to consume the catalog later.
+- `gameplay/items` is the inventory catalog and arithmetic seam. Every material and usable
+  field item has a stable ID, stack limit, category, description, unit weight, and optional
+  use behavior. `gameplay/crafting`, `loot`, and `resting` are pure outcome reducers;
+  `deployments` turns validated persistent placement records into one owned scene subtree.
+- `gameplay/events` is the shared progression seam. Gathering, scanning, crafting, looting,
+  placement, resting, inspection, location discovery, and named-NPC contact emit typed events.
+  The ordered contract reducer consumes those events without importing world, UI, or renderer
+  code. `gameplay/contractEvidence` reconciles ordered objectives from durable facts so doing a
+  one-time action early cannot soft-lock a contract. Static contracts, recipes, guide records,
+  loot tables, dialogue, and interior layouts stay data-driven; only bounded progress is serialized.
+- `world/spawnFeatures` composes deterministic interior props, colliders, workbenches,
+  containers, beds, scanner subjects, and authored personnel around the three opening
+  buildings. Layout validation shares the authored footprints and reserves every door,
+  landing, aisle, and stairwell so future content additions fail tests instead of blocking
+  traversal.
 - `GameShell` translates serializable engine snapshots into the HUD, map, pause, inventory,
-  settings, inspection, incapacitation, location-discovery, and error interfaces. A separate
+  settings, inspection, contracts, crafting, field-guide, dialogue, container, rest,
+  incapacitation, location-discovery, and error interfaces. A separate
   tiny presentation store publishes heading, bearing,
   distance, and near-target screen projection once per rendered frame, so the scrolling
   compass remains smooth without repainting the entire shell at 60+ Hz. The renderer never
@@ -130,16 +150,19 @@ Persistent resource IDs include the feature, recipe version, chunk coordinate, a
 index. Pickups, trees, and rock outcrops are reduced through a pure idempotent interaction
 function. Only a sparse `{hits, removed}` world delta is saved; generated chunks remain
 derivable. Inventory and its matching entity delta are written in the same save operation.
-The version-seven envelope retains survey records, inventory, sparse entity and door state,
+The version-eight envelope retains survey records, inventory, sparse entity and door state,
 the manual map waypoint, total world minutes, the last horizon mode, player position and
-look direction, health/wetness/cold stress, and discovered locations. Versions one through
-six migrate in place and every field is bounded and normalized independently. The engine
+look direction, health/wetness/cold stress, discovered locations, contract progress, field-guide
+records, partially looted containers plus durable loot evidence, placed structures, recipe unlocks, NPC flags, and the
+last rest time. Versions one through seven migrate in place and every field is bounded and
+normalized independently; a newer-version payload is never overwritten by an older client.
+Static definitions, NPC schedule positions, weather, and animal
+reaction state remain derived rather than stored. The engine
 autosaves during active play every 30 seconds and on material state changes, exposes explicit
 Save Now and Load Last Save actions, and rebuilds generated world state before relocating the
 player on load. Settings are also written immediately to the separate preferences slot; the
 saved horizon remains a legacy migration fallback only when no preference exists.
-Weather remains derived rather than stored. Quest destinations remain owned by quest state
-and can re-register with the navigation service after loading.
+Quest destinations and survey-marker targets are rebuilt from restored progression after load.
 
 The atlas uses `+X = east`, `-Z = north`, and north-zero clockwise bearings. Map clicks are
 converted through tested bidirectional atlas helpers. The compass builds a local unwrapped
@@ -153,11 +176,12 @@ gravity, grounded state, jump velocity, crouch eye height, sprint state, stamina
 recovery delay. It adds a 120 ms jump buffer, 100 ms coyote window, smoothed crouch eye
 height, head-clearance checks before standing, settings-driven look sensitivity/inverted Y,
 and an encumbrance speed multiplier. Horizontal movement continuously sweeps the circular
-player footprint against circle and oriented-box colliders, resolves the earliest time of
+player footprint against circle and oriented-box colliders with authored vertical bounds, resolves the earliest time of
 impact, slides along rounded corners, and deterministically depenetrates invalid streamed or
 saved positions.
-The current colliders are intentionally planar; this leaves a clean seam for obstacle height,
-slopes, climbing, or vehicles without coupling those ideas to React or world generation.
+The movement solver remains a planar sweep selected by the player's vertical interval; this
+leaves a clean seam for capsule movement, slopes, climbing, or vehicles without coupling those
+ideas to React or world generation.
 
 ## Performance contract
 
@@ -179,9 +203,12 @@ The initial target is an RTX 3060-class machine at 1440p/60:
   density rather than motion cadence. Hard resident targets remain 5,000 and 2,200 visible
   citizens respectively, with no citizen shadows.
 - Wildlife is capped at 72 rigid instances in cinematic mode and 36 in performance mode,
-  spread across no more than six candidates per chunk with no shadows or per-animal AI.
+  spread across no more than six candidates per chunk with no shadows, pathfinding, or
+  persistent AI; each visible resident carries only a bounded four-mode reaction record.
 - One shadow-casting directional sun/moon key; 2K shadow map in cinematic mode. Dynamic
   weather changes palette, fog, exposure, and one shader-driven precipitation field.
+- Persistent field torches keep emissive markers while only the nearest 12 cinematic or six
+  performance lights activate at night, bounding renderer light growth as camps accumulate.
 - The optional phone light reuses two persistent spotlights across toggles. Its unshadowed
   spill is limited to 11 m to reduce light leaks; performance mode disables its single 1K
   core shadow while preserving the beam.

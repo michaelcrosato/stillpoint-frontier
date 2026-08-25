@@ -15,7 +15,11 @@ import {
   developerWeatherOptions,
   type DeveloperWeatherOption,
 } from "./developer/environmentState";
-import { EMPTY_INVENTORY, type InventoryState, type ItemId } from "./gameplay/items";
+import { createEmptyInventory, type InventoryState, type ItemId } from "./gameplay/items";
+import type { CraftingStationKind, RecipeId } from "./gameplay/crafting";
+import type { ContractJournalState } from "./gameplay/contracts";
+import type { ContainerStates } from "./gameplay/loot";
+import type { RestSiteDefinition } from "./gameplay/resting";
 import type { InteractionPromptDescriptor } from "./gameplay/interactionPrompt";
 import {
   MAX_HEALTH,
@@ -32,14 +36,51 @@ import {
 
 export interface NearbyTargetSnapshot {
   id: string;
-  kind: "beacon" | "pickup" | "resource" | "door" | "inspectable";
-  action: "scan" | "collect" | "harvest" | "toggle" | "inspect";
+  kind:
+    | "beacon"
+    | "pickup"
+    | "resource"
+    | "door"
+    | "inspectable"
+    | "station"
+    | "container"
+    | "rest"
+    | "npc"
+    | "scannable"
+    | "animal";
+  action:
+    | "scan"
+    | "collect"
+    | "harvest"
+    | "toggle"
+    | "inspect"
+    | "craft"
+    | "loot"
+    | "rest"
+    | "talk";
   name: string;
   item: ItemId | null;
   hits: number;
   hitsRequired: number;
   beaconId: BeaconId | null;
   open: boolean | null;
+  empty: boolean | null;
+  fieldGuideId: string | null;
+}
+
+export type OperationsTab = "contracts" | "crafting" | "fieldGuide";
+
+export type FeatureOverlayState =
+  | null
+  | { kind: "operations"; tab: OperationsTab; station: CraftingStationKind }
+  | { kind: "dialogue"; npcId: string }
+  | { kind: "container"; containerId: string }
+  | { kind: "rest"; site: RestSiteDefinition };
+
+export interface FeatureNotice {
+  type: "contract" | "craft" | "scan" | "loot" | "rest" | "placement" | "item";
+  title: string;
+  detail: string;
 }
 
 export interface LastGatherSnapshot {
@@ -91,6 +132,7 @@ export interface GameSnapshot {
   settingsOpen: boolean;
   inspectionOpen: boolean;
   activeInspection: InspectionRecord | null;
+  featureOverlay: FeatureOverlayState;
   devTools: DeveloperToolsSnapshot;
   contextStatus: "ready" | "lost";
   position: { x: number; y: number; z: number };
@@ -142,6 +184,19 @@ export interface GameSnapshot {
     cueCount: number;
     lastCue: string | null;
   };
+  scanner: {
+    active: boolean;
+    focusId: string | null;
+    focusEntryId: string | null;
+    focusName: string | null;
+    progress: number;
+  };
+  contractJournal: ContractJournalState;
+  fieldGuideEntryIds: string[];
+  containerStates: ContainerStates;
+  placedEntityCount: number;
+  unlockedRecipeIds: RecipeId[];
+  lastFeatureNotice: FeatureNotice | null;
   biome: { id: string; name: string; region: string };
   environment: EnvironmentSnapshot;
   nearestSettlement: {
@@ -173,6 +228,7 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
   settingsOpen: false,
   inspectionOpen: false,
   activeInspection: null,
+  featureOverlay: null,
   devTools: {
     enabled: false,
     panelOpen: false,
@@ -203,7 +259,7 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
   textures: 0,
   quality: "cinematic",
   scanned: [],
-  inventory: { ...EMPTY_INVENTORY },
+  inventory: createEmptyInventory(),
   inventoryWeight: 0,
   inventoryItemCount: 0,
   worldChanges: 0,
@@ -234,6 +290,19 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
     cueCount: 0,
     lastCue: null,
   },
+  scanner: {
+    active: false,
+    focusId: null,
+    focusEntryId: null,
+    focusName: null,
+    progress: 0,
+  },
+  contractJournal: { contracts: {}, activeContractId: null },
+  fieldGuideEntryIds: [],
+  containerStates: {},
+  placedEntityCount: 0,
+  unlockedRecipeIds: [],
+  lastFeatureNotice: null,
   biome: { id: "grey_meadow", name: "Grey Meadow", region: "Red Basin Marches" },
   environment: {
     totalMinutes: 450,

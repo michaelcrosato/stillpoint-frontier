@@ -46,7 +46,10 @@ function context(
       consumeActionPressed: vi.fn((action: string) => pressedSet.has(actionCodes[action])),
     },
     camera,
-    world: { targets: Array.isArray(worldTarget) ? worldTarget : [worldTarget] },
+    world: {
+      targets: Array.isArray(worldTarget) ? worldTarget : [worldTarget],
+      hasLineOfSight: vi.fn(() => true),
+    },
     started: true,
     paused: false,
     developerPanelOpen: false,
@@ -170,5 +173,40 @@ describe("interaction system routing", () => {
     new InteractionSystem().update(runtime);
     expect(runtime.nearbyTarget).toBe(inspectable);
     expect(runtime.performInteraction).toHaveBeenCalledWith(inspectable);
+  });
+
+  it("does not expose a same-floor target through an occluding wall", () => {
+    const door = target("toggle");
+    const runtime = context(door, ["KeyE"]);
+    vi.mocked(runtime.world.hasLineOfSight).mockReturnValue(false);
+
+    new InteractionSystem().update(runtime);
+
+    expect(runtime.nearbyTarget).toBeNull();
+    expect(runtime.performInteraction).not.toHaveBeenCalled();
+  });
+
+  it("rejects upper-floor interactions while preserving planar resource reach", () => {
+    const upstairsContainer = target("loot", {
+      id: "container:upstairs",
+      kind: "container",
+      position: new THREE.Vector3(0, 4.1, -1),
+    });
+    const containerRuntime = context(upstairsContainer, ["KeyE"]);
+    new InteractionSystem().update(containerRuntime);
+    expect(containerRuntime.nearbyTarget).toBeNull();
+    expect(containerRuntime.world.hasLineOfSight).not.toHaveBeenCalled();
+
+    const highResource = target("harvest", {
+      position: new THREE.Vector3(0, 12, -2),
+    });
+    const resourceRuntime = context(highResource, []);
+    new InteractionSystem().update(resourceRuntime);
+    expect(resourceRuntime.nearbyTarget).toBe(highResource);
+    expect(resourceRuntime.world.hasLineOfSight).toHaveBeenCalledWith(
+      resourceRuntime.camera.position,
+      highResource.position,
+      expect.objectContaining({ maxVerticalDelta: Infinity }),
+    );
   });
 });

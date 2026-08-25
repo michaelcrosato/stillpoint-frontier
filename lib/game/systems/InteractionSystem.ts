@@ -9,6 +9,7 @@ const toTarget = new THREE.Vector3();
 const RESOURCE_MIN_ALIGNMENT = 0.42;
 const RESOURCE_ALIGNMENT_WEIGHT = 5;
 const DIRECTION_EPSILON = 1e-6;
+export const INTERACTION_MAX_VERTICAL_DELTA = 2.05;
 
 type WorldTargetWithInteractionRadius = WorldTarget & {
   interactionRadius?: number;
@@ -18,6 +19,41 @@ function resourceInteractionRadius(target: WorldTarget) {
   const radius = (target as WorldTargetWithInteractionRadius).interactionRadius;
   if (typeof radius !== "number" || !Number.isFinite(radius) || radius <= 0) return 0;
   return Math.min(radius, target.maxDistance);
+}
+
+function targetColliderIds(target: Readonly<WorldTarget>) {
+  const ids = [target.id];
+  if (target.root.name) ids.push(target.root.name);
+  if (target.doorId) ids.push(`authored-door:${target.doorId}`);
+  if (target.beaconId) ids.push(`beacon:${target.beaconId}`);
+  return [...new Set(ids)];
+}
+
+function targetHasLineOfSight(
+  context: GameRuntimeContext,
+  target: Readonly<WorldTarget>,
+) {
+  if (
+    target.kind !== "resource" &&
+    Math.abs(target.position.y - context.camera.position.y) >
+      INTERACTION_MAX_VERTICAL_DELTA
+  ) {
+    return false;
+  }
+  return context.world.hasLineOfSight(
+    context.camera.position,
+    target.position,
+    {
+      ignoredColliderIds: targetColliderIds(target),
+      // Resource selection intentionally remains planar and forgiving. Static
+      // resources only spawn outdoors; every other interaction must stay on
+      // the player's current authored floor.
+      maxVerticalDelta:
+        target.kind === "resource" ? Infinity : INTERACTION_MAX_VERTICAL_DELTA,
+      checkTerrain: true,
+      requireSameSupport: target.kind !== "resource",
+    },
+  );
 }
 
 function resourceCandidate(
@@ -100,7 +136,11 @@ export class InteractionSystem implements GameSystem<GameRuntimeContext> {
           planarForwardX,
           planarForwardZ,
         );
-        if (!candidate || candidate.score >= bestScore) continue;
+        if (
+          !candidate ||
+          candidate.score >= bestScore ||
+          !targetHasLineOfSight(context, target)
+        ) continue;
         bestScore = candidate.score;
         bestTarget = target;
         bestDistance = candidate.distance;
@@ -112,7 +152,11 @@ export class InteractionSystem implements GameSystem<GameRuntimeContext> {
       if (distance > target.maxDistance) continue;
       const alignment = forward.dot(toTarget.normalize());
       if (alignment < (target.kind === "pickup" ? 0.5 : 0.58)) continue;
-      const priority = target.kind === "door" || target.kind === "inspectable" ? -0.35 : 0;
+      if (!targetHasLineOfSight(context, target)) continue;
+      const priority = ["door", "inspectable", "station", "container", "rest", "npc"]
+        .includes(target.kind)
+        ? -0.35
+        : 0;
       const score = distance + (1 - alignment) * 4 + priority;
       if (score >= bestScore) continue;
       bestScore = score;

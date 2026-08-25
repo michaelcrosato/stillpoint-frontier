@@ -11,6 +11,15 @@ import type { HorizonRenderer } from "../world/HorizonRenderer";
 import type { WorldTarget } from "../world/ChunkManager";
 import type { PlayerConditionState } from "../gameplay/playerCondition";
 import type { GameSettings } from "../settings";
+import type { ScanCandidate } from "../gameplay/fieldGuide";
+
+export interface ScannerRuntimeState {
+  active: boolean;
+  focusId: string | null;
+  focusEntryId: string | null;
+  focusName: string | null;
+  progress: number;
+}
 
 export interface PlayerRuntime {
   /** Feet position; the camera is offset by the current eye height. */
@@ -48,6 +57,7 @@ export interface GameRuntimeContext {
   paused: boolean;
   testMode: boolean;
   developerPanelOpen: boolean;
+  scanner: ScannerRuntimeState;
   nearbyTarget: WorldTarget | null;
   nearbyDistance: number | null;
   discover(beaconId: BeaconId): void;
@@ -57,6 +67,10 @@ export interface GameRuntimeContext {
   toggleQuality(): void;
   toggleFlashlight(): void;
   toggleDeveloperPanel(): void;
+  toggleOperations(): void;
+  scanCandidates(): readonly ScanCandidate[];
+  completeScan(entryId: string): boolean;
+  hasFieldGuideEntry(entryId: string): boolean;
   discoverCurrentLocation(): void;
   applyFallImpact(speed: number): void;
   recoverPlayer(): void;

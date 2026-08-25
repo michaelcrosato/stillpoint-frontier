@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { EMPTY_INVENTORY } from "../../lib/game/gameplay/items";
+import {
+  createFeatureProgress,
+  normalizeFeatureProgress,
+} from "../../lib/game/gameplay/progression";
 import { WORLD_START_MINUTES } from "../../lib/game/environment/model";
 import { SaveStore, type StorageAdapter } from "../../lib/game/persistence/SaveStore";
 
@@ -12,6 +16,42 @@ class MemoryStorage implements StorageAdapter {
     this.value = value;
   }
 }
+
+const featureProgress = normalizeFeatureProgress({
+  ...createFeatureProgress(),
+  contractJournal: {
+    activeContractId: "contract:field-calibration:v1" as const,
+    contracts: {
+      "contract:field-calibration:v1": {
+        status: "active" as const,
+        acceptedAt: 2_300,
+        completedAt: null,
+        objectiveProgress: { "inspect-orders": 1 },
+      },
+    },
+  },
+  fieldGuideEntries: ["guide:landmark:field-unit-weather-mast:v1"],
+  containerStates: {
+    "container:field-unit:supplies-a": {
+      opened: true,
+      looted: true,
+      remaining: { fiber: 2 },
+    },
+  },
+  placedEntities: [
+    {
+      id: "placed:bedroll:1",
+      archetypeId: "bedroll" as const,
+      x: 14,
+      y: 2.5,
+      z: -7,
+      yaw: 0.4,
+    },
+  ],
+  nextPlacedSerial: 2,
+  npcFlags: ["npc:mara-venn:v1:introduced"],
+  lastRestAt: 2_330,
+});
 
 const saveInput = {
   scanned: ["meridian-vault", "amber-relay"] as const,
@@ -42,6 +82,7 @@ const saveInput = {
     "settlement:dustmere",
     "landmark:field-unit-compound",
   ],
+  featureProgress,
 };
 
 describe("versioned frontier saves", () => {
@@ -50,7 +91,7 @@ describe("versioned frontier saves", () => {
     const store = new SaveStore(storage);
     expect(store.save(saveInput)).toBe(true);
     expect(store.load()).toEqual({
-      version: 7,
+      version: 8,
       scanned: ["amber-relay", "meridian-vault"],
       inventory: { ...EMPTY_INVENTORY, stone: 7, wood: 3 },
       worldDiffs: saveInput.worldDiffs,
@@ -63,6 +104,7 @@ describe("versioned frontier saves", () => {
         "landmark:field-unit-compound",
         "settlement:dustmere",
       ],
+      featureProgress,
     });
   });
 
@@ -73,7 +115,7 @@ describe("versioned frontier saves", () => {
       scanned: ["hollow-array", "invented", "hollow-array", 7],
     });
     expect(new SaveStore(storage).load()).toEqual({
-      version: 7,
+      version: 8,
       scanned: ["hollow-array"],
       inventory: EMPTY_INVENTORY,
       worldDiffs: {},
@@ -83,6 +125,7 @@ describe("versioned frontier saves", () => {
       horizonMode: "standard",
       player: null,
       discoveredLocations: [],
+      featureProgress: createFeatureProgress(),
     });
   });
 
@@ -223,13 +266,56 @@ describe("versioned frontier saves", () => {
     expect(new SaveStore(storage).load().player).toBeNull();
   });
 
+  it("migrates version seven into the default v8 feature progression", () => {
+    const storage = new MemoryStorage();
+    storage.value = JSON.stringify({
+      version: 7,
+      inventory: { stone: 3 },
+      player: { x: 2, y: 3, z: 4, yaw: 0 },
+      featureProgress,
+    });
+    const migrated = new SaveStore(storage).load();
+    expect(migrated.version).toBe(8);
+    expect(migrated.inventory).toEqual({ ...EMPTY_INVENTORY, stone: 3 });
+    expect(migrated.player).toMatchObject({ x: 2, y: 3, z: 4 });
+    expect(migrated.featureProgress).toEqual(createFeatureProgress());
+  });
+
+  it("normalizes v8 progression without discarding earlier save fields", () => {
+    const storage = new MemoryStorage();
+    storage.value = JSON.stringify({
+      ...saveInput,
+      version: 8,
+      featureProgress: {
+        ...featureProgress,
+        fieldGuideEntries: [
+          "guide:landmark:field-unit-weather-mast:v1",
+          "guide:invented",
+          "guide:landmark:field-unit-weather-mast:v1",
+        ],
+        lastRestAt: 99_000_000,
+        npcFlags: ["npc:mara-venn:v1:introduced", "bad flag"],
+      },
+    });
+    const restored = new SaveStore(storage).load();
+    expect(restored.manualWaypoint).toEqual(saveInput.manualWaypoint);
+    expect(restored.player).toEqual(saveInput.player);
+    expect(restored.featureProgress.fieldGuideEntries).toEqual([
+      "guide:landmark:field-unit-weather-mast:v1",
+    ]);
+    expect(restored.featureProgress.npcFlags).toEqual([
+      "npc:mara-venn:v1:introduced",
+    ]);
+    expect(restored.featureProgress.lastRestAt).toBe(10_000_000);
+  });
+
   it.each(["not json", JSON.stringify({ version: 99, scanned: ["amber-relay"] })])(
     "recovers safely from invalid data: %s",
     (value) => {
       const storage = new MemoryStorage();
       storage.value = value;
       expect(new SaveStore(storage).load()).toEqual({
-        version: 7,
+        version: 8,
         scanned: [],
         inventory: EMPTY_INVENTORY,
         worldDiffs: {},
@@ -239,13 +325,14 @@ describe("versioned frontier saves", () => {
         horizonMode: "standard",
         player: null,
         discoveredLocations: [],
+        featureProgress: createFeatureProgress(),
       });
     },
   );
 
   it("runs without browser storage in deterministic tests", () => {
     const store = new SaveStore(null);
-    expect(store.load().version).toBe(7);
+    expect(store.load().version).toBe(8);
     expect(store.save(saveInput)).toBe(false);
   });
 
@@ -254,6 +341,15 @@ describe("versioned frontier saves", () => {
     const store = new SaveStore(storage);
     expect(store.hasSave()).toBe(false);
     expect(store.save(saveInput)).toBe(true);
+    expect(store.hasSave()).toBe(true);
+    storage.value = "{malformed";
+    expect(store.hasSave()).toBe(false);
+    storage.value = JSON.stringify({ version: 99 });
+    expect(store.hasSave()).toBe(false);
+    const futureSave = storage.value;
+    expect(store.save(saveInput)).toBe(false);
+    expect(storage.value).toBe(futureSave);
+    storage.value = JSON.stringify({ version: 1, scanned: [] });
     expect(store.hasSave()).toBe(true);
   });
 

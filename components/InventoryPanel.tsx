@@ -1,16 +1,31 @@
 "use client";
 
 import { useEffect, useRef, type KeyboardEvent } from "react";
-import { ITEM_DEFINITIONS, type ItemId } from "../lib/game/gameplay/items";
+import {
+  ITEM_DEFINITIONS,
+  itemUseKind,
+  type ItemId,
+  type ItemUseKind,
+} from "../lib/game/gameplay/items";
 import { ENCUMBERED_WEIGHT } from "../lib/game/gameplay/playerCondition";
 import type { GameSnapshot } from "../lib/game/state";
 
 interface InventoryPanelProps {
   snapshot: GameSnapshot;
   onClose(): void;
+  onUseItem(item: ItemId): void;
 }
 
-export default function InventoryPanel({ snapshot, onClose }: InventoryPanelProps) {
+const USE_LABELS: Readonly<Record<ItemUseKind, string>> = {
+  heal: "APPLY",
+  deploy_bedroll: "DEPLOY",
+  deploy_campfire: "DEPLOY",
+  deploy_marker: "PLACE",
+  deploy_shelter: "DEPLOY",
+  deploy_torch: "PLACE",
+};
+
+export default function InventoryPanel({ snapshot, onClose, onUseItem }: InventoryPanelProps) {
   const panelRef = useRef<HTMLElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
 
@@ -74,6 +89,8 @@ export default function InventoryPanel({ snapshot, onClose }: InventoryPanelProp
           {(Object.keys(ITEM_DEFINITIONS) as ItemId[]).map((item) => {
             const definition = ITEM_DEFINITIONS[item];
             const quantity = snapshot.inventory[item];
+            const useKind = itemUseKind(item);
+            const unusable = quantity <= 0 || (useKind === "heal" && snapshot.health >= snapshot.maxHealth);
             return (
               <article key={item} className={quantity > 0 ? "has-item" : ""}>
                 <div className="inventory-index">{definition.shortName.slice(0, 2)}</div>
@@ -85,6 +102,17 @@ export default function InventoryPanel({ snapshot, onClose }: InventoryPanelProp
                 <div className="inventory-quantity">
                   <strong>{String(quantity).padStart(2, "0")}</strong>
                   <span>{(quantity * definition.unitWeight).toFixed(1)} KG</span>
+                  {useKind && (
+                    <button
+                      type="button"
+                      disabled={unusable}
+                      onClick={() => onUseItem(item)}
+                    >
+                      {useKind === "heal" && snapshot.health >= snapshot.maxHealth
+                        ? "VITALS FULL"
+                        : USE_LABELS[useKind]}
+                    </button>
+                  )}
                 </div>
               </article>
             );
@@ -92,8 +120,8 @@ export default function InventoryPanel({ snapshot, onClose }: InventoryPanelProp
         </div>
 
         <footer className="field-panel-footer">
-          <span>READ-ONLY LEDGER</span>
-          <p>Crafting and item use will attach to this inventory contract later.</p>
+          <span>FIELD INVENTORY / LIVE LOAD</span>
+          <p>Usable gear deploys ahead of the player on clear ground.</p>
         </footer>
       </section>
     </div>

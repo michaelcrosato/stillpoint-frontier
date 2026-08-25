@@ -3,8 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CompassTape, WaypointGuide } from "./NavigationDisplay";
 import DeveloperPanel from "./DeveloperPanel";
+import ContainerPanel from "./ContainerPanel";
+import DialoguePanel from "./DialoguePanel";
 import InventoryPanel from "./InventoryPanel";
 import InspectionPanel from "./InspectionPanel";
+import OperationsPanel from "./OperationsPanel";
+import RestPanel from "./RestPanel";
 import SettingsPanel from "./SettingsPanel";
 import WorldClock from "./WorldClock";
 import WorldMap from "./WorldMap";
@@ -17,6 +21,10 @@ import {
 } from "../lib/game/config";
 import { Engine } from "../lib/game/Engine";
 import { developerWeatherOptions } from "../lib/game/developer/environmentState";
+import {
+  contractById,
+  currentContractObjective,
+} from "../lib/game/gameplay/contracts";
 import { ITEM_DEFINITIONS, type ItemId } from "../lib/game/gameplay/items";
 import { clamp } from "../lib/game/navigation/math";
 import { GamePresentationStore } from "../lib/game/navigation/presentation";
@@ -92,7 +100,13 @@ export default function GameShell() {
           geometries: 138,
           textures: 4,
           scanned: ["amber-relay"],
-          inventory: { stone: 3, wood: 4, fiber: 2, ore: 1, relic: 0 },
+          inventory: {
+            ...INITIAL_SNAPSHOT.inventory,
+            stone: 3,
+            wood: 4,
+            fiber: 2,
+            ore: 1,
+          },
           worldChanges: 4,
           stamina: 0.72,
           biome: { id: "pine_forest", name: "Sable Pine Forest", region: "Sablewood" },
@@ -147,6 +161,8 @@ export default function GameShell() {
             hitsRequired: 3,
             beaconId: null,
             open: null,
+            empty: null,
+            fieldGuideId: "guide:resource:wood:v1",
           },
           nearbyDistance: 4.2,
         });
@@ -211,6 +227,20 @@ export default function GameShell() {
     : null;
   const surveyComplete = snapshot.scanned.length === BEACONS.length;
   const interactionPrompt = snapshot.interactionPrompt;
+  const activeContract = snapshot.contractJournal.activeContractId
+    ? contractById(snapshot.contractJournal.activeContractId)
+    : null;
+  const activeContractProgress = activeContract
+    ? snapshot.contractJournal.contracts[activeContract.id] ?? null
+    : null;
+  const activeObjective = activeContract && activeContractProgress
+    ? currentContractObjective(activeContract, activeContractProgress)
+    : null;
+  const completedObjectiveCount = activeContract && activeContractProgress
+    ? activeContract.objectives.filter(
+        (objective) => (activeContractProgress.objectiveProgress[objective.id] ?? 0) >= objective.amount,
+      ).length
+    : 0;
   const conditionLabels: Record<(typeof snapshot.conditions)[number], string> = {
     sheltered: "SHELTERED",
     wet: "WET",
@@ -235,6 +265,7 @@ export default function GameShell() {
             !snapshot.inventoryOpen &&
             !snapshot.settingsOpen &&
             !snapshot.inspectionOpen &&
+            !snapshot.featureOverlay &&
             !snapshot.incapacitated &&
             !snapshot.devTools.panelOpen
           ) {
@@ -399,25 +430,47 @@ export default function GameShell() {
           <aside className="mission-card" data-testid="mission-card">
             <p className="eyebrow">ACTIVE DIRECTIVE</p>
             <div className="mission-count">
-              <strong>{String(snapshot.scanned.length).padStart(2, "0")}</strong>
-              <span>/ {String(BEACONS.length).padStart(2, "0")}</span>
+              <strong>{String(activeContract ? completedObjectiveCount : snapshot.scanned.length).padStart(2, "0")}</strong>
+              <span>/ {String(activeContract ? activeContract.objectives.length : BEACONS.length).padStart(2, "0")}</span>
             </div>
-            <h2>{surveyComplete ? "Survey complete" : "Recover relay records"}</h2>
+            <h2>
+              {activeContract
+                ? activeContract.title
+                : surveyComplete
+                  ? "Survey complete"
+                  : "Recover relay records"}
+            </h2>
             <p>
-              {surveyComplete
+              {activeContract
+                ? activeContractProgress?.status === "ready"
+                  ? "Objectives complete. File the contract through Field Operations."
+                  : activeObjective?.label ?? activeContract.summary
+                : surveyComplete
                 ? "All basin signals are coherent. The frontier now holds your survey state."
                 : nextBeacon
                   ? `Next indexed signal: ${nextBeacon.code} / ${nextBeacon.name}.`
                   : "No remaining signal indexed."}
             </p>
             <div className="relay-list">
-              {BEACONS.map((beacon) => (
-                <div key={beacon.id} className={snapshot.scanned.includes(beacon.id) ? "is-scanned" : ""}>
-                  <i aria-hidden="true" />
-                  <span>{beacon.code}</span>
-                  <strong>{snapshot.scanned.includes(beacon.id) ? "RECOVERED" : "SILENT"}</strong>
-                </div>
-              ))}
+              {activeContract && activeContractProgress
+                ? activeContract.objectives.map((objective) => {
+                    const amount = activeContractProgress.objectiveProgress[objective.id] ?? 0;
+                    const complete = amount >= objective.amount;
+                    return (
+                      <div key={objective.id} className={complete ? "is-scanned" : activeObjective?.id === objective.id ? "is-current" : ""}>
+                        <i aria-hidden="true" />
+                        <span>{objective.id.slice(0, 8).toUpperCase()}</span>
+                        <strong>{complete ? "COMPLETE" : `${Math.min(amount, objective.amount)}/${objective.amount}`}</strong>
+                      </div>
+                    );
+                  })
+                : BEACONS.map((beacon) => (
+                    <div key={beacon.id} className={snapshot.scanned.includes(beacon.id) ? "is-scanned" : ""}>
+                      <i aria-hidden="true" />
+                      <span>{beacon.code}</span>
+                      <strong>{snapshot.scanned.includes(beacon.id) ? "RECOVERED" : "SILENT"}</strong>
+                    </div>
+                  ))}
             </div>
           </aside>
 
@@ -475,6 +528,18 @@ export default function GameShell() {
           </div>
 
           <WaypointGuide store={presentationStore} />
+
+          {snapshot.scanner.active && (
+            <div className="scanner-readout" data-testid="scanner-readout" aria-live="polite">
+              <header>
+                <span>FIELD SCANNER / LIVE</span>
+                <strong>{Math.round(snapshot.scanner.progress * 100)}%</strong>
+              </header>
+              <i><b style={{ width: `${snapshot.scanner.progress * 100}%` }} /></i>
+              <p>{snapshot.scanner.focusName ?? "NO SUBJECT ALIGNED"}</p>
+              <small>{snapshot.scanner.focusEntryId ? "HOLD ALIGNMENT TO RESOLVE" : "CENTER A CATALOG SUBJECT"}</small>
+            </div>
+          )}
 
           {nearbyTarget &&
             interactionPrompt &&
@@ -550,6 +615,7 @@ export default function GameShell() {
               <span><kbd>{keyLabel(snapshot.settings.keyBindings.crouch)}</kbd> CROUCH</span>
               <span><kbd>{keyLabel(snapshot.settings.keyBindings.interact)}</kbd> USE</span>
               <span><kbd>{keyLabel(snapshot.settings.keyBindings.harvest)}/CLICK</kbd> HARVEST</span>
+              <span><kbd>{keyLabel(snapshot.settings.keyBindings.scanner)}</kbd> SCAN</span>
               <button
                 type="button"
                 className={snapshot.flashlightOn ? "is-active" : ""}
@@ -567,6 +633,12 @@ export default function GameShell() {
               <button type="button" onClick={() => engineRef.current?.setInventoryOpen(true)}>
                 <kbd>{keyLabel(snapshot.settings.keyBindings.inventory)}</kbd> KIT
               </button>
+              <button
+                type="button"
+                onClick={() => engineRef.current?.setFeatureOverlay({ kind: "operations", tab: "contracts", station: "field" })}
+              >
+                <kbd>{keyLabel(snapshot.settings.keyBindings.fieldGuide)}</kbd> OPS
+              </button>
               <button type="button" onClick={() => engineRef.current?.setDeveloperPanelOpen(true)}>
                 <kbd>`</kbd> DEV
               </button>
@@ -581,7 +653,7 @@ export default function GameShell() {
         </div>
       )}
 
-      {snapshot.started && snapshot.paused && !snapshot.mapOpen && !snapshot.inventoryOpen && !snapshot.settingsOpen && !snapshot.inspectionOpen && !snapshot.incapacitated && !snapshot.devTools.panelOpen && snapshot.contextStatus === "ready" && (
+      {snapshot.started && snapshot.paused && !snapshot.mapOpen && !snapshot.inventoryOpen && !snapshot.settingsOpen && !snapshot.inspectionOpen && !snapshot.featureOverlay && !snapshot.incapacitated && !snapshot.devTools.panelOpen && snapshot.contextStatus === "ready" && (
         <section className="pause-panel" data-testid="pause-panel">
           <p className="eyebrow">FIELD LINK SUSPENDED</p>
           <h2>The frontier is holding.</h2>
@@ -598,6 +670,9 @@ export default function GameShell() {
             </button>
             <button type="button" onClick={() => engineRef.current?.setInventoryOpen(true)}>
               INVENTORY <span>{snapshot.inventoryItemCount} ITEMS</span>
+            </button>
+            <button type="button" onClick={() => engineRef.current?.setFeatureOverlay({ kind: "operations", tab: "contracts", station: "field" })}>
+              FIELD OPERATIONS <span>{snapshot.fieldGuideEntryIds.length} RECORDS</span>
             </button>
             <button type="button" onClick={() => engineRef.current?.setSettingsOpen(true)}>
               SETTINGS <span>LOCAL</span>
@@ -648,6 +723,61 @@ export default function GameShell() {
         <InventoryPanel
           snapshot={snapshot}
           onClose={() => engineRef.current?.resume()}
+          onUseItem={(item) => engineRef.current?.useInventoryItem(item)}
+        />
+      )}
+
+      {snapshot.started && snapshot.featureOverlay?.kind === "operations" && (
+        <OperationsPanel
+          snapshot={snapshot}
+          initialTab={snapshot.featureOverlay.tab}
+          station={snapshot.featureOverlay.station}
+          onClose={() => {
+            engineRef.current?.setFeatureOverlay(null);
+            engineRef.current?.resume();
+          }}
+          onAcceptContract={(contractId) => engineRef.current?.acceptContract(contractId)}
+          onTurnInContract={(contractId) => engineRef.current?.turnInContract(contractId)}
+          onCraft={(recipeId, station) => engineRef.current?.craftRecipe(recipeId, station)}
+        />
+      )}
+
+      {snapshot.started && snapshot.featureOverlay?.kind === "dialogue" && (
+        <DialoguePanel
+          snapshot={snapshot}
+          npcId={snapshot.featureOverlay.npcId}
+          onClose={() => {
+            engineRef.current?.setFeatureOverlay(null);
+            engineRef.current?.resume();
+          }}
+          onAcceptContract={(contractId) => engineRef.current?.acceptContract(contractId)}
+          onTurnInContract={(contractId) => engineRef.current?.turnInContract(contractId)}
+          onOpenOperations={() => engineRef.current?.setFeatureOverlay({ kind: "operations", tab: "contracts", station: "field" })}
+        />
+      )}
+
+      {snapshot.started && snapshot.featureOverlay?.kind === "container" && (
+        <ContainerPanel
+          snapshot={snapshot}
+          containerId={snapshot.featureOverlay.containerId}
+          onClose={() => {
+            engineRef.current?.setFeatureOverlay(null);
+            engineRef.current?.resume();
+          }}
+          onTakeItem={(containerId, item, quantity) => engineRef.current?.takeContainerItem(containerId, item, quantity)}
+          onTakeAll={(containerId) => engineRef.current?.takeAllContainerItems(containerId)}
+        />
+      )}
+
+      {snapshot.started && snapshot.featureOverlay?.kind === "rest" && (
+        <RestPanel
+          snapshot={snapshot}
+          site={snapshot.featureOverlay.site}
+          onClose={() => {
+            engineRef.current?.setFeatureOverlay(null);
+            engineRef.current?.resume();
+          }}
+          onRest={(optionId) => engineRef.current?.completeRest(optionId)}
         />
       )}
 
@@ -718,6 +848,15 @@ export default function GameShell() {
           <h2>{snapshot.lastLocationDiscovery.name}</h2>
           <blockquote>{snapshot.lastLocationDiscovery.note}</blockquote>
           <small>{snapshot.lastLocationDiscovery.region} · {snapshot.discoveredLocationIds.length} LOCATIONS LOGGED</small>
+        </aside>
+      )}
+
+      {snapshot.lastFeatureNotice && (
+        <aside className={`feature-notice feature-notice-${snapshot.lastFeatureNotice.type}`} data-testid="feature-notice" aria-live="polite">
+          <button type="button" aria-label="Dismiss gameplay notice" onClick={() => engineRef.current?.clearFeatureNotice()}>×</button>
+          <p>{snapshot.lastFeatureNotice.type.toUpperCase()} / FIELD UPDATE</p>
+          <h2>{snapshot.lastFeatureNotice.title}</h2>
+          <small>{snapshot.lastFeatureNotice.detail}</small>
         </aside>
       )}
 

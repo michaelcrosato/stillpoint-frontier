@@ -13,12 +13,20 @@ import {
 } from "../config";
 import type { EntityDiff } from "../gameplay/interactions";
 import type { ItemId } from "../gameplay/items";
+import type { CraftingStationKind } from "../gameplay/crafting";
+import type { ScanCandidate } from "../gameplay/fieldGuide";
+import type { ContainerState, ContainerStates, LootTableId } from "../gameplay/loot";
+import type { RestSiteDefinition } from "../gameplay/resting";
+import { updateAuthoredNpcTarget } from "../npcs/authoredNpc";
 import { randomRange, seededRandom } from "../core/random";
 import {
   PlanarCollisionIndex,
   colliderIntersectsVerticalRange,
+  isColliderLineOfSightClear,
   isPlanarPositionClear,
+  isTerrainLineOfSightClear,
   type PlanarCollider,
+  type SpatialPosition,
 } from "../systems/collision";
 import type { AuthoredDoorRuntime } from "./authoredDoor";
 import {
@@ -65,17 +73,47 @@ import {
   tenStorySupportCandidates,
 } from "./tenStoryBuilding";
 import {
+  applyPlacedRuntimeLighting,
+  createPlacedRuntime,
+  nearbyCampModifiers,
+  normalizePlacedEntities,
+  type PlacedEntity,
+  type PlacedRuntime,
+} from "./deployments";
+import { createSpawnGameplayFeatures } from "./spawnFeatures";
+import {
   VEGETATION_PROFILES,
   createGroundcoverGeometry,
   createWoodyGeometry,
   groundcoverCount,
   selectWoodySpecies,
   vegetationMaterial,
+  type GroundcoverKind,
   type WoodySpeciesDefinition,
 } from "./vegetation";
 
-export type WorldTargetKind = "beacon" | "pickup" | "resource" | "door" | "inspectable";
-export type WorldTargetAction = "scan" | "collect" | "harvest" | "toggle" | "inspect";
+export type WorldTargetKind =
+  | "beacon"
+  | "pickup"
+  | "resource"
+  | "door"
+  | "inspectable"
+  | "station"
+  | "container"
+  | "rest"
+  | "npc"
+  | "scannable"
+  | "animal";
+export type WorldTargetAction =
+  | "scan"
+  | "collect"
+  | "harvest"
+  | "toggle"
+  | "inspect"
+  | "craft"
+  | "loot"
+  | "rest"
+  | "talk";
 
 export interface InstancedTargetVisual {
   mesh: THREE.InstancedMesh;
@@ -108,6 +146,22 @@ export interface WorldTarget {
   doorId?: string;
   open?: boolean;
   inspection?: InspectionRecord;
+  fieldGuideId?: string;
+  stationId?: string;
+  stationKind?: CraftingStationKind;
+  containerId?: string;
+  lootTableId?: LootTableId;
+  empty?: boolean;
+  restSite?: RestSiteDefinition;
+  npcId?: string;
+}
+
+export interface WorldLineOfSightOptions {
+  ignoredColliderIds?: readonly string[];
+  maxVerticalDelta?: number;
+  checkTerrain?: boolean;
+  requireSameSupport?: boolean;
+  supportTolerance?: number;
 }
 
 interface ChunkRuntime {
@@ -138,6 +192,16 @@ const SETTLEMENT_BUILDINGS = {
   town: { count: 15, height: 14, color: 0x5c5548 },
   village: { count: 8, height: 7, color: 0x665c4b },
 } as const;
+
+const GROUNDCOVER_GUIDE: Readonly<Record<GroundcoverKind, { id: string; name: string }>> = {
+  reeds: { id: "guide:flora:river-reed:v1", name: "Greywater reed" },
+  ferns: { id: "guide:flora:sable-fern:v1", name: "Sablewood fern" },
+  heather: { id: "guide:flora:crown-heather:v1", name: "Crown heather" },
+  sage: { id: "guide:flora:steppe-sage:v1", name: "Warden sage" },
+  succulents: { id: "guide:flora:badland-succulent:v1", name: "Glassland succulent" },
+  dune_grass: { id: "guide:flora:coast-dunegrass:v1", name: "Salt dunegrass" },
+  meadow: { id: "guide:flora:meadow-grass:v1", name: "Grey meadow grass" },
+};
 
 const OPENING_RESERVATIONS = [
   { x: 0, z: 8, radius: 4.5 },
@@ -178,15 +242,38 @@ export class ChunkManager {
   private readonly collisionIndex = new PlanarCollisionIndex(16);
   private targetCache: WorldTarget[] = [];
   private nightLightingStrength = 0;
+  private worldMinutes = 450;
+  private placedRecords: PlacedEntity[] = [];
+  private placedRuntime: PlacedRuntime;
+  private placedLightFocusX = 0;
+  private placedLightFocusZ = 0;
+  private disposed = false;
 
   constructor(
     private readonly scene: THREE.Scene,
     private quality: QualityLevel,
     private readonly worldDiffs: Record<string, EntityDiff> = {},
     private readonly doorStates: Record<string, boolean> = {},
-  ) {}
+    private containerStates: ContainerStates = {},
+    placedEntities: readonly PlacedEntity[] = [],
+  ) {
+    this.placedRecords = normalizePlacedEntities(placedEntities);
+    this.placedRuntime = createPlacedRuntime(this.placedRecords, this.quality);
+    this.scene.add(this.placedRuntime.root);
+  }
 
   update(playerX: number, playerZ: number) {
+    if (this.disposed) return false;
+    if (
+      Math.hypot(
+        playerX - this.placedLightFocusX,
+        playerZ - this.placedLightFocusZ,
+      ) >= 2
+    ) {
+      this.placedLightFocusX = playerX;
+      this.placedLightFocusZ = playerZ;
+      this.applyPlacedLighting();
+    }
     const center = worldToChunk(playerX, playerZ);
     const nextActiveKey = chunkKey(center.x, center.z);
     if (nextActiveKey === this.activeChunkKey && this.loaded.size > 0) return false;
@@ -212,13 +299,77 @@ export class ChunkManager {
 
   setQuality(quality: QualityLevel) {
     this.quality = quality;
-    for (const chunk of this.loaded.values()) {
-      chunk.root.traverse((object) => {
+    const roots = [
+      ...[...this.loaded.values()].map((chunk) => chunk.root),
+      this.placedRuntime.root,
+    ];
+    for (const root of roots) {
+      root.traverse((object) => {
         if (object instanceof THREE.Mesh || object instanceof THREE.InstancedMesh) {
           object.castShadow = quality === "cinematic" && object.userData.shadow !== false;
         }
       });
     }
+    this.applyPlacedLighting();
+  }
+
+  setWorldMinutes(totalMinutes: number) {
+    if (!Number.isFinite(totalMinutes)) return;
+    this.worldMinutes = Math.max(0, totalMinutes);
+    for (const chunk of this.loaded.values()) {
+      for (const target of chunk.targets) {
+        if (target.kind === "npc") updateAuthoredNpcTarget(target, this.worldMinutes);
+      }
+    }
+  }
+
+  setContainerStates(states: Readonly<ContainerStates>) {
+    this.containerStates = Object.fromEntries(
+      Object.entries(states).map(([id, state]) => [id, {
+        opened: state.opened,
+        looted: state.looted,
+        remaining: { ...state.remaining },
+      }]),
+    );
+    for (const chunk of this.loaded.values()) {
+      for (const target of chunk.targets) {
+        if (!target.containerId) continue;
+        const state = this.containerStates[target.containerId];
+        target.empty = Boolean(state && Object.keys(state.remaining).length === 0);
+        this.applyContainerAppearance(target, state);
+      }
+    }
+    this.refreshCaches();
+  }
+
+  setPlacedEntities(records: readonly PlacedEntity[]) {
+    if (this.disposed) return;
+    this.disposeObjectTree(this.placedRuntime.root);
+    this.placedRecords = normalizePlacedEntities(records);
+    this.placedRuntime = createPlacedRuntime(this.placedRecords, this.quality);
+    this.scene.add(this.placedRuntime.root);
+    this.applyPlacedLighting();
+    this.refreshCaches();
+  }
+
+  get placedEntities() {
+    return this.placedRecords.map((record) => ({ ...record }));
+  }
+
+  get scanCandidates(): ScanCandidate[] {
+    return this.targetCache
+      .filter((target) => Boolean(target.fieldGuideId))
+      .map((target) => ({
+        id: target.id,
+        entryId: target.fieldGuideId!,
+        name: target.name,
+        position: {
+          x: target.position.x,
+          y: target.position.y,
+          z: target.position.z,
+        },
+        maxDistance: Math.max(18, target.maxDistance),
+      }));
   }
 
   setNightLighting(night: number) {
@@ -231,6 +382,7 @@ export class ChunkManager {
     for (const chunk of this.loaded.values()) {
       this.applyNightLighting(chunk.nightLighting);
     }
+    this.applyPlacedLighting();
   }
 
   get nightLightingSnapshot() {
@@ -293,6 +445,43 @@ export class ChunkManager {
     );
   }
 
+  hasLineOfSight(
+    origin: Readonly<SpatialPosition>,
+    target: Readonly<SpatialPosition>,
+    options: Readonly<WorldLineOfSightOptions> = {},
+  ) {
+    if (this.disposed) return false;
+    const maxVerticalDelta = options.maxVerticalDelta ?? Infinity;
+    if (
+      Number.isNaN(maxVerticalDelta) ||
+      maxVerticalDelta < 0 ||
+      Math.abs(target.y - origin.y) > maxVerticalDelta
+    ) {
+      return false;
+    }
+    if (options.requireSameSupport) {
+      const tolerance = options.supportTolerance ?? 0.85;
+      if (!Number.isFinite(tolerance) || tolerance < 0) return false;
+      const originSupport = this.sampleGroundHeight(origin.x, origin.z, origin.y);
+      const targetSupport = this.sampleGroundHeight(target.x, target.z, target.y);
+      if (Math.abs(targetSupport - originSupport) > tolerance) return false;
+    }
+    const candidates = this.collisionIndex.querySweep(origin, target, 0);
+    if (!isColliderLineOfSightClear(
+      origin,
+      target,
+      candidates,
+      new Set(options.ignoredColliderIds ?? []),
+    )) {
+      return false;
+    }
+    return options.checkTerrain === false || isTerrainLineOfSightClear(
+      origin,
+      target,
+      sampleTerrainHeight,
+    );
+  }
+
   get targets() {
     return this.targetCache;
   }
@@ -334,7 +523,10 @@ export class ChunkManager {
       ...twoStorySupportCandidates(x, z),
       ...tenStorySupportCandidates(x, z),
     ];
-    return overheadSupports.some((height) => height > feetY + PLAYER_HEIGHT * 0.72);
+    if (overheadSupports.some((height) => height > feetY + PLAYER_HEIGHT * 0.72)) {
+      return true;
+    }
+    return nearbyCampModifiers(this.placedRecords, x, z, feetY).sheltered;
   }
 
   restorePersistentState(
@@ -343,11 +535,15 @@ export class ChunkManager {
     scanned: readonly BeaconId[],
     playerX: number,
     playerZ: number,
+    containerStates: Readonly<ContainerStates> = this.containerStates,
+    placedEntities: readonly PlacedEntity[] = this.placedRecords,
   ) {
     for (const key of Object.keys(this.worldDiffs)) delete this.worldDiffs[key];
     Object.assign(this.worldDiffs, worldDiffs);
     for (const key of Object.keys(this.doorStates)) delete this.doorStates[key];
     Object.assign(this.doorStates, doorStates);
+    this.setContainerStates(containerStates);
+    this.setPlacedEntities(placedEntities);
     this.scanned = new Set(scanned);
     for (const chunk of this.loaded.values()) this.disposeChunk(chunk);
     this.loaded.clear();
@@ -390,22 +586,58 @@ export class ChunkManager {
   }
 
   dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
     for (const chunk of this.loaded.values()) this.disposeChunk(chunk);
     this.loaded.clear();
+    this.disposeObjectTree(this.placedRuntime.root);
+    this.placedRuntime = {
+      root: new THREE.Group(),
+      targets: [],
+      colliders: [],
+      lights: [],
+    };
+    this.placedRecords = [];
     this.refreshCaches();
   }
 
   private refreshCaches() {
+    if (this.disposed) {
+      this.colliderCache = [];
+      this.targetCache = [];
+      this.collisionIndex.rebuild([]);
+      return;
+    }
     const simulationChunks = [...this.loaded.values()].filter(
       (chunk) =>
         Math.abs(chunk.chunkX - this.activeChunkX) <= GAMEPLAY_CHUNK_RADIUS &&
         Math.abs(chunk.chunkZ - this.activeChunkZ) <= GAMEPLAY_CHUNK_RADIUS,
     );
-    this.colliderCache = simulationChunks.flatMap((chunk) => chunk.colliders);
+    const nearbyPlacedColliders = this.placedRuntime.colliders.filter((collider) => {
+      const chunk = worldToChunk(collider.x, collider.z);
+      return (
+        Math.abs(chunk.x - this.activeChunkX) <= GAMEPLAY_CHUNK_RADIUS &&
+        Math.abs(chunk.z - this.activeChunkZ) <= GAMEPLAY_CHUNK_RADIUS
+      );
+    });
+    const nearbyPlacedTargets = this.placedRuntime.targets.filter((target) => {
+      const chunk = worldToChunk(target.position.x, target.position.z);
+      return (
+        Math.abs(chunk.x - this.activeChunkX) <= GAMEPLAY_CHUNK_RADIUS &&
+        Math.abs(chunk.z - this.activeChunkZ) <= GAMEPLAY_CHUNK_RADIUS
+      );
+    });
+    this.colliderCache = [
+      ...simulationChunks.flatMap((chunk) => chunk.colliders),
+      ...nearbyPlacedColliders,
+    ];
     this.collisionIndex.rebuild(this.colliderCache);
-    this.targetCache = simulationChunks.flatMap((chunk) =>
-      chunk.targets.filter((target) => !this.worldDiffs[target.id]?.removed),
-    );
+    this.targetCache = [
+      ...simulationChunks.flatMap((chunk) =>
+        chunk.targets.filter((target) => !this.worldDiffs[target.id]?.removed),
+      ),
+      ...nearbyPlacedTargets,
+    ];
   }
 
   private loadChunk(chunkX: number, chunkZ: number) {
@@ -478,6 +710,14 @@ export class ChunkManager {
         root.add(target.root);
         targets.push(target);
       }
+      const gameplayFeatures = createSpawnGameplayFeatures(
+        this.quality,
+        this.worldMinutes,
+        this.containerStates,
+      );
+      root.add(gameplayFeatures.root);
+      colliders.push(...gameplayFeatures.colliders);
+      targets.push(...gameplayFeatures.targets);
     }
     this.addSettlementBuildings(
       root,
@@ -541,6 +781,11 @@ export class ChunkManager {
     // removed tree or rock can never reshuffle its neighbors on reload.
     for (let index = colliders.length - 1; index >= 0; index -= 1) {
       if (this.worldDiffs[colliders[index].id]?.removed) colliders.splice(index, 1);
+    }
+    for (const target of targets) {
+      if (target.containerId) {
+        this.applyContainerAppearance(target, this.containerStates[target.containerId]);
+      }
     }
 
     this.scene.add(root);
@@ -1000,6 +1245,16 @@ export class ChunkManager {
     }
   }
 
+  private applyPlacedLighting() {
+    applyPlacedRuntimeLighting(
+      this.placedRuntime,
+      this.quality,
+      this.nightLightingStrength,
+      this.placedLightFocusX,
+      this.placedLightFocusZ,
+    );
+  }
+
   private addRockField(
     root: THREE.Group,
     centerX: number,
@@ -1240,6 +1495,7 @@ export class ChunkManager {
       const quaternion = new THREE.Quaternion();
       const position = new THREE.Vector3();
       const scale = new THREE.Vector3();
+      let representative: THREE.Vector3 | null = null;
       let rendered = 0;
       for (let index = 0; index < decorativeCount; index += 1) {
         const placement = this.findSolidPlacement(
@@ -1261,6 +1517,7 @@ export class ChunkManager {
           sampleTerrainHeight(placement.x, placement.z),
           placement.z,
         );
+        representative ??= position.clone();
         quaternion.setFromEuler(
           new THREE.Euler(0, groundRandom() * Math.PI * 2, 0),
         );
@@ -1277,6 +1534,25 @@ export class ChunkManager {
       groundcover.instanceMatrix.needsUpdate = true;
       groundcover.computeBoundingSphere();
       root.add(groundcover);
+      if (representative) {
+        const guide = GROUNDCOVER_GUIDE[profile.groundcover];
+        const scanRoot = new THREE.Group();
+        scanRoot.name = `scan-subject:flora:${profile.groundcover}:${key}`;
+        scanRoot.position.copy(representative);
+        root.add(scanRoot);
+        targets.push({
+          id: scanRoot.name,
+          kind: "scannable",
+          action: "scan",
+          name: guide.name,
+          position: representative.clone().add(new THREE.Vector3(0, 0.45, 0)),
+          root: scanRoot,
+          maxDistance: 15,
+          hitsRequired: 0,
+          hits: 0,
+          fieldGuideId: guide.id,
+        });
+      }
     }
   }
 
@@ -1435,6 +1711,9 @@ export class ChunkManager {
     targets: WorldTarget[],
     target: WorldTarget,
   ) {
+    if (target.item && !target.fieldGuideId) {
+      target.fieldGuideId = `guide:resource:${target.item}:v1`;
+    }
     const diff = targetDiff(this.worldDiffs, target.id);
     if (diff.hits > 0 || diff.removed) {
       this.applyTargetVisualState(target, diff);
@@ -1479,6 +1758,9 @@ export class ChunkManager {
     colliders: PlanarCollider[],
     target: WorldTarget,
   ) {
+    if (target.item && !target.fieldGuideId) {
+      target.fieldGuideId = `guide:resource:${target.item}:v1`;
+    }
     const diff = targetDiff(this.worldDiffs, target.id);
     if (diff.hits > 0 || diff.removed) {
       this.applyTargetVisualState(target, diff);
@@ -1522,6 +1804,7 @@ export class ChunkManager {
       hitsRequired: 1,
       hits: 0,
       maxDistance: 5.2,
+      fieldGuideId: `guide:resource:${item}:v1`,
       position: root.position.clone(),
       root,
     };
@@ -1640,6 +1923,7 @@ export class ChunkManager {
       hitsRequired: 1,
       hits: 0,
       maxDistance: 6.25,
+      fieldGuideId: `guide:landmark:${beacon.id}:v1`,
       position: new THREE.Vector3(beacon.x, root.position.y + 3.2, beacon.z),
       root,
     };
@@ -1654,14 +1938,40 @@ export class ChunkManager {
     material.emissiveIntensity = 2.1;
   }
 
-  private disposeChunk(chunk: ChunkRuntime) {
-    this.scene.remove(chunk.root);
-    chunk.root.traverse((object) => {
+  private applyContainerAppearance(
+    target: WorldTarget,
+    state: Readonly<ContainerState> | undefined,
+  ) {
+    const empty = Boolean(state && Object.keys(state.remaining).length === 0);
+    target.empty = empty;
+    target.root.userData.opened = Boolean(state?.opened);
+    target.root.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return;
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      for (const material of materials) {
+        if (!(material instanceof THREE.MeshStandardMaterial)) continue;
+        material.emissive.setHex(state?.opened ? 0x20271f : 0x000000);
+        material.emissiveIntensity = state?.opened ? (empty ? 0.12 : 0.28) : 0;
+      }
+    });
+  }
+
+  private disposeObjectTree(root: THREE.Object3D) {
+    this.scene.remove(root);
+    const geometries = new Set<THREE.BufferGeometry>();
+    const materials = new Set<THREE.Material>();
+    root.traverse((object) => {
       if (!(object instanceof THREE.Mesh || object instanceof THREE.InstancedMesh)) return;
       if (object instanceof THREE.InstancedMesh) object.dispose();
-      object.geometry.dispose();
-      const materials = Array.isArray(object.material) ? object.material : [object.material];
-      for (const material of materials) material.dispose();
+      geometries.add(object.geometry);
+      const source = Array.isArray(object.material) ? object.material : [object.material];
+      for (const material of source) materials.add(material);
     });
+    for (const geometry of geometries) geometry.dispose();
+    for (const material of materials) material.dispose();
+  }
+
+  private disposeChunk(chunk: ChunkRuntime) {
+    this.disposeObjectTree(chunk.root);
   }
 }
