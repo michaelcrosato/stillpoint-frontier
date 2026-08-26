@@ -13,6 +13,12 @@ export const FieldGradeShader = {
     uGradingStrength: { value: 0.2 },
     uVignetteStrength: { value: 0.075 },
     uDitherStrength: { value: 0.42 },
+    uDaylight: { value: 1 },
+    uGoldenHour: { value: 0 },
+    uNight: { value: 0 },
+    uCloudCover: { value: 0 },
+    uPrecipitation: { value: 0 },
+    uDust: { value: 0 },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -28,6 +34,12 @@ export const FieldGradeShader = {
     uniform float uGradingStrength;
     uniform float uVignetteStrength;
     uniform float uDitherStrength;
+    uniform float uDaylight;
+    uniform float uGoldenHour;
+    uniform float uNight;
+    uniform float uCloudCover;
+    uniform float uPrecipitation;
+    uniform float uDust;
     varying vec2 vUv;
 
     float interleavedGradientNoise(vec2 pixel) {
@@ -42,6 +54,40 @@ export const FieldGradeShader = {
       vec3 frontierGrade = mix(vec3(luminance), color, 0.93);
       frontierGrade *= vec3(1.018, 1.004, 0.978);
       color = mix(color, frontierGrade, uGradingStrength);
+
+      // Keep the authored material palette intact while giving broad weather
+      // and time states a restrained, readable presentation signature.
+      float adaptiveStrength = clamp(uGradingStrength * 4.0, 0.0, 1.0);
+      vec3 atmosphericBalance = mix(
+        vec3(0.945, 0.982, 1.055),
+        vec3(1.0),
+        uDaylight
+      );
+      atmosphericBalance = mix(
+        atmosphericBalance,
+        vec3(1.085, 1.008, 0.885),
+        uGoldenHour * 0.78
+      );
+      atmosphericBalance = mix(
+        atmosphericBalance,
+        vec3(1.07, 0.985, 0.86),
+        uDust * 0.58
+      );
+      color *= mix(vec3(1.0), atmosphericBalance, adaptiveStrength * 0.62);
+
+      float weatherDesaturation = clamp(
+        uCloudCover * 0.045 +
+        uPrecipitation * 0.105 +
+        uNight * 0.035,
+        0.0,
+        0.16
+      );
+      luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
+      color = mix(
+        color,
+        vec3(luminance),
+        weatherDesaturation * adaptiveStrength
+      );
 
       vec2 centered = vUv * 2.0 - 1.0;
       float vignette = smoothstep(0.28, 1.42, dot(centered, centered));
@@ -60,5 +106,11 @@ export const FieldGradeShader = {
     uGradingStrength: { value: number };
     uVignetteStrength: { value: number };
     uDitherStrength: { value: number };
+    uDaylight: { value: number };
+    uGoldenHour: { value: number };
+    uNight: { value: number };
+    uCloudCover: { value: number };
+    uPrecipitation: { value: number };
+    uDust: { value: number };
   };
 };

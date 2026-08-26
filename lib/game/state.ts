@@ -138,6 +138,15 @@ export interface DeveloperToolsSnapshot {
   graphicsFeatures: GraphicsFeatureState;
 }
 
+export interface GraphicsPipelineSnapshot {
+  postProcessing: boolean;
+  fallback: boolean;
+  bloom: boolean;
+  gtao: boolean;
+  grading: boolean;
+  environmentReflections: boolean;
+}
+
 export interface GameSnapshot {
   ready: boolean;
   started: boolean;
@@ -162,6 +171,7 @@ export interface GameSnapshot {
   horizonTiles: number;
   horizonTriangles: number;
   horizonSettlementInstances: number;
+  horizonSettlementLightInstances: number;
   horizonSceneryInstances: number;
   horizonDetailDistanceMeters: number;
   horizonNearCellSize: number;
@@ -181,6 +191,7 @@ export interface GameSnapshot {
   gpuRenderMilliseconds: number | null;
   gpuTimerSupported: boolean;
   gpuTimerStatus: "unsupported" | "ready" | "pending" | "disjoint";
+  graphicsPipeline: GraphicsPipelineSnapshot;
   graphicsBenchmark: GraphicsBenchmarkSnapshot;
   forestStress: ForestStressDiagnostics;
   quality: QualityLevel;
@@ -274,6 +285,7 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
   horizonTiles: 0,
   horizonTriangles: 0,
   horizonSettlementInstances: 0,
+  horizonSettlementLightInstances: 0,
   horizonSceneryInstances: 0,
   horizonDetailDistanceMeters:
     WORLD_DETAIL_PRESETS[DEFAULT_GAME_SETTINGS.worldDetail].detailBlendEnd,
@@ -295,6 +307,14 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
   gpuRenderMilliseconds: null,
   gpuTimerSupported: false,
   gpuTimerStatus: "unsupported",
+  graphicsPipeline: {
+    postProcessing: false,
+    fallback: false,
+    bloom: false,
+    gtao: false,
+    grading: false,
+    environmentReflections: false,
+  },
   graphicsBenchmark: initialGraphicsBenchmarkSnapshot(),
   forestStress: {
     id: "canopy-load-lab",

@@ -58,6 +58,11 @@ describe("rendering policy", () => {
 
   it("uses deterministic linear grading before the output pass", () => {
     expect(FieldGradeShader.fragmentShader).toContain("interleavedGradientNoise");
+    expect(FieldGradeShader.fragmentShader).toContain("uGoldenHour");
+    expect(FieldGradeShader.fragmentShader).toContain("uPrecipitation");
+    expect(FieldGradeShader.fragmentShader).toContain("weatherDesaturation");
+    expect(FieldGradeShader.uniforms.uDaylight.value).toBe(1);
+    expect(FieldGradeShader.uniforms.uDust.value).toBe(0);
     expect(FieldGradeShader.fragmentShader).not.toContain("uTime");
     expect(FieldGradeShader.fragmentShader).not.toContain("toneMapping");
   });

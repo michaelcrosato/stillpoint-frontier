@@ -7,6 +7,7 @@ export { environmentMapSignature } from "./RenderingPolicy";
 
 export interface EnvironmentMapDiagnostics {
   active: boolean;
+  enabled: boolean;
   signature: string | null;
   revision: number;
   size: number;
@@ -22,6 +23,7 @@ export class EnvironmentMapRuntime {
   private signature: string | null = null;
   private revision = 0;
   private quality: QualityLevel;
+  private enabled = true;
   private disposed = false;
 
   constructor(
@@ -96,8 +98,18 @@ export class EnvironmentMapRuntime {
     this.applyQuality();
   }
 
+  setEnabled(enabled: boolean) {
+    if (this.disposed || this.enabled === enabled) return;
+    this.enabled = enabled;
+    this.signature = null;
+    if (!enabled && this.scene.environment === this.target?.texture) {
+      this.scene.environment = null;
+    }
+    this.applyQuality();
+  }
+
   present(state: Readonly<EnvironmentVisualState>) {
-    if (this.disposed) return;
+    if (this.disposed || !this.enabled) return;
     const nextSignature = environmentMapSignature(state, this.quality);
     if (nextSignature === this.signature) return;
 
@@ -148,6 +160,7 @@ export class EnvironmentMapRuntime {
   get diagnostics(): EnvironmentMapDiagnostics {
     return {
       active: this.scene.environment === this.target?.texture,
+      enabled: this.enabled,
       signature: this.signature,
       revision: this.revision,
       size: QUALITY_PRESETS[this.quality].environmentMap.size,
@@ -169,6 +182,8 @@ export class EnvironmentMapRuntime {
 
   private applyQuality() {
     this.scene.environmentIntensity =
-      QUALITY_PRESETS[this.quality].environmentMap.intensity;
+      this.enabled
+        ? QUALITY_PRESETS[this.quality].environmentMap.intensity
+        : 0;
   }
 }

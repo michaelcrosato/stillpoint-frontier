@@ -527,9 +527,7 @@ export class Engine {
       this.quality,
       saved.worldMinutes,
     );
-    this.environment.setShadowStabilization(
-      this.graphicsFeatures.shadowStabilization,
-    );
+    this.applyGraphicsFeatures();
     this.environment.setHorizonMode(this.horizonMode);
     if (!saved.player) {
       this.player.position.y = sampleTerrainHeight(
@@ -1555,6 +1553,8 @@ export class Engine {
 
   private applyGraphicsFeatures() {
     this.materialLibrary.setFeatures(this.graphicsFeatures);
+    this.renderPipeline.setFeatures(this.graphicsFeatures);
+    this.horizon.setGraphicsFeatures(this.graphicsFeatures);
     this.environment.setShadowStabilization(
       this.graphicsFeatures.shadowStabilization,
     );
@@ -2399,6 +2399,7 @@ export class Engine {
       horizonTiles: horizon.terrainTiles,
       horizonTriangles: horizon.terrainTriangles,
       horizonSettlementInstances: horizon.settlementInstances,
+      horizonSettlementLightInstances: horizon.settlementLightInstances,
       horizonSceneryInstances: horizon.sceneryInstances,
       horizonDetailDistanceMeters: horizon.detailDistanceMeters,
       horizonNearCellSize: horizon.nearCellSize,
@@ -2418,6 +2419,14 @@ export class Engine {
       gpuRenderMilliseconds: graphics.gpuRenderMilliseconds,
       gpuTimerSupported: graphics.gpuTimerSupported,
       gpuTimerStatus: graphics.gpuTimerStatus,
+      graphicsPipeline: {
+        postProcessing: graphics.postProcessing,
+        fallback: graphics.postProcessingFallback,
+        bloom: graphics.bloom,
+        gtao: graphics.gtao,
+        grading: graphics.grading,
+        environmentReflections: graphics.environmentMap.active,
+      },
       graphicsBenchmark: this.graphicsBenchmark.snapshot,
       forestStress: this.forestStress.diagnostics,
       quality: this.quality,

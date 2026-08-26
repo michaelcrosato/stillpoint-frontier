@@ -153,3 +153,7 @@ stops independently refine the render-only near ring and scenery within explicit
 and instance caps while resident gameplay counts remain fixed. Browser tests lock
 that separation so a future draw-distance change cannot inflate interaction or citizen
 work, and the resource plateau test cycles horizon modes during relocation to catch leaks.
+Horizon unit coverage also caps deterministic city-light points at 320/eight draws, verifies
+their bloom layer, and exercises day/night plus session-toggle visibility. Rendering-policy tests
+lock the weather/time grade inputs while the developer graphics-module flow resets every
+post-processing, reflection, skyline, shadow, detail, and wind switch to its default-on state.

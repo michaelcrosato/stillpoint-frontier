@@ -259,6 +259,15 @@ The initial target is an RTX 3060-class machine at 1440p/60:
 - A camera-centered procedural sky renders sun/moon discs, horizon glow, and multi-layer
   wind-driven clouds without texture assets. One shared world-space water shader renders all
   river and sea chunks with seamless ripples, Fresnel tinting, and weather-aware sun glint.
+- The compositor keeps ACES/output conversion last, with independently switchable selective
+  bloom, Ultra-only near-field GTAO, and a restrained atmosphere-aware grade. The grade responds
+  to daylight, golden hour, cloud, rain, dust, and night without changing simulation state. If an
+  optional compositor path throws, the renderer resets its target/state and retries the frame on
+  the direct path; a world-material failure still reaches the renderer interrupt.
+- Distant town, city, and megacity proxies add at most 320 deterministic window/rooftop point
+  lights across no more than eight frustum-cullable draws. They are emissive bloom sources only:
+  no real lights, shadows, interiors, collision, citizens, or saves. Night/cloud state controls
+  their fade and a session A/B switch can remove the layer entirely.
 - Renderer diagnostics expose FPS, active chunks, selected horizon, far tiles, far triangles,
   settlement proxies, optical visibility, drawing-buffer resolution/DPR, draw calls, and
   CPU/GPU render time to the HUD and tests. A deliberate 10-second capture compares p95

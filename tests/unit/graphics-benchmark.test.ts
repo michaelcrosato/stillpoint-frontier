@@ -6,6 +6,7 @@ import {
   percentile,
   summarizeMetric,
 } from "../../lib/game/developer/GraphicsBenchmark";
+import { DEFAULT_GRAPHICS_FEATURES } from "../../lib/game/rendering/GraphicsFeatures";
 
 function captureContext(): GraphicsBenchmarkContext {
   return {
@@ -33,11 +34,7 @@ function captureContext(): GraphicsBenchmarkContext {
       precipitation: "none",
     },
     flashlightOn: false,
-    graphicsFeatures: {
-      shadowStabilization: true,
-      surfaceDetail: true,
-      vegetationWind: true,
-    },
+    graphicsFeatures: { ...DEFAULT_GRAPHICS_FEATURES },
     hardware: {
       userAgent: "test-browser",
       hardwareConcurrency: 8,

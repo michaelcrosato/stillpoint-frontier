@@ -552,6 +552,11 @@ test("toggles independent session-only graphics modules", async ({ page }) => {
       shadowStabilization: true,
       surfaceDetail: true,
       vegetationWind: true,
+      atmosphericGrade: true,
+      horizonLights: true,
+      selectiveBloom: true,
+      ambientOcclusion: true,
+      environmentReflections: true,
     });
 
   const windToggle = page.getByTestId("graphics-feature-vegetationWind");
@@ -562,6 +567,25 @@ test("toggles independent session-only graphics modules", async ({ page }) => {
     () => window.__STILLPOINT_TEST__?.graphicsFeatures().vegetationWind,
   )).toBe(false);
 
+  const gradeToggle = page.getByTestId("graphics-feature-atmosphericGrade");
+  await gradeToggle.click();
+  await expect(gradeToggle).toHaveAttribute("aria-pressed", "false");
+  expect(await page.evaluate(
+    () => window.__STILLPOINT_TEST__?.graphics().grading,
+  )).toBe(false);
+
+  const reflectionToggle = page.getByTestId(
+    "graphics-feature-environmentReflections",
+  );
+  await reflectionToggle.click();
+  await expect(reflectionToggle).toHaveAttribute("aria-pressed", "false");
+  expect(await page.evaluate(
+    () => window.__STILLPOINT_TEST__?.graphics().environmentMap.enabled,
+  )).toBe(false);
+  expect(await page.evaluate(
+    () => window.__STILLPOINT_TEST__?.graphics().environmentMap.active,
+  )).toBe(false);
+
   await page.getByRole("button", { name: /reset overrides/i }).click();
   await expect(windToggle).toHaveAttribute("aria-pressed", "true");
   expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.graphicsFeatures()))
@@ -569,6 +593,11 @@ test("toggles independent session-only graphics modules", async ({ page }) => {
       shadowStabilization: true,
       surfaceDetail: true,
       vegetationWind: true,
+      atmosphericGrade: true,
+      horizonLights: true,
+      selectiveBloom: true,
+      ambientOcclusion: true,
+      environmentReflections: true,
     });
 
   await page.getByTestId("graphics-feature-surfaceDetail").click();
@@ -578,6 +607,11 @@ test("toggles independent session-only graphics modules", async ({ page }) => {
       shadowStabilization: true,
       surfaceDetail: true,
       vegetationWind: true,
+      atmosphericGrade: true,
+      horizonLights: true,
+      selectiveBloom: true,
+      ambientOcclusion: true,
+      environmentReflections: true,
     });
 });
 

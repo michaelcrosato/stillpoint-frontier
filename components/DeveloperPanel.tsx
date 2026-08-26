@@ -248,6 +248,7 @@ export default function DeveloperPanel({
             <span>LOD {WORLD_DETAIL_PRESETS[snapshot.settings.worldDetail].label} / {snapshot.horizonNearCellSize} M</span>
             <span>SCENERY {snapshot.horizonSceneryInstances}</span>
             <span>SETTLEMENTS {snapshot.horizonSettlementInstances}</span>
+            <span>CITY LIGHTS {snapshot.horizonSettlementLightInstances}</span>
             <strong>OPTICAL {formatDistance(snapshot.environment.visibilityMeters)}</strong>
           </p>
           <p className="dev-horizon-note">
@@ -264,6 +265,14 @@ export default function DeveloperPanel({
           <p className="dev-horizon-note">
             Toggle one module at a time, close the panel, and compare the same
             viewpoint. Captures record the active module state.
+          </p>
+          <p className="dev-horizon-status" data-testid="graphics-pipeline-status">
+            <span>PIPELINE {snapshot.graphicsPipeline.postProcessing ? "COMPOSITOR" : "DIRECT"}</span>
+            <span>BLOOM {snapshot.graphicsPipeline.bloom ? "ACTIVE" : "OFF"}</span>
+            <span>GTAO {snapshot.graphicsPipeline.gtao ? "ACTIVE" : "OFF"}</span>
+            <span>GRADE {snapshot.graphicsPipeline.grading ? "ACTIVE" : "OFF"}</span>
+            <span>PMREM {snapshot.graphicsPipeline.environmentReflections ? "ACTIVE" : "OFF"}</span>
+            <strong>{snapshot.graphicsPipeline.fallback ? "SAFE FALLBACK" : "NOMINAL"}</strong>
           </p>
           <div className="dev-feature-grid">
             {GRAPHICS_FEATURE_DEFINITIONS.map((feature) => {

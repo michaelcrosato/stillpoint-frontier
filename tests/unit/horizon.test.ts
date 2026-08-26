@@ -107,6 +107,31 @@ describe("fixed-budget horizon HLOD", () => {
     horizon.dispose();
   });
 
+  it("adds capped bloom-ready skyline lights only when night presentation is enabled", () => {
+    const scene = new THREE.Scene();
+    const horizon = new HorizonRenderer(scene, "unlimited", 2);
+    horizon.update(0, 8);
+    const diagnostics = horizon.diagnostics;
+    expect(diagnostics.settlementLightInstances).toBeGreaterThan(0);
+    expect(diagnostics.settlementLightInstances).toBeLessThanOrEqual(320);
+    expect(diagnostics.settlementLightDrawCalls).toBeLessThanOrEqual(8);
+
+    horizon.presentEnvironment({ surfaceWetness: 0, night: 1, cloudCover: 0.2 });
+    const lights = scene.getObjectByName("horizon-settlement-lights:0") ??
+      scene.getObjectByProperty("type", "Points");
+    expect(lights).toBeInstanceOf(THREE.Points);
+    expect(lights?.visible).toBe(true);
+    expect(lights?.layers.isEnabled(1)).toBe(true);
+
+    horizon.setGraphicsFeatures({ horizonLights: false });
+    expect(lights?.visible).toBe(false);
+    horizon.setGraphicsFeatures({ horizonLights: true });
+    expect(lights?.visible).toBe(true);
+    horizon.presentEnvironment({ surfaceWetness: 0, night: 0, cloudCover: 0 });
+    expect(lights?.visible).toBe(false);
+    horizon.dispose();
+  });
+
   it("only rebuilds on a snapped chunk crossing or a real mode change", () => {
     const scene = new THREE.Scene();
     const horizon = new HorizonRenderer(scene, "standard");

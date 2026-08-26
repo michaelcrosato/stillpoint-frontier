@@ -8,6 +8,8 @@ import {
   type HorizonRingDefinition,
 } from "../config";
 import { seededRandom } from "../core/random";
+import { BLOOM_LAYER } from "../rendering/Bloom";
+import type { GraphicsFeatureState } from "../rendering/GraphicsFeatures";
 import {
   SETTLEMENTS,
   WATER_LEVEL,
@@ -39,6 +41,7 @@ import {
 const TERRAIN_DEPRESSION = 0.08;
 const HORIZON_SKIRT_DEPTH = 18;
 const SETTLEMENT_SECTORS = 8;
+const MAX_HORIZON_LIGHTS = 320;
 
 interface PatchBounds {
   side: "north" | "south" | "west" | "east";
@@ -59,6 +62,7 @@ interface HorizonSettlementRecipe {
   yaw: number;
   color: number;
   sector: number;
+  tier: SettlementTier;
 }
 
 interface TerrainRingRuntime {
@@ -76,6 +80,8 @@ export interface HorizonDiagnostics {
   terrainTiles: number;
   terrainTriangles: number;
   settlementInstances: number;
+  settlementLightInstances: number;
+  settlementLightDrawCalls: number;
   sceneryInstances: number;
   sceneryDrawCalls: number;
   rebuilds: number;
@@ -101,6 +107,13 @@ const TIER_HEIGHTS: Readonly<Record<SettlementTier, readonly [number, number]>> 
   town: [7, 18],
   city: [14, 42],
   megacity: [24, 118],
+};
+
+const TIER_LIGHT_COUNTS: Readonly<Record<SettlementTier, number>> = {
+  village: 0,
+  town: 1,
+  city: 2,
+  megacity: 4,
 };
 
 function clampToWorld(value: number) {
@@ -409,6 +422,7 @@ export function horizonSettlementRecipes(
           SETTLEMENT_SECTORS - 1,
           Math.floor((bearing / (Math.PI * 2)) * SETTLEMENT_SECTORS),
         ),
+        tier: settlement.tier,
       });
     }
   }
@@ -435,6 +449,18 @@ export class HorizonRenderer {
     vertexColors: true,
     fog: true,
   });
+  private readonly settlementLightMaterial = new THREE.PointsMaterial({
+    color: 0xffffff,
+    size: 1.45,
+    sizeAttenuation: false,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    fog: true,
+    toneMapped: false,
+  });
   private readonly sceneryMaterial = new THREE.MeshLambertMaterial({
     color: 0xffffff,
     vertexColors: true,
@@ -445,11 +471,15 @@ export class HorizonRenderer {
   private readonly sceneryRockGeometry = new THREE.DodecahedronGeometry(1, 0);
   private terrainRings = new Map<number, TerrainRingRuntime>();
   private settlementMeshes: THREE.InstancedMesh[] = [];
+  private settlementLightMeshes: THREE.Points[] = [];
   private sceneryMeshes: THREE.InstancedMesh[] = [];
   private mode: HorizonMode;
   private detailLevel: WorldDetailLevel;
   private anchor: { x: number; z: number } | null = null;
   private settlementInstances = 0;
+  private settlementLightInstances = 0;
+  private horizonLightsEnabled = true;
+  private horizonLightVisibility = 0;
   private sceneryInstances = 0;
   private rebuilds = 0;
 
@@ -460,6 +490,7 @@ export class HorizonRenderer {
   ) {
     this.mode = mode;
     this.detailLevel = normalizeWorldDetailLevel(detailLevel);
+    this.settlementLightMaterial.color.setRGB(1.65, 1.35, 1.05);
     this.group.name = "horizon-hlod";
     this.group.renderOrder = -1;
     this.scene.add(this.group);
@@ -489,7 +520,19 @@ export class HorizonRenderer {
     return true;
   }
 
-  presentEnvironment(state: { surfaceWetness: number }) {
+  setGraphicsFeatures(
+    features: Pick<GraphicsFeatureState, "horizonLights">,
+  ) {
+    if (this.horizonLightsEnabled === features.horizonLights) return;
+    this.horizonLightsEnabled = features.horizonLights;
+    this.updateHorizonLightPresentation();
+  }
+
+  presentEnvironment(state: {
+    surfaceWetness: number;
+    night?: number;
+    cloudCover?: number;
+  }) {
     const wetness = THREE.MathUtils.clamp(
       Number.isFinite(state.surfaceWetness) ? state.surfaceWetness : 0,
       0,
@@ -497,6 +540,22 @@ export class HorizonRenderer {
     );
     this.terrainMaterial.roughness = THREE.MathUtils.lerp(0.96, 0.55, wetness);
     this.terrainMaterial.envMapIntensity = 0.72 * (1 + 0.48 * wetness);
+    const night = THREE.MathUtils.clamp(
+      Number.isFinite(state.night) ? (state.night as number) : 0,
+      0,
+      1,
+    );
+    const cloudCover = THREE.MathUtils.clamp(
+      Number.isFinite(state.cloudCover) ? (state.cloudCover as number) : 0,
+      0,
+      1,
+    );
+    this.horizonLightVisibility = THREE.MathUtils.clamp(
+      ((night - 0.06) / 0.7) * (1 + cloudCover * 0.12),
+      0,
+      1,
+    );
+    this.updateHorizonLightPresentation();
   }
 
   update(playerX: number, playerZ: number) {
@@ -527,6 +586,8 @@ export class HorizonRenderer {
         0,
       ),
       settlementInstances: this.settlementInstances,
+      settlementLightInstances: this.settlementLightInstances,
+      settlementLightDrawCalls: this.settlementLightMeshes.length,
       sceneryInstances: this.sceneryInstances,
       sceneryDrawCalls: this.sceneryMeshes.length,
       rebuilds: this.rebuilds,
@@ -540,6 +601,7 @@ export class HorizonRenderer {
     this.terrainMaterial.dispose();
     this.settlementGeometry.dispose();
     this.settlementMaterial.dispose();
+    this.settlementLightMaterial.dispose();
     this.sceneryTrunkGeometry.dispose();
     this.sceneryCrownGeometry.dispose();
     this.sceneryRockGeometry.dispose();
@@ -558,8 +620,14 @@ export class HorizonRenderer {
       this.group.remove(mesh);
       mesh.dispose();
     }
+    for (const points of this.settlementLightMeshes) {
+      this.group.remove(points);
+      points.geometry.dispose();
+    }
     this.settlementMeshes = [];
+    this.settlementLightMeshes = [];
     this.settlementInstances = 0;
+    this.settlementLightInstances = 0;
   }
 
   private clearSceneryMeshes() {
@@ -797,5 +865,88 @@ export class HorizonRenderer {
       this.settlementMeshes.push(mesh);
       this.group.add(mesh);
     }
+    this.rebuildSettlementLights(sectors);
+  }
+
+  private rebuildSettlementLights(
+    sectors: ReadonlyArray<ReadonlyArray<HorizonSettlementRecipe>>,
+  ) {
+    if (!this.anchor) return;
+    let remaining = MAX_HORIZON_LIGHTS;
+    const color = new THREE.Color();
+    for (const [sectorIndex, recipes] of sectors.entries()) {
+      if (remaining <= 0) break;
+      const positions: number[] = [];
+      const colors: number[] = [];
+      for (const recipe of recipes) {
+        if (remaining <= 0) break;
+        const random = seededRandom(
+          `${WORLD_SEED}:horizon-light:v1:${Math.round(recipe.x * 10)}:${Math.round(recipe.z * 10)}`,
+        );
+        const lightCount = Math.min(TIER_LIGHT_COUNTS[recipe.tier], remaining);
+        const towardX = this.anchor.x - recipe.x;
+        const towardZ = this.anchor.z - recipe.z;
+        const towardLength = Math.max(0.001, Math.hypot(towardX, towardZ));
+        const facingX = towardX / towardLength;
+        const facingZ = towardZ / towardLength;
+        const sideX = -facingZ;
+        const sideZ = facingX;
+        const facadeRadius = Math.hypot(recipe.width, recipe.depth) * 0.51 + 0.18;
+        for (let index = 0; index < lightCount; index += 1) {
+          const rooftop = recipe.tier === "megacity" && index === lightCount - 1;
+          if (rooftop) {
+            positions.push(
+              recipe.x,
+              recipe.y + recipe.height + 0.7 + random() * 1.4,
+              recipe.z,
+            );
+            color.setRGB(1, 0.055, 0.018);
+          } else {
+            const lateral =
+              (random() - 0.5) * Math.min(recipe.width, recipe.depth) * 0.54;
+            positions.push(
+              recipe.x + facingX * facadeRadius + sideX * lateral,
+              recipe.y + recipe.height * (0.28 + random() * 0.58),
+              recipe.z + facingZ * facadeRadius + sideZ * lateral,
+            );
+            color.setHSL(0.075 + random() * 0.065, 0.82, 0.7);
+          }
+          colors.push(color.r, color.g, color.b);
+          remaining -= 1;
+        }
+      }
+      if (positions.length === 0) continue;
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute(positions, 3),
+      );
+      geometry.setAttribute(
+        "color",
+        new THREE.Float32BufferAttribute(colors, 3),
+      );
+      geometry.computeBoundingBox();
+      geometry.computeBoundingSphere();
+      const points = new THREE.Points(geometry, this.settlementLightMaterial);
+      points.name = `horizon-settlement-lights:${sectorIndex}`;
+      points.castShadow = false;
+      points.receiveShadow = false;
+      points.frustumCulled = true;
+      points.renderOrder = -0.25;
+      points.userData.shadow = false;
+      points.layers.enable(BLOOM_LAYER);
+      this.settlementLightInstances += positions.length / 3;
+      this.settlementLightMeshes.push(points);
+      this.group.add(points);
+    }
+    this.updateHorizonLightPresentation();
+  }
+
+  private updateHorizonLightPresentation() {
+    const visible = this.horizonLightsEnabled && this.horizonLightVisibility > 0.01;
+    this.settlementLightMaterial.opacity = visible
+      ? this.horizonLightVisibility * 0.82
+      : 0;
+    for (const points of this.settlementLightMeshes) points.visible = visible;
   }
 }

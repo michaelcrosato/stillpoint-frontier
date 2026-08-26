@@ -7,13 +7,27 @@ import {
 } from "../../lib/game/rendering/GraphicsFeatures";
 
 describe("graphics feature policy", () => {
-  it("defines three default-on, independently addressable modules", () => {
+  it("defines default-on, independently addressable renderer modules", () => {
     expect(GRAPHICS_FEATURE_IDS).toEqual([
       "shadowStabilization",
       "surfaceDetail",
       "vegetationWind",
+      "atmosphericGrade",
+      "horizonLights",
+      "selectiveBloom",
+      "ambientOcclusion",
+      "environmentReflections",
     ]);
-    expect(Object.values(DEFAULT_GRAPHICS_FEATURES)).toEqual([true, true, true]);
+    expect(Object.values(DEFAULT_GRAPHICS_FEATURES)).toEqual([
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+    ]);
     expect(isGraphicsFeatureId("vegetationWind")).toBe(true);
     expect(isGraphicsFeatureId("rayTracing")).toBe(false);
   });

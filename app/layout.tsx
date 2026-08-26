@@ -5,10 +5,10 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://stillpoint-frontier.michaelcrosato.chatgpt.site"),
   title: "Stillpoint Frontier",
   description:
-    "A WebGPU-first, low-motion open-world exploration game built with PlayCanvas Engine v2.",
+    "A low-motion first-person open-world survey game across a streamed 96 km territory of biomes, settlements, movement, navigation, and gathering.",
   openGraph: {
     title: "Stillpoint Frontier",
-    description: "Restore the silent relays. Reconnect the frontier.",
+    description: "Cross the Greywater. Read the land. Shape the frontier.",
     type: "website",
     images: [
       {
@@ -22,7 +22,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Stillpoint Frontier",
-    description: "Restore the silent relays. Reconnect the frontier.",
+    description: "Cross the Greywater. Read the land. Shape the frontier.",
     images: ["/og.png"],
   },
   icons: {

@@ -26,6 +26,7 @@ import {
   type GpuFrameTimingSample,
   type GpuFrameTimerStatus,
 } from "./GpuFrameTimer";
+import type { GraphicsFeatureState } from "./GraphicsFeatures";
 
 export {
   composerSampleCount,
@@ -50,6 +51,8 @@ export interface GraphicsDiagnostics {
   maxSamples: number;
   quality: QualityLevel;
   postProcessing: boolean;
+  postProcessingFallback: boolean;
+  postProcessingFailureCount: number;
   bloom: boolean;
   gtao: boolean;
   grading: boolean;
@@ -69,6 +72,14 @@ export interface GraphicsDiagnostics {
   gpuRenderer: string;
   environmentMap: EnvironmentMapDiagnostics;
 }
+
+type RenderPipelineFeatureState = Pick<
+  GraphicsFeatureState,
+  | "atmosphericGrade"
+  | "selectiveBloom"
+  | "ambientOcclusion"
+  | "environmentReflections"
+>;
 
 export interface RenderFrameMetrics {
   frameToken: number;
@@ -144,12 +155,20 @@ export class RenderPipeline {
   >();
   private readonly bloomHidden = new Set<THREE.Object3D>();
   private readonly gtaoCompatible: boolean;
+  private features: RenderPipelineFeatureState = {
+    atmosphericGrade: true,
+    selectiveBloom: true,
+    ambientOcclusion: true,
+    environmentReflections: true,
+  };
   private quality: QualityLevel;
   private width = 1;
   private height = 1;
   private pixelRatio = 1;
   private frameToken = 0;
   private lastCpuRenderMilliseconds = 0;
+  private postProcessingFallback = false;
+  private postProcessingFailureCount = 0;
   private disposed = false;
 
   constructor(private readonly options: RenderPipelineOptions) {
@@ -244,7 +263,7 @@ export class RenderPipeline {
 
   async compile() {
     const previousTarget = this.renderer.getRenderTarget();
-    if (QUALITY_PRESETS[this.quality].postProcessing.enabled) {
+    if (this.usesPostProcessing()) {
       this.renderer.setRenderTarget(this.composer.readBuffer);
     }
     try {
@@ -274,9 +293,21 @@ export class RenderPipeline {
     const cpuStartedAt = performance.now();
     this.renderer.info.reset();
     try {
-      if (QUALITY_PRESETS[this.quality].postProcessing.enabled) {
-        if (this.bloomPass.enabled) this.renderSelectiveBloom(deltaSeconds);
-        this.composer.render(deltaSeconds);
+      if (this.usesPostProcessing()) {
+        try {
+          if (this.bloomPass.enabled) this.renderSelectiveBloom(deltaSeconds);
+          this.composer.render(deltaSeconds);
+        } catch {
+          // Optional full-screen stages must never make the simulation
+          // unplayable. Reset Three's target/state and retry the same frame on
+          // the direct renderer. A world-material failure will throw again on
+          // that direct path and still reach the engine's renderer interrupt.
+          this.postProcessingFallback = true;
+          this.postProcessingFailureCount += 1;
+          this.renderer.setRenderTarget(null);
+          this.renderer.resetState();
+          this.renderer.render(this.options.scene, this.options.camera);
+        }
       } else {
         this.renderer.render(this.options.scene, this.options.camera);
       }
@@ -294,6 +325,31 @@ export class RenderPipeline {
 
   presentEnvironment(state: Readonly<EnvironmentVisualState>) {
     this.environmentMap.present(state);
+    this.gradePass.uniforms.uDaylight.value = state.daylight;
+    this.gradePass.uniforms.uGoldenHour.value = state.goldenHour;
+    this.gradePass.uniforms.uNight.value = state.night;
+    this.gradePass.uniforms.uCloudCover.value = state.cloudCover;
+    this.gradePass.uniforms.uPrecipitation.value = state.precipitationRate;
+    this.gradePass.uniforms.uDust.value = state.dust;
+  }
+
+  setFeatures(features: RenderPipelineFeatureState) {
+    if (this.disposed) return;
+    const changed =
+      features.atmosphericGrade !== this.features.atmosphericGrade ||
+      features.selectiveBloom !== this.features.selectiveBloom ||
+      features.ambientOcclusion !== this.features.ambientOcclusion ||
+      features.environmentReflections !== this.features.environmentReflections;
+    if (!changed) return;
+    this.features = {
+      atmosphericGrade: features.atmosphericGrade,
+      selectiveBloom: features.selectiveBloom,
+      ambientOcclusion: features.ambientOcclusion,
+      environmentReflections: features.environmentReflections,
+    };
+    this.postProcessingFallback = false;
+    this.environmentMap.setEnabled(features.environmentReflections);
+    this.configure(this.quality);
   }
 
   resize(width: number, height: number, devicePixelRatio: number) {
@@ -331,6 +387,7 @@ export class RenderPipeline {
     const samplesChanged =
       this.composer.renderTarget1.samples !== this.composerSamples(quality);
     this.quality = quality;
+    this.postProcessingFallback = false;
     if (samplesChanged) {
       this.composer.reset(this.createComposerTarget(quality));
     }
@@ -346,6 +403,8 @@ export class RenderPipeline {
       this.renderer.getContext() as WebGL2RenderingContext,
     );
     this.environmentMap.handleContextRestored();
+    this.environmentMap.setEnabled(this.features.environmentReflections);
+    this.postProcessingFallback = false;
     this.composer.reset(this.createComposerTarget(this.quality));
     this.bloomComposer.reset(this.createBloomTarget());
     this.resize(this.width, this.height, window.devicePixelRatio);
@@ -353,8 +412,8 @@ export class RenderPipeline {
 
   get diagnostics(): GraphicsDiagnostics {
     const context = this.renderer.getContext();
-    const preset = QUALITY_PRESETS[this.quality];
     const timer = this.gpuFrameTimer.diagnostics;
+    const postProcessing = this.usesPostProcessing();
     this.renderer.getDrawingBufferSize(this.drawingBufferSize);
     return {
       webgl2: this.renderer.capabilities.isWebGL2,
@@ -364,10 +423,12 @@ export class RenderPipeline {
       compositorSamples: this.composer.renderTarget1.samples,
       maxSamples: this.renderer.capabilities.maxSamples,
       quality: this.quality,
-      postProcessing: preset.postProcessing.enabled,
-      bloom: this.bloomPass.enabled,
-      gtao: this.gtaoPass.enabled,
-      grading: this.gradePass.enabled,
+      postProcessing,
+      postProcessingFallback: this.postProcessingFallback,
+      postProcessingFailureCount: this.postProcessingFailureCount,
+      bloom: postProcessing && this.bloomPass.enabled,
+      gtao: postProcessing && this.gtaoPass.enabled,
+      grading: postProcessing && this.gradePass.enabled,
       drawCalls: this.renderer.info.render.calls,
       triangles: this.renderer.info.render.triangles,
       lines: this.renderer.info.render.lines,
@@ -410,15 +471,20 @@ export class RenderPipeline {
     this.renderer.shadowMap.enabled = preset.shadows;
     this.gtaoPass.enabled =
       post.enabled &&
+      this.features.ambientOcclusion &&
       this.gtaoCompatible &&
       gtaoIsSupported(post.gtao, this.renderer.capabilities.logarithmicDepthBuffer);
-    this.bloomPass.enabled = post.enabled && post.bloomStrength > 0;
+    this.bloomPass.enabled =
+      post.enabled &&
+      this.features.selectiveBloom &&
+      post.bloomStrength > 0;
     this.bloomPass.strength = post.bloomStrength;
     this.bloomPass.radius = post.bloomRadius;
     this.bloomPass.threshold = post.bloomThreshold;
     this.bloomCompositePass.enabled = this.bloomPass.enabled;
     this.gradePass.enabled =
       post.enabled &&
+      this.features.atmosphericGrade &&
       (post.gradingStrength > 0 ||
         post.vignetteStrength > 0 ||
         post.ditherStrength > 0);
@@ -427,6 +493,13 @@ export class RenderPipeline {
     this.gradePass.uniforms.uDitherStrength.value = post.ditherStrength;
     this.outputPass.enabled = post.enabled;
     this.resizeGtao();
+  }
+
+  private usesPostProcessing() {
+    return (
+      QUALITY_PRESETS[this.quality].postProcessing.enabled &&
+      !this.postProcessingFallback
+    );
   }
 
   private resizeGtao() {
