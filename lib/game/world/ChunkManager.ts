@@ -54,6 +54,7 @@ import {
   distanceToPathSegment,
   worldPathSegmentsForChunk,
 } from "./roads";
+import { createRoadSurfaceGeometry } from "./RoadSurfaceGeometry";
 import {
   chunkCenter,
   chunkKey,
@@ -909,42 +910,20 @@ export class ChunkManager {
 
   private addRoads(root: THREE.Group, centerX: number, centerZ: number, key: string) {
     const chunk = worldToChunk(centerX, centerZ);
-    const recipes: Array<{
-      x: number;
-      z: number;
-      length: number;
-      width: number;
-      angle: number;
-      kind: "road" | "street";
-    }> = [];
-    for (const segment of worldPathSegmentsForChunk(chunk.x, chunk.z)) {
-      const dx = segment.end.x - segment.start.x;
-      const dz = segment.end.z - segment.start.z;
-      const distance = Math.hypot(dx, dz);
-      if (distance < 0.5) continue;
-      const count = Math.max(1, Math.ceil(distance / 14));
-      for (let index = 0; index < count; index += 1) {
-        const start = index / count;
-        const end = (index + 1) / count;
-        recipes.push({
-          x: segment.start.x + dx * (start + end) * 0.5,
-          z: segment.start.z + dz * (start + end) * 0.5,
-          length: distance / count + 0.4,
-          width: segment.width,
-          angle: -Math.atan2(dz, dx),
-          kind: segment.kind,
-        });
-      }
-    }
-    if (recipes.length === 0) return;
+    const segments = worldPathSegmentsForChunk(chunk.x, chunk.z);
+    if (segments.length === 0) return;
 
-    const roads = new THREE.InstancedMesh(
-      new THREE.BoxGeometry(1, 1, 1),
+    const roads = new THREE.Mesh(
+      createRoadSurfaceGeometry(segments),
       tagWorldMaterial(
         new THREE.MeshStandardMaterial({
           color: 0xffffff,
-          roughness: 1,
+          roughness: 0.94,
+          metalness: 0.01,
           vertexColors: true,
+          polygonOffset: true,
+          polygonOffsetFactor: -1,
+          polygonOffsetUnits: -1,
         }),
         {
           role: "road",
@@ -954,45 +933,11 @@ export class ChunkManager {
           wetReflectionBoost: 0.72,
         },
       ),
-      recipes.length,
     );
     roads.name = `roads:${key}`;
     roads.receiveShadow = true;
     roads.userData.shadow = false;
-    const matrix = new THREE.Matrix4();
-    const quaternion = new THREE.Quaternion();
-    const position = new THREE.Vector3();
-    const scale = new THREE.Vector3();
-    const color = new THREE.Color();
-    recipes.forEach((recipe, index) => {
-      const crossesRiver =
-        recipe.kind === "road" &&
-        Math.abs(recipe.x - riverCenterX(recipe.z)) < riverWidth(recipe.z) + recipe.width;
-      position.set(
-        recipe.x,
-        crossesRiver
-          ? WATER_LEVEL + 0.32
-          : sampleTerrainHeight(recipe.x, recipe.z) + 0.06,
-        recipe.z,
-      );
-      quaternion.setFromEuler(new THREE.Euler(0, recipe.angle, 0));
-      scale.set(recipe.length, 0.1, recipe.width);
-      matrix.compose(position, quaternion, scale);
-      roads.setMatrixAt(index, matrix);
-      roads.setColorAt(
-        index,
-        proceduralSurfaceColor(
-          color,
-          recipe.kind === "street" ? 0x3d3c36 : 0x4a4338,
-          "road",
-          recipe.x,
-          recipe.z,
-        ),
-      );
-    });
-    roads.instanceMatrix.needsUpdate = true;
-    if (roads.instanceColor) roads.instanceColor.needsUpdate = true;
-    roads.computeBoundingSphere();
+    roads.userData.roadSurface = roads.geometry.userData.roadSurface;
     root.add(roads);
   }
 

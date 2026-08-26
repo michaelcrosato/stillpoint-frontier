@@ -109,8 +109,13 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
   relay catalog. It resolves deterministic dry arrival offsets against the active collider
   cache, leaving future discovery rules free to filter the catalog independently.
 - `world/roads` is the shared path layer for rendered roads, urban street grids, building
-  clearance, and pedestrian lanes. The Old Relay Spur makes the opening survey site a
-  credible quiet work stop without promoting it to a settlement.
+  clearance, and pedestrian lanes. `RoadSurfaceGeometry` turns those unchanged centerlines
+  into one indexed surface per streamed chunk: four-meter longitudinal sampling follows the
+  analytic terrain, a shallow crown and biome-colored shoulders soften the edges, stable
+  overlap bias removes intersection flicker, and broad river approaches ease trade roads onto
+  a dry deck. Absolute-world height, normal, and color sampling keeps adjacent chunks seamless.
+  The Old Relay Spur makes the opening survey site a credible quiet work stop without promoting
+  it to a settlement.
 - `macroWorld` is the immutable atlas layer: a 96×96 km territory with seven biomes,
   the Greywater river/estuary, 24 economically grounded settlements, and a connected
   hierarchy of trunk, regional, and local roads. Chunks clip those features into local

@@ -28,6 +28,10 @@ export interface WorldPathSegment {
   roadClass?: RoadCorridor["class"];
   corridorId?: string;
   settlementId?: string;
+  /** True only at an authored path end, never at a chunk clipping boundary. */
+  capStart?: boolean;
+  /** True only at an authored path end, never at a chunk clipping boundary. */
+  capEnd?: boolean;
 }
 
 export interface PedestrianLane {
@@ -91,8 +95,10 @@ function axisStreet(
     const delta = coordinate - settlement.z;
     if (Math.abs(delta) >= settlement.radius) return null;
     const span = Math.sqrt(settlement.radius ** 2 - delta ** 2);
-    const startX = Math.max(minX, settlement.x - span);
-    const endX = Math.min(maxX, settlement.x + span);
+    const naturalStartX = settlement.x - span;
+    const naturalEndX = settlement.x + span;
+    const startX = Math.max(minX, naturalStartX);
+    const endX = Math.min(maxX, naturalEndX);
     if (endX - startX < 8) return null;
     return {
       id: `street:${settlement.id}:x:${gridIndex}`,
@@ -101,14 +107,18 @@ function axisStreet(
       end: { x: endX, z: coordinate },
       width: spec.width,
       settlementId: settlement.id,
+      capStart: Math.abs(startX - naturalStartX) < 0.001,
+      capEnd: Math.abs(endX - naturalEndX) < 0.001,
     };
   }
 
   const delta = coordinate - settlement.x;
   if (Math.abs(delta) >= settlement.radius) return null;
   const span = Math.sqrt(settlement.radius ** 2 - delta ** 2);
-  const startZ = Math.max(minZ, settlement.z - span);
-  const endZ = Math.min(maxZ, settlement.z + span);
+  const naturalStartZ = settlement.z - span;
+  const naturalEndZ = settlement.z + span;
+  const startZ = Math.max(minZ, naturalStartZ);
+  const endZ = Math.min(maxZ, naturalEndZ);
   if (endZ - startZ < 8) return null;
   return {
     id: `street:${settlement.id}:z:${gridIndex}`,
@@ -117,6 +127,8 @@ function axisStreet(
     end: { x: coordinate, z: endZ },
     width: spec.width,
     settlementId: settlement.id,
+    capStart: Math.abs(startZ - naturalStartZ) < 0.001,
+    capEnd: Math.abs(endZ - naturalEndZ) < 0.001,
   };
 }
 
@@ -214,6 +226,16 @@ export function roadSegmentsForChunk(chunkX: number, chunkZ: number): WorldPathS
       width: ROAD_WIDTHS[corridor.class],
       roadClass: corridor.class,
       corridorId: corridor.id,
+      capStart:
+        Math.hypot(
+          clipped.start.x - corridor.from.x,
+          clipped.start.z - corridor.from.z,
+        ) < 0.001,
+      capEnd:
+        Math.hypot(
+          clipped.end.x - corridor.to.x,
+          clipped.end.z - corridor.to.z,
+        ) < 0.001,
     };
     if (segmentLength(segment) >= 0.5) segments.push(segment);
   }

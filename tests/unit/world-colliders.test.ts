@@ -4,6 +4,7 @@ import { GAMEPLAY_CHUNK_RADIUS, PLAYER_RADIUS } from "../../lib/game/config";
 import { isPlanarPositionClear, type PlanarCollider } from "../../lib/game/systems/collision";
 import { ChunkManager } from "../../lib/game/world/ChunkManager";
 import { getSettlement, riverCenterX } from "../../lib/game/world/macroWorld";
+import { ROAD_SURFACE_STEP_METERS } from "../../lib/game/world/RoadSurfaceGeometry";
 import { distanceToPathSegment, worldPathSegmentsForChunk } from "../../lib/game/world/roads";
 import { worldToChunk } from "../../lib/game/world/terrain";
 
@@ -64,6 +65,7 @@ describe("streamed world collider coverage", () => {
     let rockInstances = 0;
     let ruinInstances = 0;
     let landmarkMeshes = 0;
+    let roadMeshes = 0;
 
     for (const root of roots) {
       const key = root.name.slice("chunk:".length);
@@ -167,8 +169,16 @@ describe("streamed world collider coverage", () => {
           landmarkMeshes += 1;
         }
 
-        if (object instanceof THREE.InstancedMesh && object.name.startsWith("roads:")) {
-          expect(object.instanceColor).not.toBeNull();
+        if (object instanceof THREE.Mesh && object.name.startsWith("roads:")) {
+          const positions = object.geometry.getAttribute("position");
+          const colors = object.geometry.getAttribute("color");
+          expect(positions.count).toBeGreaterThan(0);
+          expect(colors.count).toBe(positions.count);
+          expect(object.geometry.getIndex()?.count ?? 0).toBeGreaterThan(0);
+          expect(object.userData.roadSurface.maxStepMeters).toBeLessThanOrEqual(
+            ROAD_SURFACE_STEP_METERS,
+          );
+          roadMeshes += 1;
         }
 
         if (object instanceof THREE.Mesh && object.name.startsWith("terrain:")) {
@@ -190,6 +200,7 @@ describe("streamed world collider coverage", () => {
     expect(rockInstances).toBeGreaterThan(50);
     expect(ruinInstances).toBeGreaterThan(0);
     expect(landmarkMeshes).toBeGreaterThan(0);
+    expect(roadMeshes).toBeGreaterThan(0);
 
     const dayLighting = world.nightLightingSnapshot;
     expect(dayLighting.strength).toBe(0);

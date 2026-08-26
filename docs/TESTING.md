@@ -112,6 +112,12 @@ indexed results with brute force. World-streaming tests then verify one unique c
 rendered building, tree, rock, ruin, and landmark; exact render-matrix geometry; road
 clearance; opening accessibility; and immediate collider removal after harvesting.
 
+Road-surface tests keep the presentation layer deterministic, finite, terrain-conforming,
+bounded to four-meter longitudinal steps, continuously colored and lit across chunk seams,
+and dry over authored river crossings. World-streaming coverage also requires every visible
+road mesh to carry indexed geometry and a complete vertex-color channel without changing the
+existing path-clearance contract.
+
 Citizen property tests sample random atlas chunks and enforce deterministic IDs, provenance,
 road/settlement route bounds, hierarchy-scaled density, quality caps, finite time sampling,
 empty wilderness, and the absence of interaction fields. Browser coverage teleports between
