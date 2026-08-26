@@ -87,7 +87,9 @@ reset while paused without requiring a browser audio device.
 Horizon tests enforce monotonic finite profiles, the invariant 81-chunk detailed ring,
 continuous concentric LOD definitions, atlas-edge clamping, deterministic settlement
 silhouettes, frustum/shadow policy, no gameplay fields on proxies, and fixed budgets below
-60,000 far-terrain triangles and 200 proxy instances. Browser coverage cycles and persists
+60,000 far-terrain triangles and 200 proxy instances. Crownspire coverage additionally locks
+its sub-256-triangle camera-relative silhouette, near-range handoff, weather attenuation,
+and disposal. Browser coverage cycles and persists
 all three profiles while checking that gameplay and citizen residency never changes.
 
 Navigation tests cover north-zero clockwise bearings, yaw sign, 359°/000° wraparound,
@@ -104,6 +106,12 @@ combinations, continuous epoch transitions, temperature response, and corrupt-cl
 Fast-travel tests prove every authored key location is indexed, IDs and arrivals are stable,
 arrival points avoid rendered water and colliders, and atlas-edge fallbacks remain bounded.
 
+Crownspire landmark tests lock its atlas bounds, exact smooth footprint edge, greater-than-
+skyline summit relief, and agreement between detailed, 1,536 m LOD, and horizon height
+samplers. They also verify the shared trail endpoints, 11–12 km length, dense longitudinal
+and lateral grade bounds, terrain clearing, chunk clipping, narrow dirt ribbon, discovery ID,
+fast-travel entry, and non-stealing navigation registration.
+
 Collision tests cover high-speed tunneling, exact tangents, wall sliding, thin walls,
 axis-aligned and rotated buildings, rounded corner hits and near misses, perpendicular-wall
 seams, invalid-spawn depenetration, collider-order independence, repeated corner pressure,
@@ -114,7 +122,8 @@ clearance; opening accessibility; and immediate collider removal after harvestin
 
 Road-surface tests keep the presentation layer deterministic, finite, terrain-conforming,
 bounded to four-meter longitudinal steps, continuously colored and lit across chunk seams,
-and dry over authored river crossings. World-streaming coverage also requires every visible
+and dry over authored river crossings. Trail coverage confirms narrow shoulder treatment,
+terrain conformance, and explicit exclusion from bridge behavior. World-streaming coverage also requires every visible
 road mesh to carry indexed geometry and a complete vertex-color channel without changing the
 existing path-clearance contract.
 

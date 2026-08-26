@@ -66,6 +66,12 @@ import {
   CANOPY_BENCHMARK_ZONE,
   isCanopyBenchmarkClearing,
 } from "./benchmarkZone";
+import {
+  MOUNTAIN_LANDMARK,
+  isMountainTrailClearing,
+  mountainGroundcoverFactor,
+  mountainWoodyVegetationFactor,
+} from "./mountainLandmark";
 import { selectWalkableSupport } from "./buildingTypes";
 import {
   AUTHORED_BUILDINGS,
@@ -670,6 +676,7 @@ export class ChunkManager {
     const doors: AuthoredDoorRuntime[] = [];
     this.addWater(root, center.x, center.z);
     this.addRoads(root, center.x, center.z, key);
+    this.addMountainTrailhead(root, chunkX, chunkZ, colliders);
     const authoredBuildings = createAuthoredBuildingsForChunk(
       key,
       this.quality,
@@ -813,6 +820,7 @@ export class ChunkManager {
       const z = centerZ + randomRange(random, -maxOffset, maxOffset);
       if (Math.abs(x - riverCenterX(z)) <= riverWidth(z) + radius + 1.25) continue;
       if (isCanopyBenchmarkClearing(x, z, radius + 0.4)) continue;
+      if (isMountainTrailClearing(x, z, radius + 0.4)) continue;
       if (
         key === "0:0" &&
         OPENING_RESERVATIONS.some(
@@ -939,6 +947,78 @@ export class ChunkManager {
     roads.userData.shadow = false;
     roads.userData.roadSurface = roads.geometry.userData.roadSurface;
     root.add(roads);
+  }
+
+  private addMountainTrailhead(
+    root: THREE.Group,
+    chunkX: number,
+    chunkZ: number,
+    colliders: PlanarCollider[],
+  ) {
+    const waypoint = MOUNTAIN_LANDMARK.baseWaypoint;
+    const waypointChunk = worldToChunk(waypoint.x, waypoint.z);
+    if (waypointChunk.x !== chunkX || waypointChunk.z !== chunkZ) return;
+
+    const marker = new THREE.Group();
+    marker.name = "trailhead:crownspire";
+    marker.position.set(
+      waypoint.x,
+      sampleTerrainHeight(waypoint.x, waypoint.z),
+      waypoint.z,
+    );
+    const stone = new THREE.MeshStandardMaterial({
+      color: 0x656660,
+      roughness: 0.96,
+      metalness: 0.02,
+      flatShading: true,
+    });
+    const signal = new THREE.MeshStandardMaterial({
+      color: 0xa7592d,
+      roughness: 0.8,
+      metalness: 0.04,
+    });
+    const cairnSpecs = [
+      { radius: 1.05, y: 0.72, yaw: 0.2 },
+      { radius: 0.76, y: 1.74, yaw: 1.1 },
+      { radius: 0.48, y: 2.5, yaw: 2.2 },
+    ];
+    for (const spec of cairnSpecs) {
+      const rock = new THREE.Mesh(
+        new THREE.DodecahedronGeometry(spec.radius, 0),
+        stone,
+      );
+      rock.position.y = spec.y;
+      rock.rotation.set(0.08, spec.yaw, -0.06);
+      rock.scale.set(1, 0.72, 0.88);
+      marker.add(rock);
+    }
+    const pole = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.075, 0.09, 3.6, 6),
+      stone,
+    );
+    pole.position.set(1.5, 1.8, 0);
+    marker.add(pole);
+    const blaze = new THREE.Mesh(
+      new THREE.BoxGeometry(1.15, 0.58, 0.06),
+      signal,
+    );
+    blaze.position.set(2.02, 3.02, 0);
+    marker.add(blaze);
+    marker.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return;
+      object.castShadow = qualityUsesShadows(this.quality);
+      object.receiveShadow = true;
+    });
+    root.add(marker);
+    colliders.push({
+      shape: "circle",
+      id: MOUNTAIN_LANDMARK.trailheadId,
+      x: waypoint.x,
+      z: waypoint.z,
+      radius: 1.7,
+      minY: marker.position.y,
+      maxY: marker.position.y + 3.7,
+    });
   }
 
   private addSettlementBuildings(
@@ -1393,6 +1473,8 @@ export class ChunkManager {
       );
       if (!placement) continue;
       const { x, z } = placement;
+      const woodyFactor = mountainWoodyVegetationFactor(x, z);
+      if (woodyFactor < 1 && random() > woodyFactor) continue;
       const baseY = sampleTerrainHeight(x, z);
       const id = `resource:tree:v2:${key}:${index}`;
       const styleRandom = seededRandom(
@@ -1521,6 +1603,11 @@ export class ChunkManager {
           20,
         );
         if (!placement) continue;
+        const groundcoverFactor = mountainGroundcoverFactor(
+          placement.x,
+          placement.z,
+        );
+        if (groundcoverFactor < 1 && groundRandom() > groundcoverFactor) continue;
         const localClimate = sampleClimate(placement.x, placement.z);
         if (localClimate.biome.id !== biomeId && groundRandom() > 0.28) continue;
         const size = randomRange(groundRandom, 0.7, 1.45);
@@ -1725,7 +1812,13 @@ export class ChunkManager {
             colliders,
             34,
           );
-      if (placement) {
+      const woodyFactor = placement
+        ? mountainWoodyVegetationFactor(placement.x, placement.z)
+        : 0;
+      if (
+        placement &&
+        (woodyFactor >= 1 || treeRandom() <= woodyFactor)
+      ) {
         this.registerGatherable(
           root,
           targets,

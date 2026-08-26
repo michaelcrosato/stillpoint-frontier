@@ -3,6 +3,11 @@ import { WORLD_SEED } from "../config";
 import { hashString } from "../core/random";
 import { WATER_LEVEL, sampleClimate } from "./macroWorld";
 import {
+  MOUNTAIN_LANDMARK,
+  mountainFootprintInfluence,
+  sampleMountainLift,
+} from "./mountainLandmark";
+import {
   sampleHorizonTerrainHeight,
   sampleTerrainHeight,
   sampleTerrainHeightLod,
@@ -28,6 +33,8 @@ const SURFACE_RANGES = {
   road: { hue: 0.004, saturation: 0.018, lightness: 0.075 },
   rock: { hue: 0.01, saturation: 0.03, lightness: 0.16 },
 } as const;
+const MOUNTAIN_STONE = new THREE.Color(0x686a67);
+const MOUNTAIN_SNOW = new THREE.Color(0xd8d9d2);
 
 function finite(value: number) {
   return Number.isFinite(value) ? value : 0;
@@ -126,6 +133,34 @@ export function terrainSurfaceColor(
     factors.moisture * 0.045 - factors.slope * 0.075,
     (factors.noise - 0.5) * 0.15 - factors.slope * 0.085 + factors.elevation * 0.045,
   );
+  const mountainInfluence = mountainFootprintInfluence(finite(x), finite(z));
+  if (mountainInfluence > 0) {
+    const mountainElevation = THREE.MathUtils.clamp(
+      sampleMountainLift(finite(x), finite(z)) /
+        MOUNTAIN_LANDMARK.summitRelief,
+      0,
+      1,
+    );
+    const stoneAmount = THREE.MathUtils.smoothstep(
+      mountainElevation,
+      0.08,
+      0.42,
+    );
+    const snowAmount = THREE.MathUtils.smoothstep(
+      mountainElevation,
+      0.66,
+      0.9,
+    ) * THREE.MathUtils.lerp(1, 0.62, factors.slope);
+    target.lerp(
+      MOUNTAIN_STONE,
+      mountainInfluence * stoneAmount * 0.9,
+    );
+    target.lerp(
+      MOUNTAIN_SNOW,
+      mountainInfluence * snowAmount * 0.94,
+    );
+    target.offsetHSL(0, -0.015, (factors.noise - 0.5) * 0.055);
+  }
   return target;
 }
 

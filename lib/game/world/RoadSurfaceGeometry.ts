@@ -17,6 +17,7 @@ export const ROAD_SURFACE_CROSS_SECTION_VERTICES = 5;
 
 const ROAD_SURFACE_LIFT = 0.052;
 const ROAD_CROWN_HEIGHT = 0.048;
+const TRAIL_CROWN_HEIGHT = 0.012;
 const BRIDGE_APPROACH_METERS = 14;
 const BRIDGE_DECK_HEIGHT = WATER_LEVEL + 0.37;
 
@@ -25,6 +26,7 @@ const ROAD_BASE_COLORS = {
   regional: 0x4f473b,
   local: 0x594c38,
   street: 0x393a36,
+  trail: 0x665139,
 } as const;
 
 export interface RoadSurfaceGeometryStats {
@@ -44,11 +46,13 @@ interface JunctionPad {
 
 function roadBaseColor(segment: WorldPathSegment) {
   if (segment.kind === "street") return ROAD_BASE_COLORS.street;
+  if (segment.kind === "trail") return ROAD_BASE_COLORS.trail;
   return ROAD_BASE_COLORS[segment.roadClass ?? "local"];
 }
 
 export function roadShoulderWidth(segment: WorldPathSegment) {
   if (segment.kind === "street") return 0.5;
+  if (segment.kind === "trail") return 0.65;
   if (segment.roadClass === "trunk") return 1.15;
   if (segment.roadClass === "regional") return 0.9;
   return 0.7;
@@ -109,6 +113,7 @@ function roadSurfaceNormal(
 function segmentLayerOffset(segment: WorldPathSegment) {
   const stableLayer = hashString(`${segment.kind}:${segment.id}`) % 3;
   if (segment.kind === "road") return 0.008 + stableLayer * 0.0005;
+  if (segment.kind === "trail") return 0.006 + stableLayer * 0.0005;
   const axisLayer = segment.id.includes(":z:") ? 0.0045 : 0.0015;
   return axisLayer + stableLayer * 0.0005;
 }
@@ -215,7 +220,7 @@ export function createRoadSurfaceGeometry(
         const crown = Math.max(
           0,
           1 - Math.abs(offset) / Math.max(0.001, halfWidth),
-        ) * ROAD_CROWN_HEIGHT;
+        ) * (segment.kind === "trail" ? TRAIL_CROWN_HEIGHT : ROAD_CROWN_HEIGHT);
         const y = roadSurfaceHeight(segment, x, z) +
           ROAD_SURFACE_LIFT + crown - shoulderAmount * 0.022 + layerOffset;
         positions.push(x, y, z);
@@ -309,7 +314,8 @@ export function createRoadSurfaceGeometry(
       pad.x,
       pad.z,
       0,
-      ROAD_SURFACE_LIFT + ROAD_CROWN_HEIGHT,
+      ROAD_SURFACE_LIFT +
+        (segment.kind === "trail" ? TRAIL_CROWN_HEIGHT : ROAD_CROWN_HEIGHT),
     );
     for (let ring = 0; ring < 2; ring += 1) {
       const radius = ring === 0 ? halfWidth : halfWidth + shoulder;

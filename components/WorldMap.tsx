@@ -18,6 +18,10 @@ import {
   riverCenterX,
 } from "../lib/game/world/macroWorld";
 import { FAST_TRAVEL_LOCATIONS } from "../lib/game/world/fastTravel";
+import {
+  MOUNTAIN_LANDMARK,
+  MOUNTAIN_TRAIL_POINTS,
+} from "../lib/game/world/mountainLandmark";
 
 interface WorldMapProps {
   snapshot: GameSnapshot;
@@ -37,6 +41,12 @@ const RIVER_MAP_POINTS = Array.from({ length: 33 }, (_, index) => {
   return `${mapPercent(riverCenterX(z)).toFixed(2)},${mapPercent(z).toFixed(2)}`;
 }).join(" ");
 
+const MOUNTAIN_TRAIL_MAP_POINTS = MOUNTAIN_TRAIL_POINTS.map(
+  (point) => `${mapPercent(point.x).toFixed(2)},${mapPercent(point.z).toFixed(2)}`,
+).join(" ");
+const MOUNTAIN_MAP_RADIUS =
+  (MOUNTAIN_LANDMARK.footprintRadius / (WORLD_HALF_EXTENT * 2)) * 100;
+
 export default function WorldMap({
   snapshot,
   onClose,
@@ -49,6 +59,11 @@ export default function WorldMap({
   const canClear = navigation?.target.source.kind === "player";
   const surveyMarkers = snapshot.navigationTargets.filter(
     (target) => target.source.kind === "system" && target.source.systemId === "survey-markers",
+  );
+  const landmarkMarkers = snapshot.navigationTargets.filter(
+    (target) =>
+      target.source.kind === "system" &&
+      target.source.systemId === MOUNTAIN_LANDMARK.navigationSystemId,
   );
 
   const handleMapClick = (event: MouseEvent<HTMLDivElement>) => {
@@ -144,6 +159,22 @@ export default function WorldMap({
         >
           <svg className="map-geography" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
             <polyline className="map-river" points={RIVER_MAP_POINTS} />
+            <circle
+              className="map-mountain-contour is-outer"
+              cx={mapPercent(MOUNTAIN_LANDMARK.center.x)}
+              cy={mapPercent(MOUNTAIN_LANDMARK.center.z)}
+              r={MOUNTAIN_MAP_RADIUS}
+            />
+            <circle
+              className="map-mountain-contour is-inner"
+              cx={mapPercent(MOUNTAIN_LANDMARK.center.x)}
+              cy={mapPercent(MOUNTAIN_LANDMARK.center.z)}
+              r={MOUNTAIN_MAP_RADIUS * 0.48}
+            />
+            <polyline
+              className="map-mountain-trail"
+              points={MOUNTAIN_TRAIL_MAP_POINTS}
+            />
             {ROAD_CORRIDORS.map((corridor) => (
               <line
                 key={corridor.id}
@@ -165,7 +196,7 @@ export default function WorldMap({
             )}
           </svg>
           <span className="map-instruction">
-            CLICK GROUND: WAYPOINT · SELECT LOCATION: FAST TRAVEL
+            CLICK GROUND: WAYPOINT · LANDMARK: NAVIGATE · INDEX: FAST TRAVEL
           </span>
           <span
             className="map-player"
@@ -210,6 +241,24 @@ export default function WorldMap({
               </button>
             );
           })}
+          {landmarkMarkers.map((marker) => (
+            <button
+              type="button"
+              key={marker.id}
+              className={`map-landmark-marker map-selectable-marker ${navigation?.target.id === marker.id ? "is-current" : ""}`}
+              style={{
+                left: `${mapPercent(marker.position.x)}%`,
+                top: `${mapPercent(marker.position.z)}%`,
+              }}
+              data-testid={`landmark-marker-${marker.id}`}
+              aria-label={`Navigate to ${marker.label}`}
+              title={`Navigate to ${marker.label}`}
+              onClick={(event) => handleNavigationTarget(event, marker.id)}
+            >
+              <i />
+              <b>{marker.label}</b>
+            </button>
+          ))}
           {BEACONS.map((beacon) => (
             <button
               type="button"

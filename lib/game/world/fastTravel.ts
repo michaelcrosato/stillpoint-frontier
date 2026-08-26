@@ -13,10 +13,11 @@ import {
   type SettlementTier,
 } from "./macroWorld";
 import { sampleTerrainHeight } from "./terrain";
+import { MOUNTAIN_LANDMARK } from "./mountainLandmark";
 
 export const FAST_TRAVEL_PLAYTEST_UNLOCKED = true;
 
-export type FastTravelLocationKind = SettlementTier | "relay";
+export type FastTravelLocationKind = SettlementTier | "relay" | "landmark";
 
 export interface FastTravelLocation {
   id: string;
@@ -56,6 +57,16 @@ const RELAY_LOCATIONS: readonly FastTravelLocation[] = BEACONS.map((beacon) => (
   detail: beacon.code,
 }));
 
+const LANDMARK_LOCATIONS: readonly FastTravelLocation[] = [{
+  id: MOUNTAIN_LANDMARK.fastTravelId,
+  sourceId: MOUNTAIN_LANDMARK.id,
+  name: MOUNTAIN_LANDMARK.trailheadName,
+  kind: "landmark",
+  x: MOUNTAIN_LANDMARK.baseWaypoint.x,
+  z: MOUNTAIN_LANDMARK.baseWaypoint.z,
+  detail: "marked summit trail · alpine terrain landmark",
+}];
+
 /**
  * This deliberately contains every authored key location. A later progression
  * feature can filter this immutable catalog without changing travel mechanics.
@@ -63,6 +74,7 @@ const RELAY_LOCATIONS: readonly FastTravelLocation[] = BEACONS.map((beacon) => (
 export const FAST_TRAVEL_LOCATIONS: readonly FastTravelLocation[] = [
   ...SETTLEMENT_LOCATIONS,
   ...RELAY_LOCATIONS,
+  ...LANDMARK_LOCATIONS,
 ];
 
 const locationById = new Map(
@@ -85,6 +97,8 @@ function preferredArrivalDistance(kind: FastTravelLocationKind) {
       return 22;
     case "relay":
       return 13;
+    case "landmark":
+      return 8;
   }
 }
 

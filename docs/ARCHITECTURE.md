@@ -54,6 +54,10 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
   shadows. The near LOD follows chunk crossings while outer LODs snap to progressively
   coarser cells and are reused, so walking does not rebuild the atlas horizon every 96 m;
   changing the profile cannot expand gameplay streaming or recreate city travel stalls.
+  Crownspire adds one 216-triangle, camera-relative upper-landform proxy beyond those rings.
+  It preserves the landmark's true bearing and angular size inside the active far plane,
+  fades out as the physical terrain becomes resident, and responds to horizon color, cloud,
+  rain, dust, and night instead of weakening global fog.
 - `CitizenEngine` independently streams a 5×5 resident ring. Its pure recipes place
   proportional crowds only on settlement sidewalks or road shoulders, while one shared
   low-poly figure and one instanced draw per populated chunk keep Vesper Crown's thousands
@@ -82,7 +86,7 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
   follows camera pitch, uses Space and Ctrl/C for world-up movement, clamps to the finite atlas,
   never persists an airborne pose, and returns to the last stable grounded position when disabled.
 - `LocationDiscoverySystem` resolves the most specific current place in priority order:
-  settlement, Field Unit Compound, then biome. Its catalog uses stable IDs and descriptive
+  settlement, Field Unit Compound, Crownspire, then biome. Its catalog uses stable IDs and descriptive
   records, while the persisted discovered-ID set drives first-entry notifications and map
   treatment without changing the immutable world atlas.
 - `EnvironmentalAudio` owns one lazily unlocked Web Audio graph. Procedural filtered-noise
@@ -105,8 +109,8 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
   pipeline. `environment/model` derives daylight and biome weather from world minutes,
   climate, and seed; the Three runtime presents one key light, shader sky, fog, static
   stars, and a single GPU precipitation field without wall-clock dependence.
-- `world/fastTravel` is a temporary playtest adapter over the immutable settlement and
-  relay catalog. It resolves deterministic dry arrival offsets against the active collider
+- `world/fastTravel` is a temporary playtest adapter over the immutable settlement, relay,
+  and authored-landmark catalog. It resolves deterministic dry arrival offsets against the active collider
   cache, leaving future discovery rules free to filter the catalog independently.
 - `world/roads` is the shared path layer for rendered roads, urban street grids, building
   clearance, and pedestrian lanes. `RoadSurfaceGeometry` turns those unchanged centerlines
@@ -115,7 +119,14 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
   overlap bias removes intersection flicker, and broad river approaches ease trade roads onto
   a dry deck. Absolute-world height, normal, and color sampling keeps adjacent chunks seamless.
   The Old Relay Spur makes the opening survey site a credible quiet work stop without promoting
-  it to a settlement.
+  it to a settlement. Crownspire's narrow dirt trail reuses this surface pipeline and its
+  placement clearance, but deliberately stays outside the citizen and settlement road graph.
+- `world/mountainLandmark` is Crownspire's single source of truth: a 5.76 km analytic
+  footprint, roughly 1.2 km summit relief, trailhead and summit coordinates, and an 11.3 km
+  switchback polyline. Detailed terrain carves a walkable shoulder along the route while
+  coarse LOD samplers retain only its broad mass. Terrain, surface color, map geography,
+  navigation, discovery, fast travel, streamed trail geometry, and horizon presentation all
+  consume the same immutable definition; the landmark adds no resident AI or simulation ring.
 - `macroWorld` is the immutable atlas layer: a 96×96 km territory with seven biomes,
   the Greywater river/estuary, 24 economically grounded settlements, and a connected
   hierarchy of trunk, regional, and local roads. Chunks clip those features into local
@@ -198,7 +209,8 @@ autosaves during active play every 30 seconds and on material state changes, exp
 Save Now and Load Last Save actions, and rebuilds generated world state before relocating the
 player on load. Settings are also written immediately to the separate preferences slot; the
 saved horizon remains a legacy migration fallback only when no preference exists.
-Quest destinations and survey-marker targets are rebuilt from restored progression after load.
+Quest destinations, the authored Crownspire trailhead, and survey-marker targets are rebuilt
+from restored progression after load.
 
 The atlas uses `+X = east`, `-Z = north`, and north-zero clockwise bearings. Map clicks are
 converted through tested bidirectional atlas helpers. The compass builds a local unwrapped
@@ -233,6 +245,8 @@ The initial target is an RTX 3060-class machine at 1440p/60:
   than 2,600 visual-only scenery recipes and 200 settlement proxies. Standard reaches 1.84 km,
   Extended 12 km, and Unlimited the finite atlas horizon
   at 70 km, with reverse-depth used when the browser exposes `EXT_clip_control`.
+- Crownspire's beyond-range silhouette is one non-shadowing 216-triangle mesh; it does not
+  increase resident chunks, settlement proxies, scenery instances, colliders, or fixed-step work.
 - Gameplay queries, ambient citizens, and sparse wildlife: independent 25-chunk inner rings.
 - Collision broad phase: streamed 16 m spatial cells, followed by swept-circle narrow phase;
   city cost scales with nearby candidates rather than every solid in the gameplay ring.

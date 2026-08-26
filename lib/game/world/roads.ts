@@ -8,6 +8,10 @@ import {
   type Settlement,
   type SettlementTier,
 } from "./macroWorld";
+import {
+  MOUNTAIN_LANDMARK,
+  MOUNTAIN_TRAIL_POINTS,
+} from "./mountainLandmark";
 import { chunkCenter } from "./terrain";
 
 export const ROAD_WIDTHS = { trunk: 9, regional: 6.2, local: 3.8 } as const;
@@ -21,7 +25,7 @@ const STREET_SPECS: Record<SettlementTier, { spacing: number; width: number }> =
 
 export interface WorldPathSegment {
   id: string;
-  kind: "road" | "street";
+  kind: "road" | "street" | "trail";
   start: Point2;
   end: Point2;
   width: number;
@@ -242,6 +246,60 @@ export function roadSegmentsForChunk(chunkX: number, chunkZ: number): WorldPathS
   return segments;
 }
 
+export function mountainTrailSegmentsForChunk(
+  chunkX: number,
+  chunkZ: number,
+): WorldPathSegment[] {
+  const center = chunkCenter({ x: chunkX, z: chunkZ });
+  const half = CHUNK_SIZE / 2;
+  const minX = center.x - half;
+  const maxX = center.x + half;
+  const minZ = center.z - half;
+  const maxZ = center.z + half;
+  const mountainMinX = Math.min(
+    MOUNTAIN_LANDMARK.center.x - MOUNTAIN_LANDMARK.footprintRadius,
+    MOUNTAIN_LANDMARK.baseWaypoint.x,
+  );
+  const mountainMaxX = MOUNTAIN_LANDMARK.center.x +
+    MOUNTAIN_LANDMARK.footprintRadius;
+  const mountainMinZ = MOUNTAIN_LANDMARK.center.z -
+    MOUNTAIN_LANDMARK.footprintRadius;
+  const mountainMaxZ = MOUNTAIN_LANDMARK.center.z +
+    MOUNTAIN_LANDMARK.footprintRadius;
+  if (
+    maxX < mountainMinX || minX > mountainMaxX ||
+    maxZ < mountainMinZ || minZ > mountainMaxZ
+  ) {
+    return [];
+  }
+
+  const segments: WorldPathSegment[] = [];
+  for (let index = 0; index < MOUNTAIN_TRAIL_POINTS.length - 1; index += 1) {
+    const start = MOUNTAIN_TRAIL_POINTS[index];
+    const end = MOUNTAIN_TRAIL_POINTS[index + 1];
+    const clipped = clipSegmentToRect(start, end, minX, maxX, minZ, maxZ);
+    if (!clipped) continue;
+    const segment: WorldPathSegment = {
+      id: `trail:crownspire:${index}`,
+      kind: "trail",
+      start: clipped.start,
+      end: clipped.end,
+      width: MOUNTAIN_LANDMARK.trailWidth,
+      corridorId: MOUNTAIN_LANDMARK.trailheadId,
+      capStart: Math.hypot(
+        clipped.start.x - start.x,
+        clipped.start.z - start.z,
+      ) < 0.001,
+      capEnd: Math.hypot(
+        clipped.end.x - end.x,
+        clipped.end.z - end.z,
+      ) < 0.001,
+    };
+    if (segmentLength(segment) >= 0.5) segments.push(segment);
+  }
+  return segments;
+}
+
 export function settlementStreetSegmentsForChunk(
   chunkX: number,
   chunkZ: number,
@@ -260,6 +318,7 @@ export function settlementStreetSegmentsForChunk(
 export function worldPathSegmentsForChunk(chunkX: number, chunkZ: number) {
   return [
     ...roadSegmentsForChunk(chunkX, chunkZ),
+    ...mountainTrailSegmentsForChunk(chunkX, chunkZ),
     ...settlementStreetSegmentsForChunk(chunkX, chunkZ),
   ];
 }

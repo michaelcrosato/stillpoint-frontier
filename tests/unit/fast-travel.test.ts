@@ -15,11 +15,17 @@ import {
   riverWidth,
 } from "../../lib/game/world/macroWorld";
 import { sampleTerrainHeight } from "../../lib/game/world/terrain";
+import {
+  MOUNTAIN_LANDMARK,
+  isMountainTrailClearing,
+} from "../../lib/game/world/mountainLandmark";
 
 describe("temporary playtest fast travel", () => {
   it("unlocks every authored settlement and relay through unique stable IDs", () => {
     expect(FAST_TRAVEL_PLAYTEST_UNLOCKED).toBe(true);
-    expect(FAST_TRAVEL_LOCATIONS).toHaveLength(SETTLEMENTS.length + BEACONS.length);
+    expect(FAST_TRAVEL_LOCATIONS).toHaveLength(
+      SETTLEMENTS.length + BEACONS.length + 1,
+    );
     expect(new Set(FAST_TRAVEL_LOCATIONS.map((location) => location.id)).size).toBe(
       FAST_TRAVEL_LOCATIONS.length,
     );
@@ -28,6 +34,12 @@ describe("temporary playtest fast travel", () => {
     );
     expect(getFastTravelLocation("settlement:vesper-crown")?.name).toBe("Vesper Crown");
     expect(getFastTravelLocation("relay:amber-relay")?.name).toBe("Amber Relay");
+    expect(getFastTravelLocation(MOUNTAIN_LANDMARK.fastTravelId)).toMatchObject({
+      kind: "landmark",
+      sourceId: MOUNTAIN_LANDMARK.id,
+      x: MOUNTAIN_LANDMARK.baseWaypoint.x,
+      z: MOUNTAIN_LANDMARK.baseWaypoint.z,
+    });
     expect(getFastTravelLocation("invented:place")).toBeNull();
   });
 
@@ -48,7 +60,7 @@ describe("temporary playtest fast travel", () => {
       expect(arrival.z, location.id).toBeLessThanOrEqual(4_900 * WORLD_MODEL_SCALE);
     }
     expect(kinds).toEqual(
-      new Set(["megacity", "city", "town", "village", "relay"]),
+      new Set(["megacity", "city", "town", "village", "relay", "landmark"]),
     );
   });
 
@@ -64,6 +76,18 @@ describe("temporary playtest fast travel", () => {
     expect(Math.hypot(redirected.x - preferred.x, redirected.z - preferred.z)).toBeGreaterThan(
       4,
     );
+  });
+
+  it("arrives beside the Crownspire cairn on the cleared trail shoulder", () => {
+    const location = getFastTravelLocation(MOUNTAIN_LANDMARK.fastTravelId);
+    expect(location).not.toBeNull();
+    if (!location) return;
+    const arrival = resolveFastTravelArrival(location);
+    expect(isMountainTrailClearing(arrival.x, arrival.z)).toBe(true);
+    expect(Math.hypot(
+      arrival.x - MOUNTAIN_LANDMARK.baseWaypoint.x,
+      arrival.z - MOUNTAIN_LANDMARK.baseWaypoint.z,
+    )).toBeGreaterThan(1.7);
   });
 
   it("contains edge locations and has a deterministic last-resort fallback", () => {

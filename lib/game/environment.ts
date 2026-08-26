@@ -146,6 +146,8 @@ export interface EnvironmentVisualState {
   goldenHour: number;
   night: number;
   dust: number;
+  /** Effective renderer fog after the active horizon profile is applied. */
+  fogDensity: number;
   /** Smoothed outdoor surface saturation: fast to accumulate, slow to dry. */
   surfaceWetness: number;
   lightningFlash: number;
@@ -513,6 +515,7 @@ export function createEnvironment(
     goldenHour: displaySample.goldenHour,
     night: displaySample.night,
     dust: displaySample.dust,
+    fogDensity: displaySample.fogDensity,
     surfaceWetness,
     lightningFlash: 0,
     windKph: displaySample.windKph,
@@ -670,6 +673,7 @@ export function createEnvironment(
     visualState.goldenHour = displaySample.goldenHour;
     visualState.night = displaySample.night;
     visualState.dust = displaySample.dust;
+    visualState.fogDensity = fog.density;
     visualState.surfaceWetness = surfaceWetness;
     visualState.lightningFlash = lightningFlash;
     visualState.windKph = displaySample.windKph;

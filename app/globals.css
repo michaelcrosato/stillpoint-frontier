@@ -2133,6 +2133,30 @@ kbd {
   stroke-width: 0.42;
 }
 
+.map-mountain-contour {
+  fill: rgba(132, 139, 133, 0.075);
+  stroke: rgba(192, 198, 190, 0.42);
+  stroke-dasharray: 1.4 1.1;
+  stroke-width: 0.42;
+  vector-effect: non-scaling-stroke;
+}
+
+.map-mountain-contour.is-inner {
+  fill: rgba(216, 226, 218, 0.045);
+  stroke: rgba(216, 226, 218, 0.62);
+  stroke-width: 0.56;
+}
+
+.map-mountain-trail {
+  fill: none;
+  stroke: rgba(216, 117, 58, 0.82);
+  stroke-dasharray: 1.2 0.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 0.7;
+  vector-effect: non-scaling-stroke;
+}
+
 .map-waypoint-line {
   stroke: rgba(153, 194, 163, 0.68);
   stroke-dasharray: 2 1.4;
@@ -2249,6 +2273,52 @@ kbd {
   z-index: 8;
   color: var(--ember);
   filter: drop-shadow(0 0 5px rgba(216, 117, 58, 0.5));
+  outline: none;
+}
+
+.map-landmark-marker {
+  position: absolute;
+  z-index: 4;
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: rgba(232, 226, 214, 0.9);
+  cursor: pointer;
+  font: 700 6px/1 var(--mono);
+  letter-spacing: 0.07em;
+  transform: translate(-50%, -50%);
+}
+
+.map-landmark-marker i {
+  width: 0;
+  height: 0;
+  border-right: 8px solid transparent;
+  border-bottom: 15px solid currentColor;
+  border-left: 8px solid transparent;
+  filter: drop-shadow(0 0 4px rgba(232, 226, 214, 0.25));
+}
+
+.map-landmark-marker b {
+  max-width: 112px;
+  overflow: hidden;
+  padding: 3px 4px;
+  background: rgba(13, 15, 14, 0.86);
+  font: inherit;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.map-landmark-marker:hover,
+.map-landmark-marker:focus-visible,
+.map-landmark-marker.is-current {
+  z-index: 8;
+  color: var(--ember);
+  filter: drop-shadow(0 0 6px rgba(216, 117, 58, 0.48));
   outline: none;
 }
 
@@ -3725,6 +3795,7 @@ kbd,
 .pause-panel .pause-action-grid button span,
 .map-instruction,
 .map-survey-marker,
+.map-landmark-marker,
 .map-settlement b,
 .fast-travel-heading span,
 .fast-travel-status,

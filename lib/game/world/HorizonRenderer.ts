@@ -23,6 +23,10 @@ import {
   worldToChunk,
 } from "./terrain";
 import {
+  MOUNTAIN_LANDMARK,
+  sampleMountainLift,
+} from "./mountainLandmark";
+import {
   proceduralSurfaceColor,
   terrainSurfaceColor,
 } from "./surfaceVariation";
@@ -42,6 +46,9 @@ const TERRAIN_DEPRESSION = 0.08;
 const HORIZON_SKIRT_DEPTH = 18;
 const SETTLEMENT_SECTORS = 8;
 const MAX_HORIZON_LIGHTS = 320;
+const MOUNTAIN_PROXY_RADIAL_SEGMENTS = 24;
+const MOUNTAIN_PROXY_RING_RATIOS = [0.12, 0.28, 0.46, 0.68, 0.78] as const;
+const MOUNTAIN_PROXY_BASE_COLOR = new THREE.Color(0x5f625f);
 
 interface PatchBounds {
   side: "north" | "south" | "west" | "east";
@@ -84,6 +91,8 @@ export interface HorizonDiagnostics {
   settlementLightDrawCalls: number;
   sceneryInstances: number;
   sceneryDrawCalls: number;
+  landmarkProxyVisible: boolean;
+  landmarkProxyTriangles: number;
   rebuilds: number;
   anchor: { x: number; z: number } | null;
 }
@@ -118,6 +127,74 @@ const TIER_LIGHT_COUNTS: Readonly<Record<SettlementTier, number>> = {
 
 function clampToWorld(value: number) {
   return THREE.MathUtils.clamp(value, -WORLD_HALF_EXTENT, WORLD_HALF_EXTENT);
+}
+
+function createMountainProxyGeometry() {
+  const positions: number[] = [
+    0,
+    sampleMountainLift(
+      MOUNTAIN_LANDMARK.center.x,
+      MOUNTAIN_LANDMARK.center.z,
+    ),
+    0,
+  ];
+  const indices: number[] = [];
+
+  for (const [ringIndex, ratio] of MOUNTAIN_PROXY_RING_RATIOS.entries()) {
+    const radius = MOUNTAIN_LANDMARK.footprintRadius * ratio;
+    const tapersToBase = ringIndex === MOUNTAIN_PROXY_RING_RATIOS.length - 1;
+    for (let segment = 0; segment < MOUNTAIN_PROXY_RADIAL_SEGMENTS; segment += 1) {
+      const angle = (segment / MOUNTAIN_PROXY_RADIAL_SEGMENTS) * Math.PI * 2;
+      const localX = Math.cos(angle) * radius;
+      const localZ = Math.sin(angle) * radius;
+      positions.push(
+        localX,
+        tapersToBase
+          ? 0
+          : sampleMountainLift(
+              MOUNTAIN_LANDMARK.center.x + localX,
+              MOUNTAIN_LANDMARK.center.z + localZ,
+            ),
+        localZ,
+      );
+    }
+  }
+
+  const firstRing = 1;
+  for (let segment = 0; segment < MOUNTAIN_PROXY_RADIAL_SEGMENTS; segment += 1) {
+    const next = (segment + 1) % MOUNTAIN_PROXY_RADIAL_SEGMENTS;
+    indices.push(0, firstRing + next, firstRing + segment);
+  }
+  for (let ring = 0; ring < MOUNTAIN_PROXY_RING_RATIOS.length - 1; ring += 1) {
+    const inner = 1 + ring * MOUNTAIN_PROXY_RADIAL_SEGMENTS;
+    const outer = inner + MOUNTAIN_PROXY_RADIAL_SEGMENTS;
+    for (let segment = 0; segment < MOUNTAIN_PROXY_RADIAL_SEGMENTS; segment += 1) {
+      const next = (segment + 1) % MOUNTAIN_PROXY_RADIAL_SEGMENTS;
+      indices.push(
+        inner + segment,
+        inner + next,
+        outer + segment,
+        inner + next,
+        outer + next,
+        outer + segment,
+      );
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(positions, 3),
+  );
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  geometry.userData.mountainProxy = {
+    triangles: indices.length / 3,
+    vertices: positions.length / 3,
+  };
+  return geometry;
 }
 
 function patchBounds(
@@ -469,6 +546,19 @@ export class HorizonRenderer {
   private readonly sceneryTrunkGeometry = new THREE.CylinderGeometry(0.18, 0.26, 1, 5);
   private readonly sceneryCrownGeometry = new THREE.ConeGeometry(1, 2, 5);
   private readonly sceneryRockGeometry = new THREE.DodecahedronGeometry(1, 0);
+  private readonly mountainProxyGeometry = createMountainProxyGeometry();
+  private readonly mountainProxyMaterial = new THREE.MeshBasicMaterial({
+    color: 0x747772,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    fog: false,
+    side: THREE.FrontSide,
+  });
+  private readonly mountainProxy = new THREE.Mesh(
+    this.mountainProxyGeometry,
+    this.mountainProxyMaterial,
+  );
   private terrainRings = new Map<number, TerrainRingRuntime>();
   private settlementMeshes: THREE.InstancedMesh[] = [];
   private settlementLightMeshes: THREE.Points[] = [];
@@ -483,6 +573,9 @@ export class HorizonRenderer {
   private wetSurfacesEnabled = true;
   private surfaceWetness = 0;
   private sceneryInstances = 0;
+  private mountainProxyRangeOpacity = 0;
+  private mountainProxyAtmosphereOpacity = 0.56;
+  private lastPlayerPosition: { x: number; y: number; z: number } | null = null;
   private rebuilds = 0;
 
   constructor(
@@ -495,13 +588,30 @@ export class HorizonRenderer {
     this.settlementLightMaterial.color.setRGB(1.65, 1.35, 1.05);
     this.group.name = "horizon-hlod";
     this.group.renderOrder = -1;
+    this.mountainProxy.name = `horizon-${MOUNTAIN_LANDMARK.id}`;
+    this.mountainProxy.castShadow = false;
+    this.mountainProxy.receiveShadow = false;
+    this.mountainProxy.frustumCulled = true;
+    this.mountainProxy.renderOrder = -1.5;
+    this.mountainProxy.visible = false;
+    this.mountainProxy.userData.shadow = false;
+    this.group.add(this.mountainProxy);
     this.scene.add(this.group);
   }
 
   setMode(mode: HorizonMode) {
     if (mode === this.mode) return false;
     this.mode = mode;
-    if (this.anchor) this.rebuildAll();
+    if (this.anchor) {
+      if (this.lastPlayerPosition) {
+        this.updateMountainProxy(
+          this.lastPlayerPosition.x,
+          this.lastPlayerPosition.z,
+          this.lastPlayerPosition.y,
+        );
+      }
+      this.rebuildAll();
+    }
     return true;
   }
 
@@ -538,6 +648,10 @@ export class HorizonRenderer {
     surfaceWetness: number;
     night?: number;
     cloudCover?: number;
+    dust?: number;
+    precipitationRate?: number;
+    fogDensity?: number;
+    horizonColor?: THREE.Color;
   }) {
     this.surfaceWetness = THREE.MathUtils.clamp(
       Number.isFinite(state.surfaceWetness) ? state.surfaceWetness : 0,
@@ -561,9 +675,49 @@ export class HorizonRenderer {
       1,
     );
     this.updateHorizonLightPresentation();
+    const dust = THREE.MathUtils.clamp(
+      Number.isFinite(state.dust) ? (state.dust as number) : 0,
+      0,
+      1,
+    );
+    const precipitation = THREE.MathUtils.clamp(
+      Number.isFinite(state.precipitationRate)
+        ? (state.precipitationRate as number)
+        : 0,
+      0,
+      1,
+    );
+    const fogDensity = Number.isFinite(state.fogDensity)
+      ? Math.max(0, state.fogDensity as number)
+      : 0.0032;
+    const fogClarity = 1 - THREE.MathUtils.smoothstep(
+      fogDensity,
+      0.0042,
+      0.008,
+    );
+    const clarity = THREE.MathUtils.clamp(
+      (1 - cloudCover * 0.18 - dust * 0.92 - precipitation * 0.62) *
+        fogClarity,
+      0.015,
+      1,
+    );
+    this.mountainProxyAtmosphereOpacity =
+      THREE.MathUtils.lerp(0.012, 0.62, clarity) *
+      THREE.MathUtils.lerp(0.74, 1, night);
+    if (state.horizonColor) {
+      this.mountainProxyMaterial.color
+        .copy(state.horizonColor)
+        .lerp(MOUNTAIN_PROXY_BASE_COLOR, 0.46);
+    }
+    this.updateMountainProxyPresentation();
   }
 
-  update(playerX: number, playerZ: number) {
+  update(playerX: number, playerZ: number, playerY?: number) {
+    const resolvedPlayerY = Number.isFinite(playerY)
+      ? (playerY as number)
+      : sampleHorizonTerrainHeight(playerX, playerZ);
+    this.lastPlayerPosition = { x: playerX, y: resolvedPlayerY, z: playerZ };
+    this.updateMountainProxy(playerX, playerZ, resolvedPlayerY);
     const coordinate = worldToChunk(playerX, playerZ);
     const center = chunkCenter(coordinate);
     if (this.anchor?.x === center.x && this.anchor.z === center.z) return false;
@@ -595,6 +749,9 @@ export class HorizonRenderer {
       settlementLightDrawCalls: this.settlementLightMeshes.length,
       sceneryInstances: this.sceneryInstances,
       sceneryDrawCalls: this.sceneryMeshes.length,
+      landmarkProxyVisible: this.mountainProxy.visible,
+      landmarkProxyTriangles:
+        (this.mountainProxyGeometry.index?.count ?? 0) / 3,
       rebuilds: this.rebuilds,
       anchor: this.anchor ? { ...this.anchor } : null,
     };
@@ -611,6 +768,69 @@ export class HorizonRenderer {
     this.sceneryCrownGeometry.dispose();
     this.sceneryRockGeometry.dispose();
     this.sceneryMaterial.dispose();
+    this.mountainProxyGeometry.dispose();
+    this.mountainProxyMaterial.dispose();
+  }
+
+  private updateMountainProxy(
+    playerX: number,
+    playerZ: number,
+    playerY: number,
+  ) {
+    const deltaX = MOUNTAIN_LANDMARK.center.x - playerX;
+    const deltaZ = MOUNTAIN_LANDMARK.center.z - playerZ;
+    const distance = Math.hypot(deltaX, deltaZ);
+    if (!Number.isFinite(distance) || distance < 1) {
+      this.mountainProxyRangeOpacity = 0;
+      this.updateMountainProxyPresentation();
+      return;
+    }
+
+    const preset = HORIZON_PRESETS[this.mode];
+    const terrainCoverage = preset.rings[preset.rings.length - 1].outer;
+    const outsideTerrain = THREE.MathUtils.smoothstep(
+      distance,
+      terrainCoverage * 0.78,
+      terrainCoverage * 0.96,
+    );
+    const outsideLandform = THREE.MathUtils.smoothstep(
+      distance,
+      MOUNTAIN_LANDMARK.footprintRadius * 0.48,
+      MOUNTAIN_LANDMARK.footprintRadius * 0.72,
+    );
+    this.mountainProxyRangeOpacity = outsideTerrain * outsideLandform;
+    if (this.mountainProxyRangeOpacity <= 0.002) {
+      this.updateMountainProxyPresentation();
+      return;
+    }
+
+    const proxyRadius = MOUNTAIN_LANDMARK.footprintRadius *
+      MOUNTAIN_PROXY_RING_RATIOS[MOUNTAIN_PROXY_RING_RATIOS.length - 1];
+    const maxVirtualDistance = preset.drawDistanceMeters * 0.88 /
+      (1 + proxyRadius / distance);
+    const virtualDistance = Math.min(distance, maxVirtualDistance);
+    const scale = virtualDistance / distance;
+    const mountainBase = sampleHorizonTerrainHeight(
+      MOUNTAIN_LANDMARK.center.x,
+      MOUNTAIN_LANDMARK.center.z,
+    ) - sampleMountainLift(
+      MOUNTAIN_LANDMARK.center.x,
+      MOUNTAIN_LANDMARK.center.z,
+    );
+    this.mountainProxy.position.set(
+      playerX + deltaX * scale,
+      playerY + (mountainBase - playerY) * scale,
+      playerZ + deltaZ * scale,
+    );
+    this.mountainProxy.scale.setScalar(scale);
+    this.updateMountainProxyPresentation();
+  }
+
+  private updateMountainProxyPresentation() {
+    const opacity = this.mountainProxyRangeOpacity *
+      this.mountainProxyAtmosphereOpacity;
+    this.mountainProxyMaterial.opacity = opacity;
+    this.mountainProxy.visible = opacity > 0.002;
   }
 
   private clearRuntimeMeshes() {

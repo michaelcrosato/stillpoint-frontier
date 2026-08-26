@@ -16,6 +16,7 @@ import {
   worldLodPolicy,
 } from "../../lib/game/world/WorldLodPolicy";
 import { horizonSceneryRecipes } from "../../lib/game/world/sceneryLod";
+import { MOUNTAIN_LANDMARK } from "../../lib/game/world/mountainLandmark";
 
 const MODES = Object.keys(HORIZON_PRESETS) as HorizonMode[];
 
@@ -154,6 +155,74 @@ describe("fixed-budget horizon HLOD", () => {
     expect(scene.getObjectByName("horizon-terrain:0:north:0")).not.toBe(nearBefore);
     expect(scene.getObjectByName("horizon-terrain:2:north:0")).toBe(farBefore);
     horizon.dispose();
+  });
+
+  it("keeps one bounded Crownspire silhouette visible beyond terrain range", () => {
+    const scene = new THREE.Scene();
+    const horizon = new HorizonRenderer(scene, "standard");
+    horizon.update(0, 8);
+    const proxy = scene.getObjectByName(`horizon-${MOUNTAIN_LANDMARK.id}`);
+    expect(proxy).toBeInstanceOf(THREE.Mesh);
+    expect(horizon.diagnostics.landmarkProxyVisible).toBe(true);
+    expect(horizon.diagnostics.landmarkProxyTriangles).toBe(216);
+    expect(proxy?.castShadow).toBe(false);
+    expect(proxy?.receiveShadow).toBe(false);
+
+    horizon.presentEnvironment({
+      surfaceWetness: 0,
+      night: 0,
+      cloudCover: 0,
+      dust: 0,
+      precipitationRate: 0,
+      fogDensity: 0.0031,
+      horizonColor: new THREE.Color(0xc5aa80),
+    });
+    const material = (proxy as THREE.Mesh).material as THREE.MeshBasicMaterial;
+    expect(material.side).toBe(THREE.FrontSide);
+    const clearOpacity = material.opacity;
+    expect(clearOpacity).toBeGreaterThan(0.4);
+    const geometry = (proxy as THREE.Mesh).geometry;
+    const positions = geometry.getAttribute("position");
+    const lastRingStart = positions.count - 24;
+    for (let index = lastRingStart; index < positions.count; index += 1) {
+      expect(positions.getY(index)).toBe(0);
+    }
+    const firstTriangle = Array.from(geometry.getIndex()?.array ?? []).slice(0, 3);
+    const a = new THREE.Vector3().fromBufferAttribute(positions, firstTriangle[0]);
+    const b = new THREE.Vector3().fromBufferAttribute(positions, firstTriangle[1]);
+    const c = new THREE.Vector3().fromBufferAttribute(positions, firstTriangle[2]);
+    expect(new THREE.Vector3().crossVectors(
+      b.clone().sub(a),
+      c.clone().sub(a),
+    ).y).toBeGreaterThan(0);
+    const sphere = geometry.boundingSphere;
+    expect(sphere).not.toBeNull();
+    if (sphere) {
+      const transformedCenter = sphere.center.clone()
+        .multiplyScalar(proxy?.scale.x ?? 1)
+        .add(proxy?.position ?? new THREE.Vector3());
+      expect(transformedCenter.length() + sphere.radius * (proxy?.scale.x ?? 1))
+        .toBeLessThan(HORIZON_PRESETS.standard.drawDistanceMeters);
+    }
+    horizon.presentEnvironment({
+      surfaceWetness: 1,
+      night: 0,
+      cloudCover: 1,
+      dust: 1,
+      precipitationRate: 1,
+      fogDensity: 0.009,
+      horizonColor: new THREE.Color(0x66594f),
+    });
+    expect(material.opacity).toBeLessThan(clearOpacity);
+    expect(material.opacity).toBeLessThan(0.05);
+
+    horizon.update(
+      MOUNTAIN_LANDMARK.center.x,
+      MOUNTAIN_LANDMARK.center.z,
+    );
+    expect(horizon.diagnostics.landmarkProxyVisible).toBe(false);
+    horizon.dispose();
+    expect(scene.getObjectByName("horizon-hlod")).toBeUndefined();
   });
 
   it("keeps atlas-edge vertices finite and inside the authored territory", () => {

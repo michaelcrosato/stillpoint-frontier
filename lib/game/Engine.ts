@@ -141,6 +141,7 @@ import {
 import { WORLD_HALF_EXTENT, nearestSettlement, sampleClimate } from "./world/macroWorld";
 import { WATER_LEVEL } from "./world/macroWorld";
 import { sampleTerrainHeight, worldToChunk } from "./world/terrain";
+import { MOUNTAIN_LANDMARK } from "./world/mountainLandmark";
 import {
   MAX_PLACED_SERIAL,
   nearbyCampModifiers,
@@ -680,7 +681,11 @@ export class Engine {
     this.camera.position.set(resolved.x, supportY + this.player.eyeHeight, resolved.z);
     this.camera.rotation.set(this.player.pitch, this.player.yaw, 0, "YXZ");
     this.currentLocation = currentDiscoverableLocation(resolved.x, resolved.z);
-    this.horizon.update(this.player.position.x, this.player.position.z);
+    this.horizon.update(
+      this.player.position.x,
+      this.player.position.z,
+      this.player.position.y,
+    );
     this.citizens.updateStreaming(this.player.position.x, this.player.position.z);
     this.animals.updateStreaming(this.player.position.x, this.player.position.z);
     this.flashlight.present(this.camera);
@@ -691,6 +696,7 @@ export class Engine {
     this.horizon.presentEnvironment(visualState);
     this.renderPipeline.presentEnvironment(visualState);
     this.synchronizeTimeDependentWorld();
+    this.syncAuthoredLandmarkTargets();
     this.syncPlacedNavigationTargets();
     this.syncContractNavigation();
     for (const beaconId of this.scanned) this.world.markScanned(beaconId);
@@ -1421,6 +1427,20 @@ export class Engine {
     }
   }
 
+  private syncAuthoredLandmarkTargets() {
+    this.navigation.setTarget({
+      id: MOUNTAIN_LANDMARK.trailheadId,
+      label: MOUNTAIN_LANDMARK.trailheadName,
+      position: { ...MOUNTAIN_LANDMARK.baseWaypoint },
+      source: {
+        kind: "system",
+        systemId: MOUNTAIN_LANDMARK.navigationSystemId,
+      },
+      arrivalRadius: 24,
+      clearOnArrival: false,
+    }, false);
+  }
+
   setMapOpen(open: boolean) {
     this.mapOpen = open;
     if (open) {
@@ -2002,6 +2022,7 @@ export class Engine {
     this.scanner.focusEntryId = null;
     this.scanner.focusName = null;
     this.scanner.progress = 0;
+    this.syncAuthoredLandmarkTargets();
     this.syncPlacedNavigationTargets();
     this.syncContractNavigation();
     this.emitSnapshot(true);
@@ -2210,7 +2231,7 @@ export class Engine {
       z,
       this.environment.getDeveloperState().enabled,
     );
-    this.horizon.update(x, z);
+    this.horizon.update(x, z, y);
     this.citizens.update(x, z, 0, true);
     this.animals.update(x, z, 0, true);
     this.navigation.update(this.player.position);

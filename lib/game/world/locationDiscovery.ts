@@ -1,5 +1,6 @@
 import { BIOMES, SETTLEMENTS, sampleClimate, type BiomeId } from "./macroWorld";
 import { authoredBuildingsForLandmark } from "./authoredBuildings";
+import { MOUNTAIN_LANDMARK, mountainDistance } from "./mountainLandmark";
 
 export type LocationKind = "biome" | "settlement" | "landmark";
 
@@ -35,6 +36,14 @@ const COMPOUND: DiscoverableLocation & { x: number; z: number; radius: number } 
   radius: 54,
 };
 
+const CROWNSPIRE: DiscoverableLocation = {
+  id: MOUNTAIN_LANDMARK.id,
+  name: MOUNTAIN_LANDMARK.name,
+  kind: "landmark",
+  region: MOUNTAIN_LANDMARK.region,
+  note: MOUNTAIN_LANDMARK.note,
+};
+
 const BIOME_LOCATIONS = Object.values(BIOMES).map<DiscoverableLocation>((biome) => ({
   id: `biome:${biome.id}`,
   name: biome.name,
@@ -53,6 +62,7 @@ const SETTLEMENT_LOCATIONS = SETTLEMENTS.map<DiscoverableLocation>((settlement) 
 
 export const DISCOVERABLE_LOCATIONS: readonly DiscoverableLocation[] = Object.freeze([
   COMPOUND,
+  CROWNSPIRE,
   ...BIOME_LOCATIONS,
   ...SETTLEMENT_LOCATIONS,
 ]);
@@ -73,6 +83,9 @@ export function currentDiscoverableLocation(x: number, z: number): DiscoverableL
   );
   if (settlement) return LOCATION_BY_ID.get(`settlement:${settlement.id}`)!;
   if (Math.hypot(x - COMPOUND.x, z - COMPOUND.z) <= COMPOUND.radius) return COMPOUND;
+  if (mountainDistance(x, z) <= MOUNTAIN_LANDMARK.discoveryRadius) {
+    return CROWNSPIRE;
+  }
   const biomeId: BiomeId = sampleClimate(x, z).biome.id;
   return LOCATION_BY_ID.get(`biome:${biomeId}`)!;
 }

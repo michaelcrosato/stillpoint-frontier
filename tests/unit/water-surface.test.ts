@@ -13,6 +13,7 @@ function visualState(overrides: Partial<EnvironmentVisualState> = {}): Environme
     goldenHour: 0.15,
     night: 0.2,
     dust: 0.1,
+    fogDensity: 0.0032,
     surfaceWetness: 0.3,
     lightningFlash: 0,
     windKph: 28,

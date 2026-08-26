@@ -15,6 +15,7 @@ import {
   riverWidth,
 } from "../../lib/game/world/macroWorld";
 import type { WorldPathSegment } from "../../lib/game/world/roads";
+import { sampleTerrainHeight } from "../../lib/game/world/terrain";
 
 function roadSegment(
   start: { x: number; z: number },
@@ -94,6 +95,33 @@ describe("terrain-conforming road surfaces", () => {
       expect(clearance).toBeGreaterThan(0.025);
       expect(clearance).toBeLessThan(0.12);
       expect(normals.getY(index)).toBeGreaterThan(0.35);
+    }
+    geometry.dispose();
+  });
+
+  it("renders narrow dirt trails without inheriting bridge behavior", () => {
+    const trail: WorldPathSegment = {
+      id: "trail:test",
+      kind: "trail",
+      start: { x: -8_620, z: -4_920 },
+      end: { x: -8_540, z: -4_870 },
+      width: 3.4,
+      corridorId: "landmark:test",
+    };
+    const geometry = createRoadSurfaceGeometry([trail]);
+    const positions = geometry.getAttribute("position");
+    expect(roadShoulderWidth(trail)).toBe(0.65);
+    expect(roadBridgeInfluence(trail, riverCenterX(0), 0)).toBe(0);
+    expect(
+      (geometry.boundingBox?.max.z ?? 0) -
+      (geometry.boundingBox?.min.z ?? 0),
+    ).toBeLessThan(90);
+    for (let index = 0; index < positions.count; index += 1) {
+      const x = positions.getX(index);
+      const y = positions.getY(index);
+      const z = positions.getZ(index);
+      expect(y - sampleTerrainHeight(x, z)).toBeGreaterThan(0.02);
+      expect(y - sampleTerrainHeight(x, z)).toBeLessThan(0.1);
     }
     geometry.dispose();
   });

@@ -9,6 +9,7 @@ import {
   WORLD_MODEL_SCALE,
 } from "./macroWorld";
 import { applyCanopyBenchmarkTerrainHeight } from "./benchmarkZone";
+import { applyMountainTerrainHeight } from "./mountainLandmark";
 
 const seedPhase = (hashString(WORLD_SEED) % 4096) / 4096;
 
@@ -30,10 +31,15 @@ function terrainHeightWithDetailWeight(
     sampleMacroElevation(x, z) + broad + cross + ridge + detail - coastalDropAt(z);
   const riverBlend = smoothstep(riverWidth(z) + 28, riverWidth(z) - 4, distanceToRiver(x, z));
   const riverBed = WATER_LEVEL - 1.7 - Math.sin(z * 0.004) * 0.35;
-  return applyCanopyBenchmarkTerrainHeight(
-    land * (1 - riverBlend) + riverBed * riverBlend,
+  return applyMountainTerrainHeight(
+    applyCanopyBenchmarkTerrainHeight(
+      land * (1 - riverBlend) + riverBed * riverBlend,
+      x,
+      z,
+    ),
     x,
     z,
+    detailWeight,
   );
 }
 
@@ -66,10 +72,15 @@ export function sampleHorizonTerrainHeight(x: number, z: number): number {
     distanceToRiver(x, z),
   );
   const surface = land * (1 - riverBlend) + WATER_LEVEL * riverBlend;
-  return applyCanopyBenchmarkTerrainHeight(
-    Math.max(WATER_LEVEL, surface),
+  return applyMountainTerrainHeight(
+    applyCanopyBenchmarkTerrainHeight(
+      Math.max(WATER_LEVEL, surface),
+      x,
+      z,
+    ),
     x,
     z,
+    0,
   );
 }
 

@@ -13,6 +13,7 @@ import {
   groundcoverCount,
   selectWoodySpecies,
 } from "../../lib/game/world/vegetation";
+import { MOUNTAIN_LANDMARK } from "../../lib/game/world/mountainLandmark";
 
 const BIOME_IDS = Object.keys(BIOMES) as BiomeId[];
 
@@ -140,6 +141,30 @@ describe("biome vegetation catalog", () => {
     )).toBe(true);
     expect(world.targets.some((target) => target.id.includes("groundcover"))).toBe(false);
     expect(world.colliders.some((collider) => collider.id.includes("groundcover"))).toBe(false);
+    world.dispose();
+  });
+
+  it("keeps Crownspire's snow cap above the alpine treeline", () => {
+    const scene = new THREE.Scene();
+    const world = new ChunkManager(scene, "performance");
+    world.update(
+      MOUNTAIN_LANDMARK.summit.x,
+      MOUNTAIN_LANDMARK.summit.z,
+    );
+    let woodyInstances = 0;
+    let groundcoverInstances = 0;
+    scene.traverse((object) => {
+      if (!(object instanceof THREE.InstancedMesh)) return;
+      if (object.userData.vegetationLayer === "woody") {
+        woodyInstances += object.count;
+      }
+      if (object.userData.vegetationLayer === "decorative") {
+        groundcoverInstances += object.count;
+      }
+    });
+    expect(woodyInstances).toBe(0);
+    expect(groundcoverInstances).toBe(0);
+    expect(world.targets.some((target) => target.item === "wood")).toBe(false);
     world.dispose();
   });
 });

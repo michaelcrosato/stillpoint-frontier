@@ -15,6 +15,7 @@ import { proceduralSurfaceColor } from "./surfaceVariation";
 import { sampleTerrainHeightLod } from "./terrain";
 import { selectWoodySpecies } from "./vegetation";
 import { isCanopyBenchmarkClearing } from "./benchmarkZone";
+import { mountainWoodyVegetationFactor } from "./mountainLandmark";
 
 export interface HorizonTreeRecipe {
   kind: "tree";
@@ -88,7 +89,8 @@ export function horizonSceneryRecipes(
       const y = sampleTerrainHeightLod(x, z, policy.nearCellSize);
       if (y <= WATER_LEVEL + 0.3) continue;
 
-      const treeChance = climate.biome.treeDensity * policy.sceneryDensity * 0.44;
+      const treeChance = climate.biome.treeDensity * policy.sceneryDensity * 0.44 *
+        mountainWoodyVegetationFactor(x, z);
       const rockChance = climate.biome.rockDensity * policy.sceneryDensity * 0.31;
       const selection = random();
       if (selection < treeChance) {

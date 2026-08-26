@@ -9,6 +9,7 @@ import {
   MANUAL_WAYPOINT_ID,
   NavigationService,
 } from "../../lib/game/navigation/NavigationService";
+import { MOUNTAIN_LANDMARK } from "../../lib/game/world/mountainLandmark";
 
 const CONTRACT_TARGET_ID = "contract:active-objective";
 
@@ -22,6 +23,7 @@ interface NavigationEngineHarness {
   emitPresentation(): void;
   emitSnapshot(force?: boolean): void;
   syncContractNavigation(activate?: boolean): void;
+  syncAuthoredLandmarkTargets(): void;
   clearManualWaypoint(): boolean;
   clearActiveNavigationTarget(expectedId?: string): boolean;
   removeNavigationTarget(id: string): boolean;
@@ -55,6 +57,26 @@ function createNavigationHarness() {
 }
 
 describe("Engine navigation precedence", () => {
+  it("registers the Crownspire trailhead without stealing active guidance", () => {
+    const { engine, navigation } = createNavigationHarness();
+    const activeBefore = navigation.getActiveTarget()?.id;
+
+    engine.syncAuthoredLandmarkTargets();
+
+    expect(navigation.getActiveTarget()?.id).toBe(activeBefore);
+    expect(navigation.getTarget(MOUNTAIN_LANDMARK.trailheadId)).toMatchObject({
+      id: MOUNTAIN_LANDMARK.trailheadId,
+      label: MOUNTAIN_LANDMARK.trailheadName,
+      position: MOUNTAIN_LANDMARK.baseWaypoint,
+      source: {
+        kind: "system",
+        systemId: MOUNTAIN_LANDMARK.navigationSystemId,
+      },
+      arrivalRadius: 24,
+      clearOnArrival: false,
+    });
+  });
+
   it("restores active contract guidance after clearing a manual waypoint", () => {
     const { engine, navigation } = createNavigationHarness();
 

@@ -129,7 +129,7 @@ export interface EnvironmentSnapshot {
 export interface FastTravelSnapshot {
   id: string;
   name: string;
-  kind: "megacity" | "city" | "town" | "village" | "relay";
+  kind: "megacity" | "city" | "town" | "village" | "relay" | "landmark";
 }
 
 export interface DeveloperToolsSnapshot {
