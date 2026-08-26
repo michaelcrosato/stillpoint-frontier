@@ -213,8 +213,10 @@ export default function DeveloperPanel({
             <div className="dev-session-notice" role="note">
           <span aria-hidden="true">◇</span>
           <p>
-            <strong>SESSION-ONLY SANDBOX</strong>
-            Time, weather, player sandbox, load-lab, and capture state are session-only. Rendering preferences are saved locally.
+            <strong>{snapshot.sessionMode === "developer" ? "ISOLATED QUICK-START" : "SESSION-ONLY SANDBOX"}</strong>
+            {snapshot.sessionMode === "developer"
+              ? " This fresh developer world cannot overwrite the normal survey save. Rendering preferences remain local."
+              : " Time, weather, player sandbox, load-lab, and capture state are session-only. Rendering preferences are saved locally."}
           </p>
             </div>
 

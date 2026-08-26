@@ -3,7 +3,7 @@
 A low-animation, first-person Three.js open-world foundation running on
 [vinext](https://github.com/cloudflare/vinext). It streams a deterministic 96×96 km
 territory with biome geography, settlements and roads, gathering, movement, persistence,
-map/compass navigation, an accelerated day/night clock, seeded biome weather, an instanced
+aspect-correct zoomable map/compass navigation, an accelerated day/night clock, seeded biome weather, an instanced
 ambient-citizen engine, continuous swept collision, and a GPU-aware test harness. The opening
 vertical slice adds field contracts, crafting and deployable gear, a scanner/field guide,
 deterministic loot containers, rest and camping, data-driven interior dressing, one authored
@@ -12,6 +12,8 @@ supports playtesting. Crownspire and Sunscar Canyon provide large-scale terrain 
 rim/summit routes, persistent landmark water, and village gateway hubs without adding quest
 narrative. Ambient citizens remain deterministic road-and-settlement bustle rather
 than dialogue NPCs: no rigs, colliders, interactions, or saves.
+The title screen also exposes an isolated developer quick start: a fresh noon/clear/frozen
+world with invincibility, 20× traversal, and fly/no-clip that cannot overwrite the normal survey save.
 
 ## Prerequisites
 

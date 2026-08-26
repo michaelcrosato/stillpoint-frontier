@@ -305,8 +305,11 @@ test("sets, replaces, guides, and clears a map waypoint", async ({ page }, testI
   const bounds = await plot.boundingBox();
   expect(bounds).not.toBeNull();
   if (!bounds) return;
+  const atlasSize = Math.min(bounds.width, bounds.height);
+  const atlasLeft = bounds.x + (bounds.width - atlasSize) * 0.5;
+  const atlasTop = bounds.y + (bounds.height - atlasSize) * 0.5;
 
-  await page.mouse.click(bounds.x + bounds.width * 0.75, bounds.y + bounds.height * 0.25);
+  await page.mouse.click(atlasLeft + atlasSize * 0.75, atlasTop + atlasSize * 0.25);
   await expect(page.getByTestId("map-waypoint")).toBeVisible();
   await expect
     .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().navigation?.target.position.x))
@@ -315,7 +318,7 @@ test("sets, replaces, guides, and clears a map waypoint", async ({ page }, testI
     .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().navigation?.target.position.z))
     .toBeCloseTo(-24_000, -1);
 
-  await page.mouse.click(bounds.x + bounds.width * 0.25, bounds.y + bounds.height * 0.75);
+  await page.mouse.click(atlasLeft + atlasSize * 0.25, atlasTop + atlasSize * 0.75);
   await expect
     .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().navigation?.target.position.x))
     .toBeCloseTo(-24_000, -1);
@@ -348,6 +351,77 @@ test("sets, replaces, guides, and clears a map waypoint", async ({ page }, testI
   await expect(page.getByTestId("navigation-distance")).toHaveText("--");
   await expect(page.getByTestId("waypoint-compass-marker")).toBeHidden();
   expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().navigation)).toBeNull();
+});
+
+test("zooms, pans, focuses, and preserves the cartographic viewport", async ({ page }) => {
+  await openDeterministicWorld(page);
+  await page.getByTestId("enter-frontier").click();
+  await page.getByRole("button", { name: /map/i }).click();
+  await expect(page.getByTestId("map-zoom-output")).toHaveText("100%");
+
+  await page.getByTestId("map-zoom-in").click();
+  await page.getByTestId("map-zoom-in").click();
+  await expect(page.getByTestId("map-zoom-output")).toHaveText("225%");
+  await expect(page.getByTestId("map-panel")).toHaveAttribute("data-map-detail", "regional");
+  await expect(page.getByTestId("map-viewport-status")).toContainText("VIEW");
+
+  const plot = page.getByTestId("map-plot");
+  const bounds = await plot.boundingBox();
+  expect(bounds).not.toBeNull();
+  if (!bounds) return;
+  const playerBeforePan = await plot.locator(".map-player").boundingBox();
+  await page.mouse.move(bounds.x + bounds.width * 0.55, bounds.y + bounds.height * 0.55);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + bounds.width * 0.68, bounds.y + bounds.height * 0.62);
+  await page.mouse.up();
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().navigation))
+    .toBeNull();
+  const playerAfterPan = await plot.locator(".map-player").boundingBox();
+  expect(playerBeforePan).not.toBeNull();
+  expect(playerAfterPan).not.toBeNull();
+  expect(Math.hypot(
+    (playerAfterPan?.x ?? 0) - (playerBeforePan?.x ?? 0),
+    (playerAfterPan?.y ?? 0) - (playerBeforePan?.y ?? 0),
+  )).toBeGreaterThan(30);
+
+  const atlasSize = Math.min(bounds.width, bounds.height);
+  const unitsPerPixel = 96_000 / (atlasSize * 2.25);
+  const clampCenter = (value: number, halfVisible: number) => halfVisible >= 48_000
+    ? 0
+    : Math.max(-48_000 + halfVisible, Math.min(48_000 - halfVisible, value));
+  const expectedX = clampCenter(
+    -(bounds.width * 0.13) * unitsPerPixel,
+    bounds.width * unitsPerPixel * 0.5,
+  );
+  const expectedZ = clampCenter(
+    -(bounds.height * 0.07) * unitsPerPixel,
+    bounds.height * unitsPerPixel * 0.5,
+  );
+  await page.mouse.click(bounds.x + bounds.width * 0.5, bounds.y + bounds.height * 0.5);
+  await expect.poll(() => page.evaluate(() =>
+    window.__STILLPOINT_TEST__?.snapshot().navigation?.target.position.x)).toBeCloseTo(expectedX, -2);
+  await expect.poll(() => page.evaluate(() =>
+    window.__STILLPOINT_TEST__?.snapshot().navigation?.target.position.z)).toBeCloseTo(expectedZ, -2);
+
+  await page.getByTestId("map-focus-player").click();
+  await expect(page.getByTestId("map-panel")).toHaveAttribute("data-map-detail", "local");
+  const focusedPlot = await plot.boundingBox();
+  const focusedPlayer = await plot.locator(".map-player").boundingBox();
+  expect(focusedPlot).not.toBeNull();
+  expect(focusedPlayer).not.toBeNull();
+  expect(Math.abs(
+    (focusedPlayer?.x ?? 0) + (focusedPlayer?.width ?? 0) * 0.5 -
+      ((focusedPlot?.x ?? 0) + (focusedPlot?.width ?? 0) * 0.5),
+  )).toBeLessThan(4);
+  expect(Math.abs(
+    (focusedPlayer?.y ?? 0) + (focusedPlayer?.height ?? 0) * 0.5 -
+      ((focusedPlot?.y ?? 0) + (focusedPlot?.height ?? 0) * 0.5),
+  )).toBeLessThan(4);
+  await page.getByRole("button", { name: /close/i }).click();
+  await page.getByRole("button", { name: /map/i }).click();
+  await expect(page.getByTestId("map-zoom-output")).not.toHaveText("100%");
+  await page.getByTestId("map-fit").click();
+  await expect(page.getByTestId("map-zoom-output")).toHaveText("100%");
 });
 
 test("fast travels from the map with all playtest destinations unlocked", async ({ page }) => {
@@ -667,6 +741,7 @@ test("provides session-only invincibility, speed tiers, and safe no-clip flight"
   await page.getByRole("button", { name: /close & resume/i }).click();
   await expect(page.getByTestId("developer-player-status")).toContainText("GOD");
   await expect(page.getByTestId("developer-player-status")).toContainText("FLY");
+  await expect(page.getByTestId("developer-player-status")).toContainText("20×");
   const beforeY = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().position.y ?? 0);
   await page.keyboard.down("Space");
   await expect.poll(
@@ -683,6 +758,95 @@ test("provides session-only invincibility, speed tiers, and safe no-clip flight"
     fly: false,
   });
   expect(reset?.grounded).toBe(true);
+});
+
+test("starts a deterministic fresh developer sandbox from the title screen", async ({ page }) => {
+  await openDeterministicWorld(page);
+  await expect(page.getByTestId("enter-developer")).toContainText("START IN DEV MODE");
+  await page.getByTestId("enter-developer").click();
+
+  const snapshot = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
+  expect(snapshot).toMatchObject({
+    started: true,
+    sessionMode: "developer",
+    position: { x: 0, z: 8 },
+    health: 100,
+    worldChanges: 0,
+    scanned: [],
+    devTools: {
+      enabled: true,
+      panelOpen: false,
+      clockPaused: true,
+      weatherOverride: "fair",
+      player: { invincible: true, speedMode: "veryFast", fly: true },
+    },
+    environment: {
+      hour: 12,
+      minute: 0,
+      weatherId: "fair",
+      clockState: "frozen",
+    },
+  });
+  expect(Object.values(snapshot?.inventory ?? {}).every((quantity) => quantity === 0))
+    .toBe(true);
+  await expect(page.getByTestId("developer-player-status")).toContainText("GOD");
+  await expect(page.getByTestId("developer-player-status")).toContainText("FLY");
+  await expect(page.getByTestId("developer-player-status")).toContainText("20×");
+  await page.waitForTimeout(400);
+  expect(await page.evaluate(() =>
+    window.__STILLPOINT_TEST__?.snapshot().environment.totalMinutes)).toBe(720);
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.beginSession())).toBe(false);
+  expect(await page.evaluate(() =>
+    window.__STILLPOINT_TEST__?.snapshot().sessionMode)).toBe("developer");
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.saveNow())).toBe(false);
+});
+
+test("keeps a normal survey save untouched by the developer quick start", async ({ page }) => {
+  await page.goto("/?test=1&storage=1", { waitUntil: "load" });
+  await page.evaluate(() => window.localStorage.clear());
+  await page.reload({ waitUntil: "load" });
+  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  await page.getByTestId("enter-frontier").click();
+  await page.evaluate(() => {
+    window.__STILLPOINT_TEST__?.teleport(1_234, -5_678);
+    window.__STILLPOINT_TEST__?.discover("amber-relay");
+    window.__STILLPOINT_TEST__?.saveNow();
+  });
+  const surveySave = await page.evaluate(() =>
+    window.localStorage.getItem("stillpoint-frontier:survey:v1"));
+  expect(surveySave).not.toBeNull();
+
+  await page.reload({ waitUntil: "load" });
+  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  await page.getByTestId("enter-developer").click();
+  await page.evaluate(() => {
+    window.__STILLPOINT_TEST__?.discover("meridian-vault");
+    window.__STILLPOINT_TEST__?.setWaypoint(40_000, -30_000);
+    window.__STILLPOINT_TEST__?.saveNow();
+  });
+  expect(await page.evaluate(() =>
+    window.__STILLPOINT_TEST__?.snapshot().navigation)).not.toBeNull();
+  expect(await page.evaluate(() =>
+    window.localStorage.getItem("stillpoint-frontier:survey:v1"))).toBe(surveySave);
+
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.loadGame())).toBe(true);
+  const restored = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
+  expect(restored?.sessionMode).toBe("survey");
+  expect(restored?.devTools.enabled).toBe(false);
+  expect(restored?.devTools.player).toMatchObject({
+    invincible: false,
+    speedMode: "normal",
+    fly: false,
+  });
+  expect(restored?.grounded).toBe(true);
+  expect(restored?.navigation).toBeNull();
+  expect(restored?.position.x).toBeCloseTo(1_234, 4);
+  expect(restored?.position.z).toBeCloseTo(-5_678, 4);
+  expect(restored?.scanned).toContain("amber-relay");
+  expect(restored?.scanned).not.toContain("meridian-vault");
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.saveNow())).toBe(true);
 });
 
 test("travels to the render-only canopy lab and scales graphics without simulation load", async ({ page }) => {

@@ -19,8 +19,8 @@ export const DEVELOPER_SPEED_PROFILES: Readonly<
   Record<DeveloperSpeedMode, { label: string; multiplier: number }>
 > = Object.freeze({
   normal: { label: "NORMAL", multiplier: 1 },
-  fast: { label: "FAST", multiplier: 3 },
-  veryFast: { label: "VERY FAST", multiplier: 8 },
+  fast: { label: "FAST", multiplier: 5 },
+  veryFast: { label: "VERY FAST", multiplier: 20 },
 });
 
 export const MAX_DEVELOPER_FLIGHT_ALTITUDE = 1_500;

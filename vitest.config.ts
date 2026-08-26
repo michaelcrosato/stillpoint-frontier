@@ -70,6 +70,8 @@ export default defineConfig({
         "lib/game/navigation/math.ts",
         "lib/game/navigation/NavigationService.ts",
         "lib/game/navigation/presentation.ts",
+        "lib/game/cartography/viewport.ts",
+        "lib/game/session/sessionPresets.ts",
         "lib/game/environment/model.ts",
         "lib/game/developer/environmentState.ts",
         "lib/game/world/fastTravel.ts",

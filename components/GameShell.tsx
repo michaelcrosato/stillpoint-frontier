@@ -30,6 +30,8 @@ import { ITEM_DEFINITIONS, type ItemId } from "../lib/game/gameplay/items";
 import { GamePresentationStore } from "../lib/game/navigation/presentation";
 import { keyLabel } from "../lib/game/settings";
 import { INITIAL_SNAPSHOT, nextUnscannedBeacon, type GameSnapshot } from "../lib/game/state";
+import { DEVELOPER_SPEED_PROFILES } from "../lib/game/developer/PlayerSandbox";
+import { fitMapViewport } from "../lib/game/cartography/viewport";
 
 function beaconById(id: BeaconId | null) {
   return BEACONS.find((beacon) => beacon.id === id) ?? null;
@@ -44,6 +46,7 @@ export default function GameShell() {
   const engineRef = useRef<Engine | null>(null);
   const [presentationStore] = useState(() => new GamePresentationStore());
   const [snapshot, setSnapshot] = useState<GameSnapshot>(INITIAL_SNAPSHOT);
+  const [mapViewport, setMapViewport] = useState(fitMapViewport);
   const [visualFixture, setVisualFixture] = useState(false);
   const [engineError, setEngineError] = useState<string | null>(null);
 
@@ -75,6 +78,7 @@ export default function GameShell() {
           ...INITIAL_SNAPSHOT,
           ready: true,
           started: fixture !== "entry",
+          sessionMode: fixture === "dev" ? "developer" : "survey",
           paused: fixture === "dev",
           mapOpen: fixture === "map",
           devTools: {
@@ -343,15 +347,29 @@ export default function GameShell() {
               A 96-kilometre territory unfolds around the Greywater: forest, highland,
               steppe, badland, coast, and the megacity that binds their economies together.
             </p>
-            <button
-              type="button"
-              className="enter-button"
-              data-testid="enter-frontier"
-              onClick={() => engineRef.current?.beginSession()}
-            >
-              <span>ENTER FRONTIER</span>
-              <span aria-hidden="true">↗</span>
-            </button>
+            <div className="entry-session-actions">
+              <button
+                type="button"
+                className="enter-button"
+                data-testid="enter-frontier"
+                onClick={() => engineRef.current?.beginSession()}
+              >
+                <span>{snapshot.saveStatus === "saved" ? "RESUME SURVEY" : "ENTER FRONTIER"}</span>
+                <span aria-hidden="true">↗</span>
+              </button>
+              <button
+                type="button"
+                className="enter-developer-button"
+                data-testid="enter-developer"
+                onClick={() => engineRef.current?.beginDeveloperSession()}
+              >
+                <span>
+                  <strong>START IN DEV MODE</strong>
+                  <small>FRESH WORLD · NOON · CLEAR · FROZEN · 20× · FLY · INVINCIBLE</small>
+                </span>
+                <span aria-hidden="true">◇</span>
+              </button>
+            </div>
             <button
               type="button"
               className="entry-settings-button"
@@ -360,7 +378,7 @@ export default function GameShell() {
               SETTINGS <span aria-hidden="true">⌁</span>
             </button>
             <p className="entry-note">
-              Click to capture the mouse · Headphones recommended
+              Click to capture the mouse · Dev launch cannot overwrite your survey save
             </p>
           </div>
 
@@ -581,7 +599,7 @@ export default function GameShell() {
                 {snapshot.devTools.player.fly && <strong>FLY</strong>}
                 {snapshot.devTools.player.speedMode !== "normal" && (
                   <strong>
-                    {snapshot.devTools.player.speedMode === "fast" ? "3×" : "8×"}
+                    {DEVELOPER_SPEED_PROFILES[snapshot.devTools.player.speedMode].multiplier}×
                   </strong>
                 )}
               </div>
@@ -677,11 +695,17 @@ export default function GameShell() {
             RESUME SURVEY <span>↗</span>
           </button>
           <div className="pause-action-grid">
-            <button type="button" data-testid="save-now" onClick={() => engineRef.current?.saveNow()}>
-              SAVE NOW <span>{snapshot.saveStatus.toUpperCase()}</span>
+            <button
+              type="button"
+              data-testid="save-now"
+              disabled={snapshot.sessionMode === "developer"}
+              onClick={() => engineRef.current?.saveNow()}
+            >
+              {snapshot.sessionMode === "developer" ? "SURVEY SAVE PROTECTED" : "SAVE NOW"}
+              <span>{snapshot.sessionMode === "developer" ? "DEV SESSION" : snapshot.saveStatus.toUpperCase()}</span>
             </button>
             <button type="button" data-testid="load-save" disabled={snapshot.saveStatus !== "saved"} onClick={() => engineRef.current?.loadGame()}>
-              LOAD LAST SAVE <span>RESTORE</span>
+              LOAD SURVEY SAVE <span>RESTORE</span>
             </button>
             <button type="button" onClick={() => engineRef.current?.setInventoryOpen(true)}>
               INVENTORY <span>{snapshot.inventoryItemCount} ITEMS</span>
@@ -710,6 +734,8 @@ export default function GameShell() {
       {snapshot.started && snapshot.mapOpen && (
         <WorldMap
           snapshot={snapshot}
+          viewport={mapViewport}
+          onViewportChange={setMapViewport}
           onClose={() => engineRef.current?.setMapOpen(false)}
           onSetWaypoint={(x, z) => engineRef.current?.setManualWaypoint(x, z)}
           onClearWaypoint={() => engineRef.current?.clearManualWaypoint()}

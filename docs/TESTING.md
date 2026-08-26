@@ -94,10 +94,12 @@ and disposal. Browser coverage cycles and persists
 all three profiles while checking that gameplay and citizen residency never changes.
 
 Navigation tests cover north-zero clockwise bearings, yaw sign, 359°/000° wraparound,
-five-degree compass windows, arbitrary map/world coordinate round trips, non-square map
-clicks, target validation, player/quest target replacement, stale clears, one-shot arrival,
+five-degree compass windows, arbitrary map/world coordinate round trips, aspect-correct
+non-square map staging, zoom-anchor invariance, pan and atlas-edge clamping, target validation,
+player/quest target replacement, stale clears, one-shot arrival,
 auto-clearing scripted targets, manual-waypoint save migration, and render-frame store
-notifications. Browser coverage sets and replaces a pin through actual map coordinates,
+notifications. Browser coverage zooms, pans, focuses, preserves the viewport across map closes,
+sets and replaces a pin through actual map coordinates,
 checks the compact HUD bearing/distance readouts and compass marker, and restores the manual
 waypoint after reload.
 
@@ -181,7 +183,10 @@ Horizon unit coverage also caps deterministic city-light points at 320/eight dra
 their bloom layer, and exercises day/night plus session-toggle visibility. Rendering-policy tests
 lock the weather/time grade inputs while the developer graphics-module flow resets every
 post-processing, reflection, skyline, shadow, detail, wind, cloud-shade, wet-pooling, and
-storm-lightning switch to its default-on state. Player-sandbox unit coverage locks 1×/3×/8×
+storm-lightning switch to its default-on state. Player-sandbox unit coverage locks 1×/5×/20×
 movement, normalized pitch-aware flight, vertical controls, collision/gravity bypass, and shared
 state reset. The functional browser flow additionally proves invincibility blocks a fatal fall,
 active cheats remain visible after closing the console, and disabling developer mode lands safely.
+Session-profile coverage locks the fresh noon/fair/frozen developer launch, its 20× fly and
+invincibility defaults, full gameplay reset, and the invariant that an isolated developer run
+cannot modify a previously saved survey.

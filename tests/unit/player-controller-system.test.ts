@@ -58,8 +58,8 @@ function runtime(
 describe("player controller developer traversal", () => {
   it.each([
     ["normal", 6.4],
-    ["fast", 19.2],
-    ["veryFast", 51.2],
+    ["fast", 32],
+    ["veryFast", 128],
   ] as const)("applies the %s grounded multiplier after normal locomotion", (mode, distance) => {
     const { context, queryColliders } = runtime(mode, ["moveForward"]);
     new PlayerControllerSystem().update(context, 1);

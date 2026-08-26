@@ -12,8 +12,8 @@ describe("developer player sandbox", () => {
   it("defines bounded discrete speed tiers and rejects unknown modes", () => {
     expect(DEVELOPER_SPEED_MODES).toEqual(["normal", "fast", "veryFast"]);
     expect(developerSpeedMultiplier("normal")).toBe(1);
-    expect(developerSpeedMultiplier("fast")).toBe(3);
-    expect(developerSpeedMultiplier("veryFast")).toBe(8);
+    expect(developerSpeedMultiplier("fast")).toBe(5);
+    expect(developerSpeedMultiplier("veryFast")).toBe(20);
     expect(isDeveloperSpeedMode("veryFast")).toBe(true);
     expect(isDeveloperSpeedMode("ludicrous")).toBe(false);
   });

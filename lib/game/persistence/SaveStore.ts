@@ -83,7 +83,7 @@ export interface SavedPlayerState {
   coldStress: number;
 }
 
-function emptySave(): FrontierSave {
+export function createEmptyFrontierSave(): FrontierSave {
   return {
     version: 8,
     scanned: [],
@@ -237,10 +237,10 @@ export class SaveStore {
   }
 
   load(): FrontierSave {
-    if (!this.storage) return emptySave();
+    if (!this.storage) return createEmptyFrontierSave();
     try {
       const raw = this.storage.getItem(SAVE_KEY);
-      if (!raw) return emptySave();
+      if (!raw) return createEmptyFrontierSave();
       const parsed = JSON.parse(raw) as {
         version?: unknown;
         scanned?: unknown;
@@ -258,9 +258,9 @@ export class SaveStore {
         ? parsed.version
         : 0;
       if (version === 1) {
-        return { ...emptySave(), scanned: normalizeScanned(parsed.scanned) };
+        return { ...createEmptyFrontierSave(), scanned: normalizeScanned(parsed.scanned) };
       }
-      if (version < 2 || version > CURRENT_SAVE_VERSION) return emptySave();
+      if (version < 2 || version > CURRENT_SAVE_VERSION) return createEmptyFrontierSave();
       return {
         version: 8,
         scanned: normalizeScanned(parsed.scanned),
@@ -283,7 +283,7 @@ export class SaveStore {
           : createFeatureProgress(),
       };
     } catch {
-      return emptySave();
+      return createEmptyFrontierSave();
     }
   }
 

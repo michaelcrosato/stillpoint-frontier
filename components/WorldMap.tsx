@@ -1,12 +1,24 @@
 "use client";
 
-import type { KeyboardEvent, MouseEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type Dispatch,
+  type KeyboardEvent,
+  type MouseEvent,
+  type PointerEvent,
+  type SetStateAction,
+  type WheelEvent,
+} from "react";
 import { BEACONS, WORLD_SEED } from "../lib/game/config";
 import {
   clamp,
   formatHeading,
   formatNavigationDistance,
-  mapPointToWorld,
   worldToMapPercent,
 } from "../lib/game/navigation/math";
 import type { GameSnapshot } from "../lib/game/state";
@@ -28,14 +40,41 @@ import {
   CANYON_RIVER_POINTS,
 } from "../lib/game/world/canyonLandmark";
 import { AUTHORED_LANDMARK_NAVIGATION_SYSTEM_ID } from "../lib/game/world/authoredLandmarks";
+import {
+  MAP_MAX_ZOOM,
+  MAP_MIN_ZOOM,
+  clampMapViewport,
+  fitMapViewport,
+  focusMapViewport,
+  mapDetailLevel,
+  mapScreenPointToWorld,
+  mapStageLayout,
+  mapViewportTransform,
+  panMapViewport,
+  sameMapViewport,
+  visibleMapWorldBounds,
+  zoomMapViewportAtPoint,
+  type MapViewportMetrics,
+  type MapViewportState,
+} from "../lib/game/cartography/viewport";
 
 interface WorldMapProps {
   snapshot: GameSnapshot;
+  viewport: MapViewportState;
+  onViewportChange: Dispatch<SetStateAction<MapViewportState>>;
   onClose(): void;
   onSetWaypoint(x: number, z: number): void;
   onClearWaypoint(): void;
   onActivateNavigationTarget(id: string): void;
   onFastTravel(locationId: string): void;
+}
+
+interface MapDragState {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  viewport: MapViewportState;
+  moved: boolean;
 }
 
 function mapPercent(value: number) {
@@ -66,14 +105,32 @@ const CANYON_MAP_ROTATION =
   (Math.atan2(CANYON_LANDMARK.axis.z, CANYON_LANDMARK.axis.x) * 180) /
   Math.PI;
 
+function niceScaleDistance(pixelsPerMeter: number, targetPixels = 110) {
+  if (!Number.isFinite(pixelsPerMeter) || pixelsPerMeter <= 0) return 1_000;
+  const targetMeters = targetPixels / pixelsPerMeter;
+  const magnitude = 10 ** Math.floor(Math.log10(Math.max(1, targetMeters)));
+  const normalized = targetMeters / magnitude;
+  const step = normalized >= 5 ? 5 : normalized >= 2 ? 2 : 1;
+  return step * magnitude;
+}
+
 export default function WorldMap({
   snapshot,
+  viewport,
+  onViewportChange,
   onClose,
   onSetWaypoint,
   onClearWaypoint,
   onActivateNavigationTarget,
   onFastTravel,
 }: WorldMapProps) {
+  const plotRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<MapDragState | null>(null);
+  const suppressClickRef = useRef(false);
+  const [localViewport, setLocalViewport] = useState(() => viewport);
+  const viewportRef = useRef(viewport);
+  const [isPanning, setIsPanning] = useState(false);
+  const [metrics, setMetrics] = useState<MapViewportMetrics>({ width: 0, height: 0 });
   const navigation = snapshot.navigation;
   const canClear = navigation?.target.source.kind === "player";
   const surveyMarkers = snapshot.navigationTargets.filter(
@@ -85,20 +142,156 @@ export default function WorldMap({
       target.source.systemId === AUTHORED_LANDMARK_NAVIGATION_SYSTEM_ID,
   );
 
+  const changeViewport = useCallback((update: SetStateAction<MapViewportState>) => {
+    setLocalViewport((current) => {
+      const candidate = typeof update === "function"
+        ? update(current)
+        : update;
+      const next = sameMapViewport(current, candidate) ? current : candidate;
+      viewportRef.current = next;
+      return next;
+    });
+  }, []);
+
+  useEffect(() => () => {
+    onViewportChange(viewportRef.current);
+  }, [onViewportChange]);
+
+  useLayoutEffect(() => {
+    const plot = plotRef.current;
+    if (!plot) return;
+    const measure = () => {
+      const rect = plot.getBoundingClientRect();
+      const nextMetrics = { width: rect.width, height: rect.height };
+      setMetrics(nextMetrics);
+      changeViewport((current) => {
+        const next = clampMapViewport(current, nextMetrics, WORLD_HALF_EXTENT);
+        return sameMapViewport(current, next) ? current : next;
+      });
+    };
+    measure();
+    plot.focus({ preventScroll: true });
+    const observer = new ResizeObserver(measure);
+    observer.observe(plot);
+    return () => observer.disconnect();
+  }, [changeViewport]);
+
+  const safeViewport = clampMapViewport(localViewport, metrics, WORLD_HALF_EXTENT);
+  const stage = mapStageLayout(metrics);
+  const transform = mapViewportTransform(safeViewport, WORLD_HALF_EXTENT);
+  const bounds = visibleMapWorldBounds(safeViewport, metrics, WORLD_HALF_EXTENT);
+  const markerPadding = Math.max(
+    250,
+    Math.min(bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ) * 0.08,
+  );
+  const markerIsVisible = (point: { x: number; z: number }) => (
+    point.x >= bounds.minX - markerPadding &&
+    point.x <= bounds.maxX + markerPadding &&
+    point.z >= bounds.minZ - markerPadding &&
+    point.z <= bounds.maxZ + markerPadding
+  );
+  const detailLevel = mapDetailLevel(safeViewport.zoom);
+  const pixelsPerMeter = stage.size > 0
+    ? (stage.size * safeViewport.zoom) / (WORLD_HALF_EXTENT * 2)
+    : 0;
+  const scaleDistance = niceScaleDistance(pixelsPerMeter);
+  const worldStyle = {
+    left: `${stage.left}px`,
+    top: `${stage.top}px`,
+    width: `${stage.size}px`,
+    height: `${stage.size}px`,
+    transform: `translate(${transform.translateXPercent}%, ${transform.translateYPercent}%) scale(${transform.scale})`,
+    "--map-marker-scale": String(1 / safeViewport.zoom),
+    "--map-line-width": `${1 / safeViewport.zoom}px`,
+  } as CSSProperties;
+
+  const updateViewport = (next: MapViewportState) => {
+    changeViewport((current) => sameMapViewport(current, next) ? current : next);
+  };
+
+  const zoomAtCenter = (requestedZoom: number) => {
+    changeViewport((current) => zoomMapViewportAtPoint(
+      current,
+      requestedZoom,
+      { x: metrics.width * 0.5, y: metrics.height * 0.5 },
+      metrics,
+      WORLD_HALF_EXTENT,
+    ));
+  };
+
+  const focusPosition = (position: { x: number; z: number }, minimumZoom = 4) => {
+    changeViewport((current) => focusMapViewport(
+      current,
+      position,
+      metrics,
+      WORLD_HALF_EXTENT,
+      minimumZoom,
+    ));
+  };
+
   const handleMapClick = (event: MouseEvent<HTMLDivElement>) => {
-    const position = mapPointToWorld(
-      event.clientX,
-      event.clientY,
-      event.currentTarget.getBoundingClientRect(),
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const position = mapScreenPointToWorld(
+      { x: event.clientX - rect.left, y: event.clientY - rect.top },
+      safeViewport,
+      { width: rect.width, height: rect.height },
       WORLD_HALF_EXTENT,
     );
     if (position) onSetWaypoint(position.x, position.z);
   };
 
   const handleMapKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return;
     if ((event.key === "Delete" || event.key === "Backspace") && canClear) {
       event.preventDefault();
       onClearWaypoint();
+      return;
+    }
+    if (event.key === "+" || event.key === "=") {
+      event.preventDefault();
+      zoomAtCenter(safeViewport.zoom * 1.5);
+      return;
+    }
+    if (event.key === "-" || event.key === "_") {
+      event.preventDefault();
+      zoomAtCenter(safeViewport.zoom / 1.5);
+      return;
+    }
+    if (event.key === "0" || event.key === "Home") {
+      event.preventDefault();
+      updateViewport(fitMapViewport());
+      return;
+    }
+    if (event.key.toLowerCase() === "p") {
+      event.preventDefault();
+      focusPosition(snapshot.position);
+      return;
+    }
+    if (event.key.toLowerCase() === "n" && navigation) {
+      event.preventDefault();
+      focusPosition(navigation.target.position);
+      return;
+    }
+    if (event.altKey && event.key.startsWith("Arrow")) {
+      const panPixels = 72;
+      const delta = event.key === "ArrowLeft"
+        ? { x: panPixels, y: 0 }
+        : event.key === "ArrowRight"
+          ? { x: -panPixels, y: 0 }
+          : event.key === "ArrowUp"
+            ? { x: 0, y: panPixels }
+            : { x: 0, y: -panPixels };
+      event.preventDefault();
+      updateViewport(panMapViewport(
+        safeViewport,
+        delta,
+        metrics,
+        WORLD_HALF_EXTENT,
+      ));
       return;
     }
     const step = event.shiftKey ? 5_000 : 1_000;
@@ -134,6 +327,8 @@ export default function WorldMap({
     event.preventDefault();
     event.stopPropagation();
     onFastTravel(locationId);
+    const location = FAST_TRAVEL_LOCATIONS.find((candidate) => candidate.id === locationId);
+    if (location) focusPosition(location, Math.max(4, safeViewport.zoom));
   };
 
   const handleNavigationTarget = (event: MouseEvent<HTMLElement>, targetId: string) => {
@@ -142,12 +337,84 @@ export default function WorldMap({
     onActivateNavigationTarget(targetId);
   };
 
+  const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const factor = Math.exp(-event.deltaY * 0.0015);
+    changeViewport((current) => zoomMapViewportAtPoint(
+      current,
+      current.zoom * factor,
+      { x: event.clientX - rect.left, y: event.clientY - rect.top },
+      { width: rect.width, height: rect.height },
+      WORLD_HALF_EXTENT,
+    ));
+  };
+
+  const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    const target = event.target as HTMLElement;
+    if (target.closest("button, input, [data-map-control]")) return;
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      viewport: safeViewport,
+      moved: false,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const delta = {
+      x: event.clientX - drag.startX,
+      y: event.clientY - drag.startY,
+    };
+    if (!drag.moved && Math.hypot(delta.x, delta.y) < 4) return;
+    drag.moved = true;
+    setIsPanning(true);
+    updateViewport(panMapViewport(
+      drag.viewport,
+      delta,
+      metrics,
+      WORLD_HALF_EXTENT,
+    ));
+  };
+
+  const finishPointerGesture = (
+    event: PointerEvent<HTMLDivElement>,
+    cancelled = false,
+  ) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (drag.moved && !cancelled) suppressClickRef.current = true;
+    dragRef.current = null;
+    setIsPanning(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const clearPointerGesture = () => {
+    dragRef.current = null;
+    setIsPanning(false);
+  };
+
   return (
-    <section className="map-panel" data-testid="map-panel">
+    <section
+      className="map-panel"
+      data-testid="map-panel"
+      data-map-detail={detailLevel}
+      data-map-zoom={safeViewport.zoom.toFixed(2)}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="territory-map-title"
+    >
       <header>
         <div>
           <p className="eyebrow">FIELD CARTOGRAPHY</p>
-          <h2>GREYWATER TERRITORY / 96 × 96 KM</h2>
+          <h2 id="territory-map-title">GREYWATER TERRITORY / 96 × 96 KM</h2>
         </div>
         <div className="map-header-actions">
           <span className="map-playtest-badge">PLAYTEST / ALL DESTINATIONS OPEN</span>
@@ -163,19 +430,28 @@ export default function WorldMap({
       </header>
       <div className="map-body">
         <div
-          className="map-plot"
+          ref={plotRef}
+          className={`map-plot ${isPanning ? "is-panning" : ""}`}
           data-testid="map-plot"
           role="application"
           tabIndex={0}
-          aria-label="Territory map. Click a location or use arrow keys to set and move your waypoint."
+          aria-label="Territory map. Scroll or use plus and minus to zoom, drag to pan, click ground to set a waypoint, or use arrow keys to move it."
           onClick={handleMapClick}
           onKeyDown={handleMapKeyDown}
+          onWheel={handleWheel}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={finishPointerGesture}
+          onPointerCancel={(event) => finishPointerGesture(event, true)}
+          onLostPointerCapture={clearPointerGesture}
           onContextMenu={(event) => {
+            if ((event.target as HTMLElement).closest("[data-map-control], button, input")) return;
             if (!canClear) return;
             event.preventDefault();
             onClearWaypoint();
           }}
         >
+          <div className="map-world" style={worldStyle} aria-hidden={stage.size <= 0}>
           <svg className="map-geography" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
             <polyline className="map-river" points={RIVER_MAP_POINTS} />
             <circle
@@ -238,14 +514,11 @@ export default function WorldMap({
               />
             )}
           </svg>
-          <span className="map-instruction">
-            CLICK GROUND: WAYPOINT · LANDMARK: NAVIGATE · INDEX: FAST TRAVEL
-          </span>
           <span
             className="map-player"
             style={{
-              left: `${clamp(mapPercent(snapshot.position.x), 2, 98)}%`,
-              top: `${clamp(mapPercent(snapshot.position.z), 2, 98)}%`,
+              left: `${mapPercent(snapshot.position.x)}%`,
+              top: `${mapPercent(snapshot.position.z)}%`,
             }}
           >
             YOU
@@ -263,7 +536,7 @@ export default function WorldMap({
               <b>{navigation.reached ? "ARRIVED" : "WAYPOINT"}</b>
             </span>
           )}
-          {surveyMarkers.map((marker) => {
+          {surveyMarkers.filter((marker) => markerIsVisible(marker.position)).map((marker) => {
             const serial = marker.id.split(":").at(-1) ?? "?";
             return (
               <button
@@ -284,7 +557,7 @@ export default function WorldMap({
               </button>
             );
           })}
-          {landmarkMarkers.map((marker) => (
+          {landmarkMarkers.filter((marker) => markerIsVisible(marker.position)).map((marker) => (
             <button
               type="button"
               key={marker.id}
@@ -302,7 +575,7 @@ export default function WorldMap({
               <b>{marker.label}</b>
             </button>
           ))}
-          {BEACONS.map((beacon) => (
+          {BEACONS.filter(markerIsVisible).map((beacon) => (
             <button
               type="button"
               key={beacon.id}
@@ -316,7 +589,7 @@ export default function WorldMap({
               {beacon.code}
             </button>
           ))}
-          {SETTLEMENTS.map((settlement) => (
+          {SETTLEMENTS.filter(markerIsVisible).map((settlement) => (
             <button
               type="button"
               key={settlement.id}
@@ -331,6 +604,89 @@ export default function WorldMap({
               <b>{settlement.name}</b>
             </button>
           ))}
+          </div>
+
+          <div
+            className="map-viewport-controls"
+            data-map-control
+            onClick={(event) => event.stopPropagation()}
+            onWheel={(event) => event.stopPropagation()}
+          >
+            <div className="map-zoom-buttons" role="group" aria-label="Map zoom">
+              <button
+                type="button"
+                data-testid="map-zoom-out"
+                aria-label="Zoom map out"
+                disabled={safeViewport.zoom <= MAP_MIN_ZOOM}
+                onClick={() => zoomAtCenter(safeViewport.zoom / 1.5)}
+              >
+                −
+              </button>
+              <output data-testid="map-zoom-output" aria-live="polite">
+                {Math.round(safeViewport.zoom * 100)}%
+              </output>
+              <button
+                type="button"
+                data-testid="map-zoom-in"
+                aria-label="Zoom map in"
+                disabled={safeViewport.zoom >= MAP_MAX_ZOOM}
+                onClick={() => zoomAtCenter(safeViewport.zoom * 1.5)}
+              >
+                +
+              </button>
+            </div>
+            <input
+              type="range"
+              data-testid="map-zoom-slider"
+              aria-label="Map zoom level"
+              aria-valuetext={`${Math.round(safeViewport.zoom * 100)} percent`}
+              min={MAP_MIN_ZOOM}
+              max={MAP_MAX_ZOOM}
+              step="any"
+              value={safeViewport.zoom}
+              onChange={(event) => zoomAtCenter(Number(event.currentTarget.value))}
+            />
+            <div className="map-focus-buttons" role="group" aria-label="Map focus">
+              <button
+                type="button"
+                data-testid="map-focus-player"
+                onClick={() => focusPosition(snapshot.position)}
+              >
+                PLAYER <kbd>P</kbd>
+              </button>
+              {navigation && (
+                <button
+                  type="button"
+                  data-testid="map-focus-target"
+                  onClick={() => focusPosition(navigation.target.position)}
+                >
+                  TARGET <kbd>N</kbd>
+                </button>
+              )}
+              <button
+                type="button"
+                data-testid="map-fit"
+                onClick={() => updateViewport(fitMapViewport())}
+              >
+                FIT <kbd>0</kbd>
+              </button>
+            </div>
+          </div>
+
+          <div
+            className="map-scale-readout"
+            data-testid="map-viewport-status"
+            data-map-control
+          >
+            <span>
+              VIEW {((bounds.maxX - bounds.minX) / 1_000).toFixed(1)} × {((bounds.maxZ - bounds.minZ) / 1_000).toFixed(1)} KM
+            </span>
+            <i style={{ width: `${Math.max(34, Math.min(150, scaleDistance * pixelsPerMeter))}px` }} />
+            <strong>{formatNavigationDistance(scaleDistance)}</strong>
+          </div>
+          <span className="map-instruction">
+            SCROLL / + −: ZOOM · DRAG / ALT+ARROWS: PAN · CLICK: WAYPOINT
+          </span>
         </div>
         <aside>
           <p>{navigation ? "ACTIVE NAVIGATION" : "WORLD STATE"}</p>

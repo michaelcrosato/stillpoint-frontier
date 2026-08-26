@@ -84,9 +84,14 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
   recovery action resets health, exposure, stamina, and position to the Field Unit Compound.
   Inventory weight crosses an explicit encumbrance threshold and feeds back into locomotion.
 - `developer/PlayerSandbox` owns session-only playtest traversal policy. The master developer
-  switch gates invincibility, discrete 3×/8× movement tiers, and fly/no-clip controls. Flight
+  switch gates invincibility, discrete 5×/20× movement tiers, and fly/no-clip controls. Flight
   follows camera pitch, uses Space and Ctrl/C for world-up movement, clamps to the finite atlas,
   never persists an airborne pose, and returns to the last stable grounded position when disabled.
+- `session/sessionPresets` owns shared spawn coordinates and launch policy. The title-screen
+  developer quick start rehydrates a genuinely empty runtime at the Field Unit, then applies
+  noon, clear weather, frozen time, invincibility, 20× movement, and fly/no-clip as one profile.
+  Its explicit ephemeral persistence policy protects the ordinary survey save from gameplay
+  actions, autosave, visibility changes, and disposal while preserving local settings.
 - `LocationDiscoverySystem` resolves the most specific current place in priority order:
   settlement, Field Unit Compound, authored terrain landmark, then biome. Its catalog uses stable IDs and descriptive
   records, while the persisted discovered-ID set drives first-entry notifications and map
@@ -107,6 +112,11 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
   quest objectives, scripted routes, and system alerts. It owns activation, finite target
   validation, one-shot arrival events, and source metadata; `NavigationSystem` evaluates
   arrival after movement without coupling quest logic to the HUD.
+- `cartography/viewport` is the renderer-independent map-camera contract. It keeps the square
+  atlas aspect-correct inside any panel, converts world and screen coordinates bidirectionally,
+  anchors zoom beneath the cursor, clamps panning to atlas bounds, focuses known destinations,
+  and exposes semantic atlas/regional/local detail levels. `GameShell` owns this presentation
+  state so closing the map does not reset the player’s view; it never enters the game save.
 - `EnvironmentSystem` advances a persisted accelerated clock through the fixed-step
   pipeline. `environment/model` derives daylight and biome weather from world minutes,
   climate, and seed; the Three runtime presents one key light, shader sky, fog, static
@@ -221,6 +231,9 @@ player on load. Settings are also written immediately to the separate preference
 saved horizon remains a legacy migration fallback only when no preference exists.
 Quest destinations, authored terrain-landmark trailheads, and survey-marker targets are rebuilt
 from restored progression after load.
+Developer quick-start sessions reuse the same empty-save factory and world rehydration path but
+are explicitly ephemeral: they can inspect and mutate the runtime without writing the normal
+survey slot. Loading a normal save exits that sandbox and restores ordinary persistence policy.
 
 The atlas uses `+X = east`, `-Z = north`, and north-zero clockwise bearings. Map clicks are
 converted through tested bidirectional atlas helpers. The compass builds a local unwrapped
@@ -238,7 +251,7 @@ player footprint against circle and oriented-box colliders with authored vertica
 impact, slides along rounded corners, and deterministically depenetrates invalid streamed or
 saved positions.
 Developer speed tiers multiply that same swept grounded path after normal gait and encumbrance
-policy. Fly/no-clip is an explicit alternate branch that bypasses gravity, collision, fall damage,
+policy at 5× or 20×. Fly/no-clip is an explicit alternate branch that bypasses gravity, collision, fall damage,
 footsteps, and stamina while retaining the same camera and streamed-world update contracts.
 The movement solver remains a planar sweep selected by the player's vertical interval; this
 leaves a clean seam for capsule movement, slopes, climbing, or vehicles without coupling those

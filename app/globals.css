@@ -256,6 +256,7 @@ button {
   z-index: 6;
   display: grid;
   grid-template-rows: auto 1fr auto;
+  overflow-y: auto;
   padding: clamp(28px, 4vw, 64px);
   background:
     linear-gradient(90deg, rgba(12, 14, 13, 0.93) 0%, rgba(12, 14, 13, 0.68) 48%, rgba(12, 14, 13, 0.08) 76%),
@@ -360,6 +361,65 @@ button {
 .enter-button span:last-child {
   font-size: 19px;
   line-height: 0;
+}
+
+.entry-session-actions {
+  display: grid;
+  width: min(440px, 100%);
+  gap: 8px;
+}
+
+.entry-session-actions .enter-button {
+  width: 100%;
+}
+
+.enter-developer-button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 16px;
+  border: 1px solid rgba(216, 117, 58, 0.58);
+  background: rgba(216, 117, 58, 0.065);
+  color: var(--paper);
+  cursor: pointer;
+  text-align: left;
+}
+
+.enter-developer-button > span:first-child {
+  display: grid;
+  gap: 5px;
+}
+
+.enter-developer-button strong,
+.enter-developer-button small {
+  font-family: var(--mono);
+  line-height: 1.25;
+  letter-spacing: 0.1em;
+}
+
+.enter-developer-button strong {
+  color: var(--ember);
+  font-size: var(--ui-label);
+}
+
+.enter-developer-button small {
+  color: var(--paper-muted);
+  font-size: var(--ui-micro);
+  text-wrap: balance;
+}
+
+.enter-developer-button > span:last-child {
+  color: var(--ember);
+  font-size: 20px;
+}
+
+.enter-developer-button:hover,
+.enter-developer-button:focus-visible {
+  border-color: var(--ember);
+  background: rgba(216, 117, 58, 0.15);
+  outline: 2px solid var(--ember);
+  outline-offset: 2px;
 }
 
 .entry-note {
@@ -2070,22 +2130,33 @@ kbd {
   overflow: hidden;
   min-height: 300px;
   border: 1px solid rgba(232, 226, 214, 0.18);
-  background:
-    linear-gradient(rgba(232, 226, 214, 0.07) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(232, 226, 214, 0.07) 1px, transparent 1px),
-    radial-gradient(ellipse at 30% 45%, transparent 0 18%, rgba(216, 117, 58, 0.12) 18.2% 18.5%, transparent 18.8% 30%, rgba(232, 226, 214, 0.08) 30.2% 30.5%, transparent 30.8%),
-    #161916;
-  background-size: 8% 8%, 8% 8%, 100% 100%, 100% 100%;
+  background: #101310;
   cursor: crosshair;
   pointer-events: auto;
+  touch-action: none;
+  user-select: none;
 }
 
-.map-plot > * {
+.map-plot.is-panning {
+  cursor: grabbing;
+}
+
+.map-world {
+  position: absolute;
+  z-index: 1;
+  background:
+    linear-gradient(rgba(232, 226, 214, 0.07) var(--map-line-width, 1px), transparent var(--map-line-width, 1px)),
+    linear-gradient(90deg, rgba(232, 226, 214, 0.07) var(--map-line-width, 1px), transparent var(--map-line-width, 1px)),
+    #161916;
+  background-size: 8% 8%, 8% 8%, 100% 100%;
+  box-shadow: 0 0 0 var(--map-line-width, 1px) rgba(232, 226, 214, 0.12);
   pointer-events: none;
+  transform-origin: 0 0;
+  will-change: transform;
 }
 
-.map-plot > .map-fast-travel-marker,
-.map-plot > .map-selectable-marker {
+.map-world > .map-fast-travel-marker,
+.map-world > .map-selectable-marker {
   pointer-events: auto;
 }
 
@@ -2095,9 +2166,10 @@ kbd {
   outline-offset: 3px;
 }
 
-.map-plot::before,
-.map-plot::after {
+.map-world::before,
+.map-world::after {
   position: absolute;
+  z-index: 1;
   content: "";
   background: rgba(216, 117, 58, 0.28);
 }
@@ -2195,18 +2267,18 @@ kbd {
   vector-effect: non-scaling-stroke;
 }
 
-.map-plot::before {
+.map-world::before {
   top: 50%;
   right: 0;
   left: 0;
-  height: 1px;
+  height: var(--map-line-width, 1px);
 }
 
-.map-plot::after {
+.map-world::after {
   top: 0;
   bottom: 0;
   left: 50%;
-  width: 1px;
+  width: var(--map-line-width, 1px);
 }
 
 .map-player,
@@ -2216,7 +2288,7 @@ kbd {
   z-index: 2;
   font: 700 8px/1 var(--mono);
   letter-spacing: 0.08em;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%) scale(var(--map-marker-scale, 1));
 }
 
 .map-instruction {
@@ -2229,6 +2301,118 @@ kbd {
   color: rgba(232, 226, 214, 0.56);
   font: 600 7px/1 var(--mono);
   letter-spacing: 0.1em;
+}
+
+.map-viewport-controls {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+  display: grid;
+  width: min(390px, calc(100% - 24px));
+  grid-template-columns: auto minmax(90px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid rgba(232, 226, 214, 0.18);
+  background: rgba(13, 15, 14, 0.9);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+  pointer-events: auto;
+}
+
+.map-zoom-buttons,
+.map-focus-buttons {
+  display: flex;
+  align-items: center;
+}
+
+.map-zoom-buttons button,
+.map-focus-buttons button {
+  min-height: 28px;
+  padding: 7px 9px;
+  border: 1px solid rgba(232, 226, 214, 0.2);
+  background: rgba(232, 226, 214, 0.035);
+  color: var(--paper);
+  cursor: pointer;
+  font: 700 7px/1 var(--mono);
+  letter-spacing: 0.08em;
+}
+
+.map-zoom-buttons button {
+  min-width: 29px;
+  padding: 6px;
+  font-size: 15px;
+}
+
+.map-zoom-buttons button:disabled {
+  cursor: not-allowed;
+  opacity: 0.28;
+}
+
+.map-zoom-buttons button:hover:not(:disabled),
+.map-zoom-buttons button:focus-visible,
+.map-focus-buttons button:hover,
+.map-focus-buttons button:focus-visible {
+  border-color: var(--signal);
+  color: var(--signal);
+  outline: none;
+}
+
+.map-zoom-buttons output {
+  min-width: 54px;
+  color: var(--signal);
+  font: 700 8px/1 var(--mono);
+  text-align: center;
+}
+
+.map-viewport-controls input[type="range"] {
+  width: 100%;
+  accent-color: var(--signal);
+  cursor: ew-resize;
+}
+
+.map-focus-buttons {
+  gap: 4px;
+}
+
+.map-focus-buttons kbd {
+  margin-left: 3px;
+  color: var(--paper-muted);
+}
+
+.map-scale-readout {
+  position: absolute;
+  bottom: 11px;
+  left: 12px;
+  z-index: 9;
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 4px 10px;
+  align-items: end;
+  padding: 7px 9px;
+  background: rgba(13, 15, 14, 0.78);
+  pointer-events: none;
+}
+
+.map-scale-readout span {
+  grid-column: 1 / -1;
+  color: var(--paper-muted);
+  font: 600 6px/1 var(--mono);
+  letter-spacing: 0.08em;
+}
+
+.map-scale-readout i {
+  display: block;
+  height: 6px;
+  border-right: 1px solid var(--paper);
+  border-bottom: 1px solid var(--paper);
+  border-left: 1px solid var(--paper);
+}
+
+.map-scale-readout strong {
+  color: var(--paper);
+  font: 700 7px/1 var(--mono);
+  white-space: nowrap;
 }
 
 .map-player {
@@ -2282,7 +2466,7 @@ kbd {
   cursor: pointer;
   font: 700 6px/1 var(--mono);
   letter-spacing: 0.08em;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%) scale(var(--map-marker-scale, 1));
 }
 
 .map-survey-marker i {
@@ -2321,7 +2505,7 @@ kbd {
   cursor: pointer;
   font: 700 6px/1 var(--mono);
   letter-spacing: 0.07em;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%) scale(var(--map-marker-scale, 1));
 }
 
 .map-landmark-marker i {
@@ -2401,7 +2585,7 @@ kbd {
   justify-items: center;
   gap: 3px;
   color: rgba(232, 226, 214, 0.72);
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%) scale(var(--map-marker-scale, 1));
 }
 
 .map-settlement i {
@@ -2433,13 +2617,19 @@ kbd {
   align-items: center;
   gap: 4px;
   color: rgba(232, 190, 139, 0.92);
-  transform: translate(-100%, -50%);
+  transform: translate(-100%, -50%) scale(var(--map-marker-scale, 1));
 }
 
 .map-settlement.is-village.is-landmark-gateway b {
   display: block;
   padding: 2px 3px;
   background: rgba(13, 15, 14, 0.82);
+}
+
+.map-panel[data-map-detail="local"] .map-settlement.is-village:not(.is-landmark-gateway) b {
+  display: block;
+  padding: 2px 3px;
+  background: rgba(13, 15, 14, 0.78);
 }
 
 .map-settlement.is-town {
@@ -2538,8 +2728,6 @@ kbd {
 
 .fast-travel-list {
   display: grid;
-  max-height: 240px;
-  overflow: auto;
   border-top: 1px solid var(--line);
 }
 
@@ -2789,6 +2977,61 @@ kbd {
   font-size: 7px;
 }
 
+@media (max-height: 760px) {
+  .entry-screen {
+    padding: 18px 28px;
+  }
+
+  .entry-header {
+    padding-bottom: 10px;
+  }
+
+  .entry-main {
+    padding: 10px 0;
+  }
+
+  .entry-main h1 {
+    margin: 9px 0 12px;
+    font-size: clamp(42px, 15vh, 78px);
+  }
+
+  .entry-deck {
+    max-width: 610px;
+    margin-bottom: 14px;
+    font-size: 13px;
+    line-height: 1.35;
+  }
+
+  .entry-session-actions {
+    gap: 5px;
+  }
+
+  .enter-button {
+    padding: 13px 15px;
+  }
+
+  .enter-developer-button {
+    padding: 9px 13px;
+  }
+
+  .entry-settings-button {
+    margin-top: 5px;
+    padding: 7px 11px;
+  }
+
+  .entry-note {
+    margin-top: 7px;
+  }
+
+  .entry-footer {
+    padding-top: 9px;
+  }
+
+  .entry-footer p {
+    display: none;
+  }
+}
+
 @media (max-width: 900px) {
   .entry-main {
     width: 84vw;
@@ -2964,6 +3207,26 @@ kbd {
     right: 8px;
     bottom: 8px;
     font-size: 6px;
+  }
+
+  .map-viewport-controls {
+    top: 8px;
+    left: 8px;
+    width: calc(100% - 16px);
+    grid-template-columns: auto minmax(80px, 1fr);
+  }
+
+  .map-focus-buttons {
+    grid-column: 1 / -1;
+  }
+
+  .map-focus-buttons button {
+    flex: 1;
+  }
+
+  .map-scale-readout {
+    bottom: 8px;
+    left: 8px;
   }
 
   .dev-panel {
@@ -3825,6 +4088,10 @@ kbd,
 .pause-panel .pause-action-grid button,
 .map-playtest-badge,
 .map-panel header button,
+.map-zoom-buttons button,
+.map-zoom-buttons output,
+.map-focus-buttons button,
+.map-scale-readout strong,
 .map-player,
 .map-beacon,
 .map-waypoint,
@@ -3841,6 +4108,7 @@ kbd,
 .condition-strip span,
 .pause-panel .pause-action-grid button span,
 .map-instruction,
+.map-scale-readout span,
 .map-survey-marker,
 .map-landmark-marker,
 .map-settlement b,

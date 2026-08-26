@@ -51,6 +51,7 @@ import {
   DEFAULT_DEVELOPER_PLAYER_SANDBOX,
   type DeveloperPlayerSandboxState,
 } from "./developer/PlayerSandbox";
+import type { SessionMode } from "./session/sessionPresets";
 
 export interface NearbyTargetSnapshot {
   id: string;
@@ -155,6 +156,7 @@ export interface GraphicsPipelineSnapshot {
 export interface GameSnapshot {
   ready: boolean;
   started: boolean;
+  sessionMode: SessionMode;
   paused: boolean;
   mapOpen: boolean;
   inventoryOpen: boolean;
@@ -261,6 +263,7 @@ export interface GameSnapshot {
 export const INITIAL_SNAPSHOT: GameSnapshot = {
   ready: false,
   started: false,
+  sessionMode: "survey",
   paused: false,
   mapOpen: false,
   inventoryOpen: false,
