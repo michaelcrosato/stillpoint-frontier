@@ -773,6 +773,7 @@ export class Engine {
     this.developerPanelOpen = false;
     this.paused = !this.testMode;
     this.lastClockPersistTime = performance.now();
+    this.canvas.focus({ preventScroll: true });
     void this.audio.unlock();
     if (!this.testMode) this.input.requestPointerLock();
     this.emitSnapshot(true);
@@ -2991,14 +2992,8 @@ export class Engine {
         this.emitSnapshot(true);
       },
       discover: (beaconId) => this.discover(beaconId),
-      loseContext: () => {
-        const extension = this.renderer.getContext().getExtension("WEBGL_lose_context");
-        extension?.loseContext();
-      },
-      restoreContext: () => {
-        const extension = this.renderer.getContext().getExtension("WEBGL_lose_context");
-        extension?.restoreContext();
-      },
+      loseContext: () => this.renderer.forceContextLoss(),
+      restoreContext: () => this.renderer.forceContextRestore(),
       targets: () =>
         this.world.targets.map((target) => ({
           id: target.id,

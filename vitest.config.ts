@@ -5,6 +5,9 @@ export default defineConfig({
     environment: "node",
     include: ["tests/unit/**/*.test.ts"],
     reporters: ["default"],
+    // Coverage instrumentation can push deterministic world-construction tests
+    // just past Vitest's 5-second default on shared CI runners.
+    testTimeout: 10_000,
     coverage: {
       provider: "v8",
       // Browser-owned renderer/PMREM lifecycles require a real WebGL2 context
