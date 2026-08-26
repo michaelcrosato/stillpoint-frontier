@@ -15,7 +15,9 @@ import { WORLD_DETAIL_PRESETS } from "../../lib/game/world/WorldLodPolicy";
 
 async function openDeterministicWorld(page: Page) {
   await page.goto("/?test=1", { waitUntil: "load" });
-  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  // Cold software-WebGL runners can take longer than ordinary UI assertions
+  // to stream and compile the deterministic opening world.
+  await expect(page.getByTestId("entry-screen")).toBeVisible({ timeout: 20_000 });
   await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
 }
 
