@@ -11,12 +11,14 @@ const ACTION_ALTERNATES: Partial<Record<GameAction, readonly string[]>> = {
   harvest: ["Mouse0"],
 };
 
-function isEditableTarget(target: EventTarget | null) {
+function shouldIgnoreKeyTarget(target: EventTarget | null, code: string) {
   if (!(target instanceof HTMLElement)) return false;
-  return (
-    target.isContentEditable ||
-    target.matches("input, select, textarea, button, [role='button']")
-  );
+  if (target.isContentEditable || target.matches("input, select, textarea")) {
+    return code !== "Escape";
+  }
+  // Preserve native button activation without letting focus on a HUD control
+  // disable unrelated bound actions such as L for the flashlight.
+  return target.matches("button, [role='button']") && (code === "Space" || code === "Enter");
 }
 
 export class InputManager {
@@ -109,7 +111,7 @@ export class InputManager {
   }
 
   private handleKeyDown = (event: KeyboardEvent) => {
-    if (isEditableTarget(event.target) && event.code !== "Escape") return;
+    if (shouldIgnoreKeyTarget(event.target, event.code)) return;
     if (
       CORE_GAME_KEYS.has(event.code) ||
       Object.values(this.bindings).includes(event.code)
