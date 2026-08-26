@@ -274,6 +274,7 @@ export default function GameShell() {
         ref={canvasRef}
         className="game-canvas"
         data-testid="game-canvas"
+        tabIndex={-1}
         aria-label="Stillpoint Frontier three-dimensional game world"
         onClick={() => {
           if (

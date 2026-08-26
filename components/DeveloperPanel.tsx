@@ -149,8 +149,18 @@ export default function DeveloperPanel({
 
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
+    const panel = panelRef.current;
     headingRef.current?.focus();
-    return () => previouslyFocused?.focus?.();
+    return () => {
+      const activeElement = document.activeElement;
+      if (
+        !activeElement ||
+        activeElement === document.body ||
+        panel?.contains(activeElement)
+      ) {
+        previouslyFocused?.focus?.();
+      }
+    };
   }, []);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {

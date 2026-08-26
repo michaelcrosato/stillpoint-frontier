@@ -863,6 +863,7 @@ export class Engine {
     this.activeInspection = null;
     this.featureOverlay = null;
     this.developerPanelOpen = false;
+    this.canvas.focus({ preventScroll: true });
     void this.audio.unlock();
     if (this.testMode) this.paused = false;
     else if (this.input.isLocked()) this.paused = false;

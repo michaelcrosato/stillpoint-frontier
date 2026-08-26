@@ -6,8 +6,10 @@ export default defineConfig({
   // Software WebGL on headless Linux can make GPU-heavy integration flows
   // substantially slower without changing their deterministic assertions.
   timeout: 90_000,
-  fullyParallel: false,
-  workers: process.env.CI ? 1 : undefined,
+  // Full parallel metadata lets CI shard this single spec across runners. Keep
+  // one worker per runner because concurrent software WebGL contexts contend.
+  fullyParallel: true,
+  workers: 1,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI

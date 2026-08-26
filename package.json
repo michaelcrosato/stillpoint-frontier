@@ -29,6 +29,7 @@
     "test:visual": "bash scripts/sites-env.sh -- playwright test --project=visual-chromium --workers=1",
     "test:visual:compare": "VISUAL_BASELINES=1 bash scripts/sites-env.sh -- playwright test --project=visual-chromium --workers=1",
     "test:visual:update": "VISUAL_BASELINES=1 bash scripts/sites-env.sh -- playwright test --project=visual-chromium --workers=1 --update-snapshots",
+    "test:ci:static": "npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run test:rendered",
     "test:ci": "npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run test:rendered && npm run test:e2e",
     "typecheck": "bash scripts/sites-env.sh -- tsc --noEmit",
     "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern .sites-runtime --ignore-pattern coverage --ignore-pattern test-results --ignore-pattern playwright-report",

@@ -300,6 +300,7 @@ test("toggles the spawn door and exposes every authored floor", async ({ page })
 });
 
 test("sets, replaces, guides, and clears a map waypoint", async ({ page }, testInfo) => {
+  test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   await page.getByRole("button", { name: /map/i }).click();
@@ -310,23 +311,32 @@ test("sets, replaces, guides, and clears a map waypoint", async ({ page }, testI
   const atlasSize = Math.min(bounds.width, bounds.height);
   const atlasLeft = bounds.x + (bounds.width - atlasSize) * 0.5;
   const atlasTop = bounds.y + (bounds.height - atlasSize) * 0.5;
+  const worldUnitsPerPixel = 96_000 / atlasSize;
+  const waypointError = async (axis: "x" | "z", expected: number) => {
+    const actual = await page.evaluate(
+      (coordinate) => window.__STILLPOINT_TEST__?.snapshot()
+        .navigation?.target.position[coordinate],
+      axis,
+    );
+    return Math.abs((actual ?? Number.POSITIVE_INFINITY) - expected);
+  };
 
   await page.mouse.click(atlasLeft + atlasSize * 0.75, atlasTop + atlasSize * 0.25);
   await expect(page.getByTestId("map-waypoint")).toBeVisible();
   await expect
-    .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().navigation?.target.position.x))
-    .toBeCloseTo(24_000, -1);
+    .poll(() => waypointError("x", 24_000))
+    .toBeLessThanOrEqual(worldUnitsPerPixel);
   await expect
-    .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().navigation?.target.position.z))
-    .toBeCloseTo(-24_000, -1);
+    .poll(() => waypointError("z", -24_000))
+    .toBeLessThanOrEqual(worldUnitsPerPixel);
 
   await page.mouse.click(atlasLeft + atlasSize * 0.25, atlasTop + atlasSize * 0.75);
   await expect
-    .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().navigation?.target.position.x))
-    .toBeCloseTo(-24_000, -1);
+    .poll(() => waypointError("x", -24_000))
+    .toBeLessThanOrEqual(worldUnitsPerPixel);
   await expect
-    .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().navigation?.target.position.z))
-    .toBeCloseTo(24_000, -1);
+    .poll(() => waypointError("z", 24_000))
+    .toBeLessThanOrEqual(worldUnitsPerPixel);
   expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.navigationTargets().filter(
     (target) => target.id === "player:map",
   ).length)).toBe(1);
@@ -356,6 +366,7 @@ test("sets, replaces, guides, and clears a map waypoint", async ({ page }, testI
 });
 
 test("zooms, pans, focuses, and preserves the cartographic viewport", async ({ page }) => {
+  test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   await page.getByRole("button", { name: /map/i }).click();
@@ -504,10 +515,11 @@ test("lights cities and sharply reduces ambient population at 03:00", async ({ p
 });
 
 test("keeps developer time and weather overrides out of the normal save", async ({ page }) => {
+  test.slow();
   await page.goto("/?test=1&storage=1", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
-  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await expect(page.getByTestId("entry-screen")).toBeVisible({ timeout: 20_000 });
   await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
   await page.getByTestId("enter-frontier").click();
   await page.evaluate(() => window.__STILLPOINT_TEST__?.setWorldMinutes(12 * 60));
@@ -631,6 +643,7 @@ test("opens developer tools from the keyboard while paused and protects form inp
 });
 
 test("toggles independent session-only graphics modules", async ({ page }) => {
+  test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   await page.getByTestId("developer-launcher").click();
@@ -723,6 +736,7 @@ test("toggles independent session-only graphics modules", async ({ page }) => {
 });
 
 test("provides session-only invincibility, speed tiers, and safe no-clip flight", async ({ page }) => {
+  test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   await page.getByTestId("developer-launcher").click();
@@ -804,6 +818,7 @@ test("starts a deterministic fresh developer sandbox from the title screen", asy
 });
 
 test("keeps a normal survey save untouched by the developer quick start", async ({ page }) => {
+  test.slow();
   await page.goto("/?test=1&storage=1", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
@@ -852,6 +867,7 @@ test("keeps a normal survey save untouched by the developer quick start", async 
 });
 
 test("travels to the render-only canopy lab and scales graphics without simulation load", async ({ page }) => {
+  test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   await page.getByTestId("developer-launcher").click();
@@ -919,6 +935,7 @@ test("travels to the render-only canopy lab and scales graphics without simulati
 });
 
 test("keeps opt-in canopy lab travel out of the normal player save", async ({ page }) => {
+  test.slow();
   await page.goto("/?test=1&storage=1", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
@@ -998,6 +1015,7 @@ test("recovers records and updates persistent survey UI", async ({ page }, testI
 });
 
 test("restores a saved survey after reload", async ({ page }) => {
+  test.slow();
   await page.goto("/?test=1&storage=1", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
@@ -1020,6 +1038,7 @@ test("restores a saved survey after reload", async ({ page }) => {
 });
 
 test("persists local view settings and a rebound control independently of the field save", async ({ page }) => {
+  test.slow();
   await page.goto("/?test=1&storage=1", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
@@ -1276,6 +1295,7 @@ test("blocks representative buildings, trees, and rocks without tunneling", asyn
 });
 
 test("collects and harvests deterministic resources without duplicate loot", async ({ page }, testInfo) => {
+  test.slow();
   await page.goto("/?test=1&storage=1", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
