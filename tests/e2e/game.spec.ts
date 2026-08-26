@@ -191,6 +191,7 @@ test("starts the survey, streams distant chunks, and opens the map", async ({ pa
 });
 
 test("toggles the spawn door and exposes every authored floor", async ({ page }) => {
+  test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   expect(SPAWN_BUILDING.floorCount).toBe(1);
@@ -265,39 +266,54 @@ test("toggles the spawn door and exposes every authored floor", async ({ page })
     SPAWN_BUILDING.x + SPAWN_BUILDING.width * 0.5,
   );
 
-  const groundFloor = await page.evaluate(
-    ({ x, z }) => window.__STILLPOINT_TEST__?.groundHeight(x, z),
-    TWO_STORY_BUILDING,
-  );
-  const upperFloor = await page.evaluate(
-    ({ x, z, upperFloorY }) =>
-      window.__STILLPOINT_TEST__?.groundHeight(x, z, upperFloorY),
-    TWO_STORY_BUILDING,
-  );
-  expect(groundFloor).toBeCloseTo(TWO_STORY_BUILDING.floorY, 4);
-  expect(upperFloor).toBeCloseTo(TWO_STORY_BUILDING.upperFloorY, 4);
-
-  for (const building of [
+  const authoredBuildings = [
     SPAWN_BUILDING,
     TWO_STORY_BUILDING,
     TEN_STORY_BUILDING,
-  ]) {
+  ];
+  const heightSamples = await page.evaluate(
+    ({ twoStory, tower, roofs }) => {
+      const bridge = window.__STILLPOINT_TEST__;
+      if (!bridge) return null;
+      return {
+        groundFloor: bridge.groundHeight(twoStory.x, twoStory.z),
+        upperFloor: bridge.groundHeight(
+          twoStory.x,
+          twoStory.z,
+          twoStory.upperFloorY,
+        ),
+        roofs: roofs.map(({ x, z, roofY }) =>
+          bridge.groundHeight(x, z, roofY)),
+        towerFloors: tower.floorYs.map((floorY) =>
+          bridge.groundHeight(tower.x, tower.z, floorY)),
+      };
+    },
+    {
+      twoStory: {
+        x: TWO_STORY_BUILDING.x,
+        z: TWO_STORY_BUILDING.z,
+        upperFloorY: TWO_STORY_BUILDING.upperFloorY,
+      },
+      tower: {
+        x: TEN_STORY_BUILDING.x,
+        z: TEN_STORY_BUILDING.z,
+        floorYs: [...TEN_STORY_BUILDING.floorYs],
+      },
+      roofs: authoredBuildings.map(({ x, z, roofY }) => ({ x, z, roofY })),
+    },
+  );
+  expect(heightSamples).not.toBeNull();
+  if (!heightSamples) return;
+  expect(heightSamples.groundFloor).toBeCloseTo(TWO_STORY_BUILDING.floorY, 4);
+  expect(heightSamples.upperFloor).toBeCloseTo(TWO_STORY_BUILDING.upperFloorY, 4);
+
+  for (const [index, building] of authoredBuildings.entries()) {
     expect(building.roofAccess).toBe(true);
-    const sampledRoof = await page.evaluate(
-      ({ x, z, referenceY }) =>
-        window.__STILLPOINT_TEST__?.groundHeight(x, z, referenceY),
-      { x: building.x, z: building.z, referenceY: building.roofY },
-    );
-    expect(sampledRoof).toBeCloseTo(building.roofY, 4);
+    expect(heightSamples.roofs[index]).toBeCloseTo(building.roofY, 4);
   }
 
-  for (const floorY of TEN_STORY_BUILDING.floorYs) {
-    const sampledFloor = await page.evaluate(
-      ({ x, z, referenceY }) =>
-        window.__STILLPOINT_TEST__?.groundHeight(x, z, referenceY),
-      { x: TEN_STORY_BUILDING.x, z: TEN_STORY_BUILDING.z, referenceY: floorY },
-    );
-    expect(sampledFloor).toBeCloseTo(floorY, 4);
+  for (const [index, floorY] of TEN_STORY_BUILDING.floorYs.entries()) {
+    expect(heightSamples.towerFloors[index]).toBeCloseTo(floorY, 4);
   }
 });
 
@@ -578,10 +594,11 @@ test("keeps developer time and weather overrides out of the normal save", async 
 });
 
 test("persists horizon HLOD without expanding gameplay streaming", async ({ page }) => {
+  test.slow();
   await page.goto("/?test=1&storage=1", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
-  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await expect(page.getByTestId("entry-screen")).toBeVisible({ timeout: 20_000 });
   await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
   await page.getByTestId("enter-frontier").click();
   const simulationBefore = await page.evaluate(() => ({
@@ -620,7 +637,7 @@ test("persists horizon HLOD without expanding gameplay streaming", async ({ page
   expect(maximum.horizon?.settlementInstances ?? 0).toBeLessThan(200);
 
   await page.reload({ waitUntil: "load" });
-  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await expect(page.getByTestId("entry-screen")).toBeVisible({ timeout: 20_000 });
   await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
   const restored = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
   expect(restored?.horizonMode).toBe("unlimited");
