@@ -9,7 +9,7 @@ export default function Home() {
       }}
     >
       <iframe
-        src="/playcanvas/index.html"
+        src="/playcanvas/index.html?renderer=webgl2"
         title="Stillpoint Frontier"
         allow="autoplay; fullscreen; gamepad"
         allowFullScreen
