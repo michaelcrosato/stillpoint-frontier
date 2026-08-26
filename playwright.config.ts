@@ -3,6 +3,9 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "tests/e2e",
   outputDir: "test-results",
+  // Software WebGL on headless Linux can make GPU-heavy integration flows
+  // substantially slower without changing their deterministic assertions.
+  timeout: 90_000,
   fullyParallel: false,
   workers: process.env.CI ? 1 : undefined,
   forbidOnly: Boolean(process.env.CI),
