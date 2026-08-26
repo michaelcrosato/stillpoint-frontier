@@ -2,16 +2,20 @@ import { describe, expect, it } from "vitest";
 import { CHUNK_SIZE, WORLD_CHUNK_LOAD_RADIUS } from "../../lib/game/config";
 import {
   BIOMES,
+  ROAD_CORRIDORS,
   ROAD_LINKS,
   SETTLEMENTS,
   WORLD_AREA_KM2,
   WORLD_HALF_EXTENT,
   riverCenterX,
+  getSettlement,
   roadEndpoints,
   sampleClimate,
   siteSuitability,
 } from "../../lib/game/world/macroWorld";
 import { sampleTerrainHeight } from "../../lib/game/world/terrain";
+import { MOUNTAIN_LANDMARK, sampleMountainLift } from "../../lib/game/world/mountainLandmark";
+import { CANYON_LANDMARK, sampleCanyonDepth } from "../../lib/game/world/canyonLandmark";
 
 describe("authored macro world", () => {
   it("is at least one hundred resident footprints in area", () => {
@@ -29,6 +33,7 @@ describe("authored macro world", () => {
     expect(tiers("city").length).toBeGreaterThanOrEqual(4);
     expect(tiers("town").length).toBeGreaterThanOrEqual(6);
     expect(tiers("village").length).toBeGreaterThanOrEqual(10);
+    expect(SETTLEMENTS).toHaveLength(26);
     expect(new Set(SETTLEMENTS.map((settlement) => settlement.id)).size).toBe(SETTLEMENTS.length);
     for (const settlement of SETTLEMENTS) {
       expect(Math.abs(settlement.x)).toBeLessThan(WORLD_HALF_EXTENT);
@@ -36,6 +41,45 @@ describe("authored macro world", () => {
       expect(settlement.economy.length).toBeGreaterThan(8);
       expect(settlement.reason.length).toBeGreaterThan(30);
       expect(Object.values(siteSuitability(settlement.x, settlement.z)).every(Number.isFinite)).toBe(true);
+    }
+  });
+
+  it("keeps both landmark gateway villages and their roads outside terrain deformation", () => {
+    const crownstep = getSettlement("crownstep")!;
+    const rimstead = getSettlement("rimstead")!;
+    expect(crownstep.landmarkGatewayId).toBe(MOUNTAIN_LANDMARK.id);
+    expect(rimstead.landmarkGatewayId).toBe(CANYON_LANDMARK.id);
+
+    for (const [settlement, sampleRelief] of [
+      [crownstep, sampleMountainLift],
+      [rimstead, sampleCanyonDepth],
+    ] as const) {
+      for (let index = 0; index < 48; index += 1) {
+        const angle = (index / 48) * Math.PI * 2;
+        const radius = settlement.radius + 130;
+        expect(sampleRelief(
+          settlement.x + Math.cos(angle) * radius,
+          settlement.z + Math.sin(angle) * radius,
+        )).toBeLessThan(0.001);
+      }
+    }
+
+    const gatewayCorridors = ROAD_CORRIDORS.filter((corridor) =>
+      corridor.id.includes("crownstep") || corridor.id.includes("rimstead"),
+    );
+    expect(gatewayCorridors).toHaveLength(6);
+    for (const corridor of gatewayCorridors) {
+      for (let index = 0; index <= 80; index += 1) {
+        const amount = index / 80;
+        const x = corridor.from.x + (corridor.to.x - corridor.from.x) * amount;
+        const z = corridor.from.z + (corridor.to.z - corridor.from.z) * amount;
+        if (corridor.id.includes("crownstep")) {
+          expect(sampleMountainLift(x, z), corridor.id).toBeLessThan(0.01);
+        }
+        if (corridor.id.includes("rimstead")) {
+          expect(sampleCanyonDepth(x, z), corridor.id).toBeLessThan(0.01);
+        }
+      }
     }
   });
 

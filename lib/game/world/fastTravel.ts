@@ -7,13 +7,11 @@ import {
 import {
   SETTLEMENTS,
   WORLD_HALF_EXTENT,
-  WORLD_MODEL_SCALE,
-  distanceToRiver,
-  riverWidth,
   type SettlementTier,
 } from "./macroWorld";
 import { sampleTerrainHeight } from "./terrain";
-import { MOUNTAIN_LANDMARK } from "./mountainLandmark";
+import { AUTHORED_LANDMARK_WAYPOINTS } from "./authoredLandmarks";
+import { isWorldWaterAt } from "./worldWater";
 
 export const FAST_TRAVEL_PLAYTEST_UNLOCKED = true;
 
@@ -57,15 +55,16 @@ const RELAY_LOCATIONS: readonly FastTravelLocation[] = BEACONS.map((beacon) => (
   detail: beacon.code,
 }));
 
-const LANDMARK_LOCATIONS: readonly FastTravelLocation[] = [{
-  id: MOUNTAIN_LANDMARK.fastTravelId,
-  sourceId: MOUNTAIN_LANDMARK.id,
-  name: MOUNTAIN_LANDMARK.trailheadName,
-  kind: "landmark",
-  x: MOUNTAIN_LANDMARK.baseWaypoint.x,
-  z: MOUNTAIN_LANDMARK.baseWaypoint.z,
-  detail: "marked summit trail · alpine terrain landmark",
-}];
+const LANDMARK_LOCATIONS: readonly FastTravelLocation[] =
+  AUTHORED_LANDMARK_WAYPOINTS.map((waypoint) => ({
+    id: waypoint.id,
+    sourceId: waypoint.sourceId,
+    name: waypoint.label,
+    kind: "landmark" as const,
+    x: waypoint.position.x,
+    z: waypoint.position.z,
+    detail: waypoint.detail,
+  }));
 
 /**
  * This deliberately contains every authored key location. A later progression
@@ -103,9 +102,7 @@ function preferredArrivalDistance(kind: FastTravelLocationKind) {
 }
 
 function terrainIsWalkable(x: number, z: number, y: number) {
-  const inRiver = distanceToRiver(x, z) <= riverWidth(z);
-  const inCoastalWater = z > 4_900 * WORLD_MODEL_SCALE;
-  if (inRiver || inCoastalWater) return false;
+  if (isWorldWaterAt(x, z, 0.15)) return false;
   const sampleRadius = 1.35;
   const neighbors = [
     sampleTerrainHeight(x + sampleRadius, z),

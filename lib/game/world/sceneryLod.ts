@@ -6,7 +6,6 @@ import {
 import { seededRandom } from "../core/random";
 import type { WorldLodPolicy } from "./WorldLodPolicy";
 import {
-  WATER_LEVEL,
   WORLD_HALF_EXTENT,
   riverWidth,
   sampleClimate,
@@ -16,6 +15,11 @@ import { sampleTerrainHeightLod } from "./terrain";
 import { selectWoodySpecies } from "./vegetation";
 import { isCanopyBenchmarkClearing } from "./benchmarkZone";
 import { mountainWoodyVegetationFactor } from "./mountainLandmark";
+import {
+  canyonWoodyVegetationFactor,
+  isCanyonSteepSurface,
+} from "./canyonLandmark";
+import { isWorldWaterAt } from "./worldWater";
 
 export interface HorizonTreeRecipe {
   kind: "tree";
@@ -87,11 +91,13 @@ export function horizonSceneryRecipes(
       if (climate.riverDistance <= riverWidth(z) + 12) continue;
       if (isCanopyBenchmarkClearing(x, z, 2)) continue;
       const y = sampleTerrainHeightLod(x, z, policy.nearCellSize);
-      if (y <= WATER_LEVEL + 0.3) continue;
+      if (isWorldWaterAt(x, z, 0.3)) continue;
 
       const treeChance = climate.biome.treeDensity * policy.sceneryDensity * 0.44 *
-        mountainWoodyVegetationFactor(x, z);
-      const rockChance = climate.biome.rockDensity * policy.sceneryDensity * 0.31;
+        mountainWoodyVegetationFactor(x, z) * canyonWoodyVegetationFactor(x, z);
+      const rockChance = isCanyonSteepSurface(x, z, policy.nearCellSize * 0.5)
+        ? 0
+        : climate.biome.rockDensity * policy.sceneryDensity * 0.31;
       const selection = random();
       if (selection < treeChance) {
         const species = selectWoodySpecies(climate.biome.id, random());

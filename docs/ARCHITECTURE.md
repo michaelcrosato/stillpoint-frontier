@@ -58,6 +58,8 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
   It preserves the landmark's true bearing and angular size inside the active far plane,
   fades out as the physical terrain becomes resident, and responds to horizon color, cloud,
   rain, dust, and night instead of weakening global fog.
+  Sunscar Canyon remains part of the analytic terrain at every LOD; one persistent
+  136-triangle river ribbon is the only added draw surface and carries no simulation.
 - `CitizenEngine` independently streams a 5×5 resident ring. Its pure recipes place
   proportional crowds only on settlement sidewalks or road shoulders, while one shared
   low-poly figure and one instanced draw per populated chunk keep Vesper Crown's thousands
@@ -86,7 +88,7 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
   follows camera pitch, uses Space and Ctrl/C for world-up movement, clamps to the finite atlas,
   never persists an airborne pose, and returns to the last stable grounded position when disabled.
 - `LocationDiscoverySystem` resolves the most specific current place in priority order:
-  settlement, Field Unit Compound, Crownspire, then biome. Its catalog uses stable IDs and descriptive
+  settlement, Field Unit Compound, authored terrain landmark, then biome. Its catalog uses stable IDs and descriptive
   records, while the persisted discovered-ID set drives first-entry notifications and map
   treatment without changing the immutable world atlas.
 - `EnvironmentalAudio` owns one lazily unlocked Web Audio graph. Procedural filtered-noise
@@ -119,17 +121,25 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
   overlap bias removes intersection flicker, and broad river approaches ease trade roads onto
   a dry deck. Absolute-world height, normal, and color sampling keeps adjacent chunks seamless.
   The Old Relay Spur makes the opening survey site a credible quiet work stop without promoting
-  it to a settlement. Crownspire's narrow dirt trail reuses this surface pipeline and its
-  placement clearance, but deliberately stays outside the citizen and settlement road graph.
+  it to a settlement. Crownspire's summit trail and Sunscar's rim trail reuse this surface
+  pipeline and its placement clearance. Short service spurs join Crownstep and Rimstead to
+  those trailheads without treating the trails as citizen trade roads.
 - `world/mountainLandmark` is Crownspire's single source of truth: a 5.76 km analytic
   footprint, roughly 1.2 km summit relief, trailhead and summit coordinates, and an 11.3 km
   switchback polyline. Detailed terrain carves a walkable shoulder along the route while
   coarse LOD samplers retain only its broad mass. Terrain, surface color, map geography,
   navigation, discovery, fast travel, streamed trail geometry, and horizon presentation all
   consume the same immutable definition; the landmark adds no resident AI or simulation ring.
+- `world/canyonLandmark` is Sunscar Canyon's renderer-independent source of truth: a
+  17.3 km terraced analytic cut with roughly 680 m relief, a meandering carved river bed,
+  a 7.3 km rim trail, an overlook, vegetation/placement policy, and an elliptical discovery
+  boundary. Detailed terrain, HLOD, surface color, water, map geography, navigation,
+  discovery, fast travel, and streamed trail geometry all consume the same definition.
+  `world/authoredLandmarks` exposes both landmark waypoints through one extensible registry.
 - `macroWorld` is the immutable atlas layer: a 96×96 km territory with seven biomes,
-  the Greywater river/estuary, 24 economically grounded settlements, and a connected
-  hierarchy of trunk, regional, and local roads. Chunks clip those features into local
+  the Greywater river/estuary, 26 economically grounded settlements, and a connected
+  hierarchy of trunk, regional, and local roads. Crownstep and Rimstead are village-budget
+  landmark gateways with visible map labels and two independent road approaches each. Chunks clip those features into local
   render recipes; the complete map is never resident as geometry.
 - Pure modules (`terrain`, `random`, `collision`, `locomotion`, `interactions`, and `state`) contain simulation rules that
   are testable without React, a browser, or a GPU. The same rule applies to settings,
@@ -209,7 +219,7 @@ autosaves during active play every 30 seconds and on material state changes, exp
 Save Now and Load Last Save actions, and rebuilds generated world state before relocating the
 player on load. Settings are also written immediately to the separate preferences slot; the
 saved horizon remains a legacy migration fallback only when no preference exists.
-Quest destinations, the authored Crownspire trailhead, and survey-marker targets are rebuilt
+Quest destinations, authored terrain-landmark trailheads, and survey-marker targets are rebuilt
 from restored progression after load.
 
 The atlas uses `+X = east`, `-Z = north`, and north-zero clockwise bearings. Map clicks are
@@ -247,6 +257,8 @@ The initial target is an RTX 3060-class machine at 1440p/60:
   at 70 km, with reverse-depth used when the browser exposes `EXT_clip_control`.
 - Crownspire's beyond-range silhouette is one non-shadowing 216-triangle mesh; it does not
   increase resident chunks, settlement proxies, scenery instances, colliders, or fixed-step work.
+- Sunscar's canyon relief reuses the terrain draw budget; its persistent 136-triangle river
+  adds one shared-water draw surface and no resident chunks, colliders, targets, or AI.
 - Gameplay queries, ambient citizens, and sparse wildlife: independent 25-chunk inner rings.
 - Collision broad phase: streamed 16 m spatial cells, followed by swept-circle narrow phase;
   city cost scales with nearby candidates rather than every solid in the gameplay ring.

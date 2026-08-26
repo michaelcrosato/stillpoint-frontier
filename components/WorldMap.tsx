@@ -22,6 +22,12 @@ import {
   MOUNTAIN_LANDMARK,
   MOUNTAIN_TRAIL_POINTS,
 } from "../lib/game/world/mountainLandmark";
+import {
+  CANYON_LANDMARK,
+  CANYON_RIM_TRAIL_POINTS,
+  CANYON_RIVER_POINTS,
+} from "../lib/game/world/canyonLandmark";
+import { AUTHORED_LANDMARK_NAVIGATION_SYSTEM_ID } from "../lib/game/world/authoredLandmarks";
 
 interface WorldMapProps {
   snapshot: GameSnapshot;
@@ -46,6 +52,19 @@ const MOUNTAIN_TRAIL_MAP_POINTS = MOUNTAIN_TRAIL_POINTS.map(
 ).join(" ");
 const MOUNTAIN_MAP_RADIUS =
   (MOUNTAIN_LANDMARK.footprintRadius / (WORLD_HALF_EXTENT * 2)) * 100;
+const CANYON_RIVER_MAP_POINTS = CANYON_RIVER_POINTS.map(
+  (point) => `${mapPercent(point.x).toFixed(2)},${mapPercent(point.z).toFixed(2)}`,
+).join(" ");
+const CANYON_RIM_TRAIL_MAP_POINTS = CANYON_RIM_TRAIL_POINTS.map(
+  (point) => `${mapPercent(point.x).toFixed(2)},${mapPercent(point.z).toFixed(2)}`,
+).join(" ");
+const CANYON_MAP_HALF_LENGTH =
+  (CANYON_LANDMARK.halfLength / (WORLD_HALF_EXTENT * 2)) * 100;
+const CANYON_MAP_HALF_WIDTH =
+  (CANYON_LANDMARK.footprintHalfWidth / (WORLD_HALF_EXTENT * 2)) * 100;
+const CANYON_MAP_ROTATION =
+  (Math.atan2(CANYON_LANDMARK.axis.z, CANYON_LANDMARK.axis.x) * 180) /
+  Math.PI;
 
 export default function WorldMap({
   snapshot,
@@ -63,7 +82,7 @@ export default function WorldMap({
   const landmarkMarkers = snapshot.navigationTargets.filter(
     (target) =>
       target.source.kind === "system" &&
-      target.source.systemId === MOUNTAIN_LANDMARK.navigationSystemId,
+      target.source.systemId === AUTHORED_LANDMARK_NAVIGATION_SYSTEM_ID,
   );
 
   const handleMapClick = (event: MouseEvent<HTMLDivElement>) => {
@@ -175,6 +194,30 @@ export default function WorldMap({
               className="map-mountain-trail"
               points={MOUNTAIN_TRAIL_MAP_POINTS}
             />
+            <ellipse
+              className="map-canyon-contour is-outer"
+              cx={mapPercent(CANYON_LANDMARK.center.x)}
+              cy={mapPercent(CANYON_LANDMARK.center.z)}
+              rx={CANYON_MAP_HALF_LENGTH}
+              ry={CANYON_MAP_HALF_WIDTH}
+              transform={`rotate(${CANYON_MAP_ROTATION} ${mapPercent(CANYON_LANDMARK.center.x)} ${mapPercent(CANYON_LANDMARK.center.z)})`}
+            />
+            <ellipse
+              className="map-canyon-contour is-inner"
+              cx={mapPercent(CANYON_LANDMARK.center.x)}
+              cy={mapPercent(CANYON_LANDMARK.center.z)}
+              rx={CANYON_MAP_HALF_LENGTH * 0.78}
+              ry={(CANYON_LANDMARK.carvedHalfWidth / (WORLD_HALF_EXTENT * 2)) * 100 * 0.62}
+              transform={`rotate(${CANYON_MAP_ROTATION} ${mapPercent(CANYON_LANDMARK.center.x)} ${mapPercent(CANYON_LANDMARK.center.z)})`}
+            />
+            <polyline
+              className="map-canyon-river"
+              points={CANYON_RIVER_MAP_POINTS}
+            />
+            <polyline
+              className="map-canyon-trail"
+              points={CANYON_RIM_TRAIL_MAP_POINTS}
+            />
             {ROAD_CORRIDORS.map((corridor) => (
               <line
                 key={corridor.id}
@@ -277,7 +320,7 @@ export default function WorldMap({
             <button
               type="button"
               key={settlement.id}
-              className={`map-settlement map-fast-travel-marker is-${settlement.tier} ${snapshot.discoveredLocationIds.includes(`settlement:${settlement.id}`) ? "is-discovered" : ""} ${snapshot.lastFastTravel?.id === `settlement:${settlement.id}` ? "is-current" : ""}`}
+              className={`map-settlement map-fast-travel-marker is-${settlement.tier} ${settlement.landmarkGatewayId ? "is-landmark-gateway" : ""} ${snapshot.discoveredLocationIds.includes(`settlement:${settlement.id}`) ? "is-discovered" : ""} ${snapshot.lastFastTravel?.id === `settlement:${settlement.id}` ? "is-current" : ""}`}
               style={{ left: `${mapPercent(settlement.x)}%`, top: `${mapPercent(settlement.z)}%` }}
               title={`${settlement.name}: ${settlement.economy}`}
               data-testid={`fast-travel-marker-settlement:${settlement.id}`}

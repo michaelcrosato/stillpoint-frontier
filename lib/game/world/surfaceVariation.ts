@@ -8,6 +8,10 @@ import {
   sampleMountainLift,
 } from "./mountainLandmark";
 import {
+  canyonDepthRatio,
+  sampleCanyonDepth,
+} from "./canyonLandmark";
+import {
   sampleHorizonTerrainHeight,
   sampleTerrainHeight,
   sampleTerrainHeightLod,
@@ -35,6 +39,9 @@ const SURFACE_RANGES = {
 } as const;
 const MOUNTAIN_STONE = new THREE.Color(0x686a67);
 const MOUNTAIN_SNOW = new THREE.Color(0xd8d9d2);
+const CANYON_RIM = new THREE.Color(0x9a6748);
+const CANYON_WALL = new THREE.Color(0x704333);
+const CANYON_GORGE = new THREE.Color(0x352d2a);
 
 function finite(value: number) {
   return Number.isFinite(value) ? value : 0;
@@ -122,6 +129,24 @@ export function terrainSurfaceColor(
     cellSize,
     slopeOverride,
   );
+  const canyonDepth = sampleCanyonDepth(finite(x), finite(z));
+  if (canyonDepth > 0.001) {
+    const depth = canyonDepthRatio(finite(x), finite(z));
+    const wallAmount = THREE.MathUtils.smoothstep(depth, 0.025, 0.64);
+    const gorgeAmount = THREE.MathUtils.smoothstep(depth, 0.62, 0.94);
+    const strata =
+      Math.sin(canyonDepth * 0.071 + factors.noise * 5.4) * 0.018 +
+      Math.sin(canyonDepth * 0.021 - factors.noise * 2.1) * 0.012;
+    target.copy(CANYON_RIM);
+    target.lerp(CANYON_WALL, wallAmount * 0.92);
+    target.lerp(CANYON_GORGE, gorgeAmount * 0.86);
+    target.offsetHSL(
+      (factors.noise - 0.5) * 0.01,
+      -factors.slope * 0.04,
+      strata + (factors.noise - 0.5) * 0.045 - factors.slope * 0.045,
+    );
+    return target;
+  }
   if (safeHeight <= WATER_LEVEL + 0.04) {
     target.setHex(0x36575a);
     target.offsetHSL(0, -0.025, (factors.noise - 0.5) * 0.035);

@@ -47,7 +47,8 @@ unsupported-timer fallback, invalid-result safety, and disjoint-query cleanup. C
 an absolute FPS, GPU time, or extension availability.
 
 Macro-world tests enforce the 9,216 km² area, biome coverage, settlement hierarchy,
-economic metadata, bounds, road connectivity, and river continuity. Gathering tests prove
+economic metadata, bounds, road connectivity, river continuity, both landmark gateway
+envelopes, and deformation-free approach roads. Gathering tests prove
 that partial work persists, final hits grant loot exactly once, and removed objects cannot
 duplicate inventory. Item metadata supplies deterministic total count and carried weight for
 the inventory overlay and encumbrance rule.
@@ -111,6 +112,13 @@ skyline summit relief, and agreement between detailed, 1,536 m LOD, and horizon 
 samplers. They also verify the shared trail endpoints, 11–12 km length, dense longitudinal
 and lateral grade bounds, terrain clearing, chunk clipping, narrow dirt ribbon, discovery ID,
 fast-travel entry, and non-stealing navigation registration.
+
+Sunscar Canyon tests lock its atlas bounds, exact zero-influence edges, greater-than-650 m
+rim relief, and agreement between detailed, 1,536 m LOD, and horizon samplers. They also
+verify every persistent river span clears its carved banks, dry below-sea-level walls are not
+classified as water, the shared rim trail clips into streamed chunks, and the fixed 136-triangle
+river surface is disposed with the world. Gateway coverage keeps Crownstep and Rimstead,
+their buildings, arrivals, trade links, and service spurs outside steep landmark terrain.
 
 Collision tests cover high-speed tunneling, exact tangents, wall sliding, thin walls,
 axis-aligned and rotated buildings, rounded corner hits and near misses, perpendicular-wall

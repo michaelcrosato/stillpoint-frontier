@@ -6,6 +6,10 @@ import {
 } from "../systems/collision";
 import { WATER_LEVEL } from "../world/macroWorld";
 import { sampleTerrainHeight } from "../world/terrain";
+import {
+  isCanyonRiverAt,
+  sampleCanyonDepth,
+} from "../world/canyonLandmark";
 import type { AnimalPose } from "./animalRecipes";
 
 const MINIMUM_DRY_CLEARANCE = 0.18;
@@ -67,8 +71,12 @@ function footprintIsDry(
     [-diagonal, -diagonal],
   ];
   return samples.every(([offsetX, offsetZ]) => {
-    const height = navigation.sampleHeight(position.x + offsetX, position.z + offsetZ);
-    return Number.isFinite(height) && height > WATER_LEVEL + MINIMUM_DRY_CLEARANCE;
+    const x = position.x + offsetX;
+    const z = position.z + offsetZ;
+    const height = navigation.sampleHeight(x, z);
+    if (!Number.isFinite(height)) return false;
+    if (sampleCanyonDepth(x, z) > 0) return !isCanyonRiverAt(x, z);
+    return height > WATER_LEVEL + MINIMUM_DRY_CLEARANCE;
   });
 }
 

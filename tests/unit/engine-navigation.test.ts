@@ -10,6 +10,8 @@ import {
   NavigationService,
 } from "../../lib/game/navigation/NavigationService";
 import { MOUNTAIN_LANDMARK } from "../../lib/game/world/mountainLandmark";
+import { CANYON_LANDMARK } from "../../lib/game/world/canyonLandmark";
+import { AUTHORED_LANDMARK_NAVIGATION_SYSTEM_ID } from "../../lib/game/world/authoredLandmarks";
 
 const CONTRACT_TARGET_ID = "contract:active-objective";
 
@@ -57,7 +59,7 @@ function createNavigationHarness() {
 }
 
 describe("Engine navigation precedence", () => {
-  it("registers the Crownspire trailhead without stealing active guidance", () => {
+  it("registers every authored landmark waypoint without stealing active guidance", () => {
     const { engine, navigation } = createNavigationHarness();
     const activeBefore = navigation.getActiveTarget()?.id;
 
@@ -70,9 +72,20 @@ describe("Engine navigation precedence", () => {
       position: MOUNTAIN_LANDMARK.baseWaypoint,
       source: {
         kind: "system",
-        systemId: MOUNTAIN_LANDMARK.navigationSystemId,
+        systemId: AUTHORED_LANDMARK_NAVIGATION_SYSTEM_ID,
       },
       arrivalRadius: 24,
+      clearOnArrival: false,
+    });
+    expect(navigation.getTarget(CANYON_LANDMARK.overlookId)).toMatchObject({
+      id: CANYON_LANDMARK.overlookId,
+      label: CANYON_LANDMARK.overlookName,
+      position: CANYON_LANDMARK.overlookWaypoint,
+      source: {
+        kind: "system",
+        systemId: AUTHORED_LANDMARK_NAVIGATION_SYSTEM_ID,
+      },
+      arrivalRadius: 28,
       clearOnArrival: false,
     });
   });

@@ -72,6 +72,15 @@ import {
   mountainGroundcoverFactor,
   mountainWoodyVegetationFactor,
 } from "./mountainLandmark";
+import {
+  CANYON_LANDMARK,
+  CANYON_RIVER_POINTS,
+  canyonGroundcoverFactor,
+  canyonWoodyVegetationFactor,
+  isCanyonRimTrailClearing,
+  isCanyonRiverAt,
+  isCanyonSteepSurface,
+} from "./canyonLandmark";
 import { selectWalkableSupport } from "./buildingTypes";
 import {
   AUTHORED_BUILDINGS,
@@ -191,6 +200,7 @@ export class ChunkManager {
   private disposed = false;
   private readonly waterSurface: WaterSurfaceRuntime;
   private readonly benchmarkLake: THREE.Mesh;
+  private readonly canyonRiver: THREE.Mesh;
   private readonly sharedMaterials: Set<THREE.Material>;
   private readonly materialLibrary: WorldMaterialLibrary;
   private readonly ownsMaterialLibrary: boolean;
@@ -208,12 +218,14 @@ export class ChunkManager {
     this.ownsMaterialLibrary = materialLibrary === undefined;
     this.waterSurface = new WaterSurfaceRuntime(this.quality);
     this.benchmarkLake = this.createBenchmarkLake();
+    this.canyonRiver = this.createCanyonRiver();
     this.sharedMaterials = new Set([this.waterSurface.material]);
     this.placedRecords = normalizePlacedEntities(placedEntities);
     this.placedRuntime = createPlacedRuntime(this.placedRecords, this.quality);
     this.materialLibrary.track(this.placedRuntime.root);
     this.scene.add(this.placedRuntime.root);
     this.scene.add(this.benchmarkLake);
+    this.scene.add(this.canyonRiver);
   }
 
   update(playerX: number, playerZ: number) {
@@ -561,7 +573,9 @@ export class ChunkManager {
     this.loaded.clear();
     this.disposeObjectTree(this.placedRuntime.root);
     this.scene.remove(this.benchmarkLake);
+    this.scene.remove(this.canyonRiver);
     this.benchmarkLake.geometry.dispose();
+    this.canyonRiver.geometry.dispose();
     this.placedRuntime = {
       root: new THREE.Group(),
       targets: [],
@@ -677,6 +691,7 @@ export class ChunkManager {
     this.addWater(root, center.x, center.z);
     this.addRoads(root, center.x, center.z, key);
     this.addMountainTrailhead(root, chunkX, chunkZ, colliders);
+    this.addCanyonOverlook(root, chunkX, chunkZ, colliders);
     const authoredBuildings = createAuthoredBuildingsForChunk(
       key,
       this.quality,
@@ -821,6 +836,9 @@ export class ChunkManager {
       if (Math.abs(x - riverCenterX(z)) <= riverWidth(z) + radius + 1.25) continue;
       if (isCanopyBenchmarkClearing(x, z, radius + 0.4)) continue;
       if (isMountainTrailClearing(x, z, radius + 0.4)) continue;
+      if (isCanyonRimTrailClearing(x, z, radius + 0.4)) continue;
+      if (isCanyonRiverAt(x, z, radius + 1.25)) continue;
+      if (isCanyonSteepSurface(x, z, Math.max(5, radius))) continue;
       if (
         key === "0:0" &&
         OPENING_RESERVATIONS.some(
@@ -914,6 +932,67 @@ export class ChunkManager {
     lake.userData.persistentWorldSurface = true;
     this.waterSurface.bind(lake, "river");
     return lake;
+  }
+
+  private createCanyonRiver() {
+    const positions: number[] = [];
+    const indices: number[] = [];
+    for (let index = 0; index < CANYON_RIVER_POINTS.length; index += 1) {
+      const point = CANYON_RIVER_POINTS[index];
+      const previous = CANYON_RIVER_POINTS[Math.max(0, index - 1)];
+      const next = CANYON_RIVER_POINTS[
+        Math.min(CANYON_RIVER_POINTS.length - 1, index + 1)
+      ];
+      const tangentX = next.x - previous.x;
+      const tangentZ = next.z - previous.z;
+      const tangentLength = Math.max(0.0001, Math.hypot(tangentX, tangentZ));
+      const sideX = -tangentZ / tangentLength;
+      const sideZ = tangentX / tangentLength;
+      const surfaceY = sampleTerrainHeight(point.x, point.z) +
+        CANYON_LANDMARK.riverSurfaceLift;
+      positions.push(
+        point.x + sideX * point.halfWidth,
+        surfaceY,
+        point.z + sideZ * point.halfWidth,
+        point.x - sideX * point.halfWidth,
+        surfaceY,
+        point.z - sideZ * point.halfWidth,
+      );
+      if (index === CANYON_RIVER_POINTS.length - 1) continue;
+      const left = index * 2;
+      const right = left + 1;
+      const nextLeft = left + 2;
+      const nextRight = left + 3;
+      indices.push(
+        left,
+        nextLeft,
+        right,
+        right,
+        nextLeft,
+        nextRight,
+      );
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(positions, 3),
+    );
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+    geometry.userData.canyonRiver = {
+      segments: CANYON_RIVER_POINTS.length - 1,
+      triangles: indices.length / 3,
+    };
+    const river = new THREE.Mesh(geometry, this.waterSurface.material);
+    river.name = "sunscar-canyon-river";
+    river.castShadow = false;
+    river.receiveShadow = true;
+    river.userData.shadow = false;
+    river.userData.persistentWorldSurface = true;
+    this.waterSurface.bind(river, "river");
+    return river;
   }
 
   private addRoads(root: THREE.Group, centerX: number, centerZ: number, key: string) {
@@ -1018,6 +1097,77 @@ export class ChunkManager {
       radius: 1.7,
       minY: marker.position.y,
       maxY: marker.position.y + 3.7,
+    });
+  }
+
+  private addCanyonOverlook(
+    root: THREE.Group,
+    chunkX: number,
+    chunkZ: number,
+    colliders: PlanarCollider[],
+  ) {
+    const waypoint = CANYON_LANDMARK.overlookWaypoint;
+    const waypointChunk = worldToChunk(waypoint.x, waypoint.z);
+    if (waypointChunk.x !== chunkX || waypointChunk.z !== chunkZ) return;
+
+    const marker = new THREE.Group();
+    marker.name = "overlook:sunscar-canyon";
+    marker.position.set(
+      waypoint.x,
+      sampleTerrainHeight(waypoint.x, waypoint.z),
+      waypoint.z,
+    );
+    marker.rotation.y = -Math.atan2(
+      CANYON_LANDMARK.axis.z,
+      CANYON_LANDMARK.axis.x,
+    );
+    const stone = new THREE.MeshStandardMaterial({
+      color: 0x6a5142,
+      roughness: 0.98,
+      metalness: 0.01,
+      flatShading: true,
+    });
+    const signal = new THREE.MeshStandardMaterial({
+      color: 0xb26336,
+      roughness: 0.74,
+      metalness: 0.08,
+    });
+    for (const x of [-3.2, 0, 3.2]) {
+      const post = new THREE.Mesh(
+        new THREE.BoxGeometry(0.44, 2.5, 0.44),
+        stone,
+      );
+      post.position.set(x, 1.25, 0);
+      marker.add(post);
+    }
+    const rail = new THREE.Mesh(
+      new THREE.BoxGeometry(7.2, 0.24, 0.26),
+      stone,
+    );
+    rail.position.set(0, 1.62, 0);
+    marker.add(rail);
+    const blaze = new THREE.Mesh(
+      new THREE.BoxGeometry(1.6, 0.72, 0.1),
+      signal,
+    );
+    blaze.position.set(0, 2.42, 0.27);
+    marker.add(blaze);
+    marker.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return;
+      object.castShadow = qualityUsesShadows(this.quality);
+      object.receiveShadow = true;
+    });
+    root.add(marker);
+    colliders.push({
+      shape: "box",
+      id: CANYON_LANDMARK.overlookId,
+      x: waypoint.x,
+      z: waypoint.z,
+      halfWidth: 3.7,
+      halfDepth: 0.45,
+      rotation: marker.rotation.y,
+      minY: marker.position.y,
+      maxY: marker.position.y + 2.85,
     });
   }
 
@@ -1473,7 +1623,8 @@ export class ChunkManager {
       );
       if (!placement) continue;
       const { x, z } = placement;
-      const woodyFactor = mountainWoodyVegetationFactor(x, z);
+      const woodyFactor = mountainWoodyVegetationFactor(x, z) *
+        canyonWoodyVegetationFactor(x, z);
       if (woodyFactor < 1 && random() > woodyFactor) continue;
       const baseY = sampleTerrainHeight(x, z);
       const id = `resource:tree:v2:${key}:${index}`;
@@ -1606,7 +1757,7 @@ export class ChunkManager {
         const groundcoverFactor = mountainGroundcoverFactor(
           placement.x,
           placement.z,
-        );
+        ) * canyonGroundcoverFactor(placement.x, placement.z);
         if (groundcoverFactor < 1 && groundRandom() > groundcoverFactor) continue;
         const localClimate = sampleClimate(placement.x, placement.z);
         if (localClimate.biome.id !== biomeId && groundRandom() > 0.28) continue;
@@ -1813,7 +1964,8 @@ export class ChunkManager {
             34,
           );
       const woodyFactor = placement
-        ? mountainWoodyVegetationFactor(placement.x, placement.z)
+        ? mountainWoodyVegetationFactor(placement.x, placement.z) *
+          canyonWoodyVegetationFactor(placement.x, placement.z)
         : 0;
       if (
         placement &&

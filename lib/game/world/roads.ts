@@ -12,6 +12,11 @@ import {
   MOUNTAIN_LANDMARK,
   MOUNTAIN_TRAIL_POINTS,
 } from "./mountainLandmark";
+import {
+  CANYON_LANDMARK,
+  CANYON_RIM_TRAIL_BOUNDS,
+  CANYON_RIM_TRAIL_POINTS,
+} from "./canyonLandmark";
 import { chunkCenter } from "./terrain";
 
 export const ROAD_WIDTHS = { trunk: 9, regional: 6.2, local: 3.8 } as const;
@@ -300,6 +305,52 @@ export function mountainTrailSegmentsForChunk(
   return segments;
 }
 
+export function canyonRimTrailSegmentsForChunk(
+  chunkX: number,
+  chunkZ: number,
+): WorldPathSegment[] {
+  const center = chunkCenter({ x: chunkX, z: chunkZ });
+  const half = CHUNK_SIZE / 2;
+  const minX = center.x - half;
+  const maxX = center.x + half;
+  const minZ = center.z - half;
+  const maxZ = center.z + half;
+  if (
+    maxX < CANYON_RIM_TRAIL_BOUNDS.minX ||
+    minX > CANYON_RIM_TRAIL_BOUNDS.maxX ||
+    maxZ < CANYON_RIM_TRAIL_BOUNDS.minZ ||
+    minZ > CANYON_RIM_TRAIL_BOUNDS.maxZ
+  ) {
+    return [];
+  }
+
+  const segments: WorldPathSegment[] = [];
+  for (let index = 0; index < CANYON_RIM_TRAIL_POINTS.length - 1; index += 1) {
+    const start = CANYON_RIM_TRAIL_POINTS[index];
+    const end = CANYON_RIM_TRAIL_POINTS[index + 1];
+    const clipped = clipSegmentToRect(start, end, minX, maxX, minZ, maxZ);
+    if (!clipped) continue;
+    const segment: WorldPathSegment = {
+      id: `trail:sunscar-rim:${index}`,
+      kind: "trail",
+      start: clipped.start,
+      end: clipped.end,
+      width: CANYON_LANDMARK.rimTrailWidth,
+      corridorId: CANYON_LANDMARK.overlookId,
+      capStart: Math.hypot(
+        clipped.start.x - start.x,
+        clipped.start.z - start.z,
+      ) < 0.001,
+      capEnd: Math.hypot(
+        clipped.end.x - end.x,
+        clipped.end.z - end.z,
+      ) < 0.001,
+    };
+    if (segmentLength(segment) >= 0.5) segments.push(segment);
+  }
+  return segments;
+}
+
 export function settlementStreetSegmentsForChunk(
   chunkX: number,
   chunkZ: number,
@@ -319,6 +370,7 @@ export function worldPathSegmentsForChunk(chunkX: number, chunkZ: number) {
   return [
     ...roadSegmentsForChunk(chunkX, chunkZ),
     ...mountainTrailSegmentsForChunk(chunkX, chunkZ),
+    ...canyonRimTrailSegmentsForChunk(chunkX, chunkZ),
     ...settlementStreetSegmentsForChunk(chunkX, chunkZ),
   ];
 }

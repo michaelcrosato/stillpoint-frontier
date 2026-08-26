@@ -139,9 +139,12 @@ import {
   resolveFastTravelArrival,
 } from "./world/fastTravel";
 import { WORLD_HALF_EXTENT, nearestSettlement, sampleClimate } from "./world/macroWorld";
-import { WATER_LEVEL } from "./world/macroWorld";
 import { sampleTerrainHeight, worldToChunk } from "./world/terrain";
-import { MOUNTAIN_LANDMARK } from "./world/mountainLandmark";
+import { isWorldWaterAt } from "./world/worldWater";
+import {
+  AUTHORED_LANDMARK_NAVIGATION_SYSTEM_ID,
+  AUTHORED_LANDMARK_WAYPOINTS,
+} from "./world/authoredLandmarks";
 import {
   MAX_PLACED_SERIAL,
   nearbyCampModifiers,
@@ -1248,7 +1251,7 @@ export class Engine {
     if (
       !Number.isFinite(y) ||
       !supportHeights.every(Number.isFinite) ||
-      y <= WATER_LEVEL + 0.12 ||
+      isWorldWaterAt(x, z, radius) ||
       Math.abs(y - this.player.position.y) > 1.1 ||
       Math.max(...supportHeights) - Math.min(...supportHeights) > 0.65 ||
       Math.abs(x) > WORLD_HALF_EXTENT ||
@@ -1428,17 +1431,19 @@ export class Engine {
   }
 
   private syncAuthoredLandmarkTargets() {
-    this.navigation.setTarget({
-      id: MOUNTAIN_LANDMARK.trailheadId,
-      label: MOUNTAIN_LANDMARK.trailheadName,
-      position: { ...MOUNTAIN_LANDMARK.baseWaypoint },
-      source: {
-        kind: "system",
-        systemId: MOUNTAIN_LANDMARK.navigationSystemId,
-      },
-      arrivalRadius: 24,
-      clearOnArrival: false,
-    }, false);
+    for (const waypoint of AUTHORED_LANDMARK_WAYPOINTS) {
+      this.navigation.setTarget({
+        id: waypoint.id,
+        label: waypoint.label,
+        position: { ...waypoint.position },
+        source: {
+          kind: "system",
+          systemId: AUTHORED_LANDMARK_NAVIGATION_SYSTEM_ID,
+        },
+        arrivalRadius: waypoint.arrivalRadius,
+        clearOnArrival: false,
+      }, false);
+    }
   }
 
   setMapOpen(open: boolean) {

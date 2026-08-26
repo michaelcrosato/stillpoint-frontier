@@ -26,6 +26,7 @@ import {
   MOUNTAIN_LANDMARK,
   sampleMountainLift,
 } from "./mountainLandmark";
+import { sampleCanyonDepth } from "./canyonLandmark";
 import {
   proceduralSurfaceColor,
   terrainSurfaceColor,
@@ -270,10 +271,10 @@ function blendedSurfaceHeight(
   if (distance >= policy.detailBlendEnd) {
     return sampleHorizonTerrainHeight(x, z);
   }
-  const detailedHeight = Math.max(
-    WATER_LEVEL,
-    sampleTerrainHeightLod(x, z, cellSize),
-  );
+  const detailedSample = sampleTerrainHeightLod(x, z, cellSize);
+  const detailedHeight = sampleCanyonDepth(x, z) > 0
+    ? detailedSample
+    : Math.max(WATER_LEVEL, detailedSample);
   const blendStart = Math.max(
     DETAILED_TERRAIN_HALF_EXTENT,
     policy.detailBlendEnd - Math.max(CHUNK_SIZE, cellSize * 6),

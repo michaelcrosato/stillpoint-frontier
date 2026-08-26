@@ -1312,7 +1312,7 @@ test("HUD and territory-map fixtures are visually reviewable without a GPU @visu
 
   await page.goto("/?visual=map", { waitUntil: "load" });
   await expect(page.getByTestId("map-panel")).toContainText("9,216 KM²");
-  await expect(page.getByTestId("map-panel")).toContainText("24");
+  await expect(page.getByTestId("map-panel")).toContainText("26");
   await attachScreenshot(page, testInfo, "territory-map-fixture");
 
   await page.goto("/?visual=dev", { waitUntil: "load" });

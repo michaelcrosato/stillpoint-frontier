@@ -8,7 +8,9 @@ ambient-citizen engine, continuous swept collision, and a GPU-aware test harness
 vertical slice adds field contracts, crafting and deployable gear, a scanner/field guide,
 deterministic loot containers, rest and camping, data-driven interior dressing, one authored
 field coordinator, and rigid reactive wildlife. A temporary all-location fast-travel index
-supports playtesting. Ambient citizens remain deterministic road-and-settlement bustle rather
+supports playtesting. Crownspire and Sunscar Canyon provide large-scale terrain landmarks,
+rim/summit routes, persistent landmark water, and village gateway hubs without adding quest
+narrative. Ambient citizens remain deterministic road-and-settlement bustle rather
 than dialogue NPCs: no rigs, colliders, interactions, or saves.
 
 ## Prerequisites

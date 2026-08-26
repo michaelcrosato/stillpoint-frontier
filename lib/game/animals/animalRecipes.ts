@@ -6,7 +6,6 @@ import {
 } from "../config";
 import { randomRange, seededRandom } from "../core/random";
 import {
-  WATER_LEVEL,
   nearestSettlement,
   sampleClimate,
   type BiomeId,
@@ -14,6 +13,7 @@ import {
 import { distanceToPathSegment, worldPathSegmentsForChunk } from "../world/roads";
 import { chunkCenter, chunkKey, sampleTerrainHeight } from "../world/terrain";
 import { isCanopyBenchmarkClearing } from "../world/benchmarkZone";
+import { isWorldWaterAt } from "../world/worldWater";
 
 export type AnimalBodyKind = "grazer" | "stocky" | "small" | "reptile" | "bird";
 
@@ -287,8 +287,7 @@ export function generateAnimalChunk(chunkX: number, chunkZ: number): AnimalRecip
     const x = center.x + randomRange(random, -CHUNK_SIZE * 0.37, CHUNK_SIZE * 0.37);
     const z = center.z + randomRange(random, -CHUNK_SIZE * 0.37, CHUNK_SIZE * 0.37);
     if (isCanopyBenchmarkClearing(x, z, species.scale + 1.5)) continue;
-    const terrainY = sampleTerrainHeight(x, z);
-    if (terrainY <= WATER_LEVEL + 0.18) continue;
+    if (isWorldWaterAt(x, z, species.scale + 0.18)) continue;
     const localSettlement = nearestSettlement(x, z);
     if (localSettlement.distance < localSettlement.settlement.radius + 28) continue;
     if (paths.some((path) =>

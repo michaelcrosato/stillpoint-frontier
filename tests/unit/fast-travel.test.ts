@@ -19,12 +19,18 @@ import {
   MOUNTAIN_LANDMARK,
   isMountainTrailClearing,
 } from "../../lib/game/world/mountainLandmark";
+import {
+  CANYON_LANDMARK,
+  isCanyonRimTrailClearing,
+} from "../../lib/game/world/canyonLandmark";
+import { AUTHORED_LANDMARK_WAYPOINTS } from "../../lib/game/world/authoredLandmarks";
+import { isWorldWaterAt } from "../../lib/game/world/worldWater";
 
 describe("temporary playtest fast travel", () => {
   it("unlocks every authored settlement and relay through unique stable IDs", () => {
     expect(FAST_TRAVEL_PLAYTEST_UNLOCKED).toBe(true);
     expect(FAST_TRAVEL_LOCATIONS).toHaveLength(
-      SETTLEMENTS.length + BEACONS.length + 1,
+      SETTLEMENTS.length + BEACONS.length + AUTHORED_LANDMARK_WAYPOINTS.length,
     );
     expect(new Set(FAST_TRAVEL_LOCATIONS.map((location) => location.id)).size).toBe(
       FAST_TRAVEL_LOCATIONS.length,
@@ -40,6 +46,12 @@ describe("temporary playtest fast travel", () => {
       x: MOUNTAIN_LANDMARK.baseWaypoint.x,
       z: MOUNTAIN_LANDMARK.baseWaypoint.z,
     });
+    expect(getFastTravelLocation(CANYON_LANDMARK.fastTravelId)).toMatchObject({
+      kind: "landmark",
+      sourceId: CANYON_LANDMARK.id,
+      x: CANYON_LANDMARK.overlookWaypoint.x,
+      z: CANYON_LANDMARK.overlookWaypoint.z,
+    });
     expect(getFastTravelLocation("invented:place")).toBeNull();
   });
 
@@ -53,6 +65,7 @@ describe("temporary playtest fast travel", () => {
       expect(Math.abs(arrival.x)).toBeLessThan(WORLD_HALF_EXTENT);
       expect(Math.abs(arrival.z)).toBeLessThan(WORLD_HALF_EXTENT);
       expect(arrival.y).toBe(sampleTerrainHeight(arrival.x, arrival.z));
+      expect(isWorldWaterAt(arrival.x, arrival.z), location.id).toBe(false);
       expect(
         distanceToRiver(arrival.x, arrival.z) > riverWidth(arrival.z),
         location.id,
@@ -88,6 +101,19 @@ describe("temporary playtest fast travel", () => {
       arrival.x - MOUNTAIN_LANDMARK.baseWaypoint.x,
       arrival.z - MOUNTAIN_LANDMARK.baseWaypoint.z,
     )).toBeGreaterThan(1.7);
+  });
+
+  it("arrives beside the Sunscar railing on the cleared rim trail shoulder", () => {
+    const location = getFastTravelLocation(CANYON_LANDMARK.fastTravelId);
+    expect(location).not.toBeNull();
+    if (!location) return;
+    const arrival = resolveFastTravelArrival(location);
+    expect(isCanyonRimTrailClearing(arrival.x, arrival.z)).toBe(true);
+    expect(isWorldWaterAt(arrival.x, arrival.z)).toBe(false);
+    expect(Math.hypot(
+      arrival.x - CANYON_LANDMARK.overlookWaypoint.x,
+      arrival.z - CANYON_LANDMARK.overlookWaypoint.z,
+    )).toBeGreaterThan(3.7);
   });
 
   it("contains edge locations and has a deterministic last-resort fallback", () => {

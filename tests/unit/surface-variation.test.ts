@@ -8,6 +8,11 @@ import {
   terrainSurfaceFactors,
 } from "../../lib/game/world/surfaceVariation";
 import { sampleTerrainHeight } from "../../lib/game/world/terrain";
+import {
+  canyonChannelOffset,
+  canyonWorldCoordinates,
+} from "../../lib/game/world/canyonLandmark";
+import { WATER_LEVEL } from "../../lib/game/world/macroWorld";
 
 describe("deterministic surface variation", () => {
   it("is stable, finite, and bounded across the world", () => {
@@ -77,5 +82,29 @@ describe("deterministic surface variation", () => {
     );
     expect(color.toArray().every(Number.isFinite)).toBe(true);
     expect(terrainSurfaceFactors(127.3, -82.4, 12, 24, 3).slope).toBe(1);
+  });
+
+  it("renders below-sea-level dry canyon walls as stratified stone rather than water", () => {
+    const wall = canyonWorldCoordinates(0, canyonChannelOffset(0) + 1_100);
+    const floor = canyonWorldCoordinates(0, canyonChannelOffset(0) + 180);
+    const wallHeight = sampleTerrainHeight(wall.x, wall.z);
+    const floorHeight = sampleTerrainHeight(floor.x, floor.z);
+    expect(wallHeight).toBeLessThan(WATER_LEVEL);
+    expect(floorHeight).toBeLessThan(wallHeight);
+    const wallColor = terrainSurfaceColor(
+      new THREE.Color(),
+      wall.x,
+      wall.z,
+      wallHeight,
+    );
+    const floorColor = terrainSurfaceColor(
+      new THREE.Color(),
+      floor.x,
+      floor.z,
+      floorHeight,
+    );
+    expect(wallColor.getHex()).not.toBe(0x36575a);
+    expect(floorColor.getHex()).not.toBe(0x36575a);
+    expect(wallColor.getHex()).not.toBe(floorColor.getHex());
   });
 });

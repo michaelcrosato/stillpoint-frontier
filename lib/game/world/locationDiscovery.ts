@@ -1,6 +1,10 @@
 import { BIOMES, SETTLEMENTS, sampleClimate, type BiomeId } from "./macroWorld";
 import { authoredBuildingsForLandmark } from "./authoredBuildings";
 import { MOUNTAIN_LANDMARK, mountainDistance } from "./mountainLandmark";
+import {
+  CANYON_LANDMARK,
+  isInsideCanyonDiscovery,
+} from "./canyonLandmark";
 
 export type LocationKind = "biome" | "settlement" | "landmark";
 
@@ -44,6 +48,14 @@ const CROWNSPIRE: DiscoverableLocation = {
   note: MOUNTAIN_LANDMARK.note,
 };
 
+const SUNSCAR_CANYON: DiscoverableLocation = {
+  id: CANYON_LANDMARK.id,
+  name: CANYON_LANDMARK.name,
+  kind: "landmark",
+  region: CANYON_LANDMARK.region,
+  note: CANYON_LANDMARK.note,
+};
+
 const BIOME_LOCATIONS = Object.values(BIOMES).map<DiscoverableLocation>((biome) => ({
   id: `biome:${biome.id}`,
   name: biome.name,
@@ -63,6 +75,7 @@ const SETTLEMENT_LOCATIONS = SETTLEMENTS.map<DiscoverableLocation>((settlement) 
 export const DISCOVERABLE_LOCATIONS: readonly DiscoverableLocation[] = Object.freeze([
   COMPOUND,
   CROWNSPIRE,
+  SUNSCAR_CANYON,
   ...BIOME_LOCATIONS,
   ...SETTLEMENT_LOCATIONS,
 ]);
@@ -86,6 +99,7 @@ export function currentDiscoverableLocation(x: number, z: number): DiscoverableL
   if (mountainDistance(x, z) <= MOUNTAIN_LANDMARK.discoveryRadius) {
     return CROWNSPIRE;
   }
+  if (isInsideCanyonDiscovery(x, z)) return SUNSCAR_CANYON;
   const biomeId: BiomeId = sampleClimate(x, z).biome.id;
   return LOCATION_BY_ID.get(`biome:${biomeId}`)!;
 }

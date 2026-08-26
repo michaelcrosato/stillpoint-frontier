@@ -8,6 +8,7 @@ import {
 } from "../../lib/game/world/locationDiscovery";
 import { getSettlement } from "../../lib/game/world/macroWorld";
 import { MOUNTAIN_LANDMARK } from "../../lib/game/world/mountainLandmark";
+import { CANYON_LANDMARK } from "../../lib/game/world/canyonLandmark";
 
 describe("location discovery", () => {
   it("prioritizes the spawn landmark over its underlying biome", () => {
@@ -30,6 +31,21 @@ describe("location discovery", () => {
       name: MOUNTAIN_LANDMARK.name,
     });
     expect(isKnownLocationId(MOUNTAIN_LANDMARK.id)).toBe(true);
+  });
+
+  it("discovers Sunscar at the overlook while preserving Rimstead settlement priority", () => {
+    expect(currentDiscoverableLocation(
+      CANYON_LANDMARK.overlookWaypoint.x,
+      CANYON_LANDMARK.overlookWaypoint.z,
+    )).toMatchObject({
+      id: CANYON_LANDMARK.id,
+      kind: "landmark",
+      name: CANYON_LANDMARK.name,
+    });
+    const rimstead = getSettlement("rimstead")!;
+    expect(currentDiscoverableLocation(rimstead.x, rimstead.z).id)
+      .toBe("settlement:rimstead");
+    expect(isKnownLocationId(CANYON_LANDMARK.id)).toBe(true);
   });
 
   it("falls back to a biome everywhere else in the atlas", () => {

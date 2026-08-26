@@ -1,4 +1,6 @@
 import { hashString } from "../core/random";
+import { CANYON_LANDMARK } from "./canyonLandmark";
+import { MOUNTAIN_LANDMARK } from "./mountainLandmark";
 
 /**
  * The authored atlas is 96 km square. Only a 9x9 visual ring of 96 m chunks is
@@ -185,6 +187,7 @@ export interface Settlement {
   economy: string;
   reason: string;
   radius: number;
+  landmarkGatewayId?: string;
 }
 
 const atRiver = (z: number, offset = 0) => Math.round(baseRiverCenterX(z) + offset);
@@ -444,6 +447,30 @@ const BASE_SETTLEMENTS: readonly Settlement[] = [
     radius: 62,
   },
   {
+    id: "crownstep",
+    name: "Crownstep",
+    tier: "village",
+    x: -1_971.2,
+    z: -857.6,
+    population: 720,
+    economy: "trail services · goats · stonework · cold-weather gardens",
+    reason: "A stable bench outside Crownspire's avalanche paths provides a practical base for highland travel.",
+    radius: 72,
+    landmarkGatewayId: MOUNTAIN_LANDMARK.id,
+  },
+  {
+    id: "rimstead",
+    name: "Rimstead",
+    tier: "village",
+    x: 4_352,
+    z: -1_600,
+    population: 920,
+    economy: "pack services · stonework · grazing · canyon surveys",
+    reason: "A level, well-drained terrace outside Sunscar Canyon anchors the safest approach to its western rim.",
+    radius: 72,
+    landmarkGatewayId: CANYON_LANDMARK.id,
+  },
+  {
     id: "low-tide",
     name: "Low Tide",
     tier: "village",
@@ -505,6 +532,10 @@ export const ROAD_LINKS: readonly RoadLink[] = [
   { from: "lumenport", to: "low-tide", class: "regional" },
   { from: "crosswind", to: "dustmere", class: "local" },
   { from: "dustmere", to: "willow-bank", class: "local" },
+  { from: "crownstep", to: "pine-rest", class: "local" },
+  { from: "crownstep", to: "long-acre", class: "local" },
+  { from: "bright-mine", to: "rimstead", class: "regional" },
+  { from: "rimstead", to: "sunbreak", class: "local" },
 ] as const;
 
 const settlementById = new Map(SETTLEMENTS.map((settlement) => [settlement.id, settlement]));
@@ -596,5 +627,27 @@ export const ROAD_CORRIDORS: readonly RoadCorridor[] = [
     from: { x: -112, z: -118 },
     to: { x: 38, z: -52 },
     endpointPopulations: [48, 34],
+  },
+  {
+    id: "crownstep:crownspire-trailhead",
+    class: "local",
+    kind: "service",
+    from: {
+      x: getSettlement("crownstep")?.x ?? -14_784,
+      z: getSettlement("crownstep")?.z ?? -6_432,
+    },
+    to: { ...MOUNTAIN_LANDMARK.baseWaypoint },
+    endpointPopulations: [getSettlement("crownstep")?.population ?? 720, 24],
+  },
+  {
+    id: "rimstead:sunscar-overlook",
+    class: "local",
+    kind: "service",
+    from: {
+      x: getSettlement("rimstead")?.x ?? 32_640,
+      z: getSettlement("rimstead")?.z ?? -12_000,
+    },
+    to: { ...CANYON_LANDMARK.overlookWaypoint },
+    endpointPopulations: [getSettlement("rimstead")?.population ?? 920, 28],
   },
 ];
