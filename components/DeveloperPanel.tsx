@@ -16,6 +16,11 @@ import {
   GRAPHICS_FEATURE_DEFINITIONS,
   type GraphicsFeatureId,
 } from "../lib/game/rendering/GraphicsFeatures";
+import {
+  DEVELOPER_SPEED_MODES,
+  DEVELOPER_SPEED_PROFILES,
+  type DeveloperSpeedMode,
+} from "../lib/game/developer/PlayerSandbox";
 
 interface DeveloperPanelProps {
   snapshot: GameSnapshot;
@@ -29,6 +34,9 @@ interface DeveloperPanelProps {
   onSetHealth(health: number): void;
   onApplyFall(speed: number): void;
   onRecover(): void;
+  onSetInvincible(enabled: boolean): void;
+  onSetSpeedMode(mode: DeveloperSpeedMode): void;
+  onSetFly(enabled: boolean): void;
   onTravelToForestStressTest(): void;
   onSetForestStressLevel(level: number): void;
   onSetGraphicsBenchmarkTarget(target: number): void;
@@ -73,6 +81,9 @@ export default function DeveloperPanel({
   onSetHealth,
   onApplyFall,
   onRecover,
+  onSetInvincible,
+  onSetSpeedMode,
+  onSetFly,
   onTravelToForestStressTest,
   onSetForestStressLevel,
   onSetGraphicsBenchmarkTarget,
@@ -201,7 +212,7 @@ export default function DeveloperPanel({
           <span aria-hidden="true">◇</span>
           <p>
             <strong>SESSION-ONLY SANDBOX</strong>
-            Time, weather, load-lab, and capture state are session-only. Rendering preferences are saved locally.
+            Time, weather, player sandbox, load-lab, and capture state are session-only. Rendering preferences are saved locally.
           </p>
         </div>
 
@@ -272,6 +283,9 @@ export default function DeveloperPanel({
             <span>GTAO {snapshot.graphicsPipeline.gtao ? "ACTIVE" : "OFF"}</span>
             <span>GRADE {snapshot.graphicsPipeline.grading ? "ACTIVE" : "OFF"}</span>
             <span>PMREM {snapshot.graphicsPipeline.environmentReflections ? "ACTIVE" : "OFF"}</span>
+            <span>CLOUD SHADE {snapshot.devTools.graphicsFeatures.cloudShadows ? "ACTIVE" : "OFF"}</span>
+            <span>WET {snapshot.devTools.graphicsFeatures.wetSurfaces ? "ACTIVE" : "OFF"}</span>
+            <span>LIGHTNING {snapshot.devTools.graphicsFeatures.stormLightning ? "ACTIVE" : "OFF"}</span>
             <strong>{snapshot.graphicsPipeline.fallback ? "SAFE FALLBACK" : "NOMINAL"}</strong>
           </p>
           <div className="dev-feature-grid">
@@ -512,6 +526,69 @@ export default function DeveloperPanel({
               </span>
             </p>
           </div>
+        </fieldset>
+
+        <fieldset
+          className="dev-player-sandbox"
+          disabled={!snapshot.devTools.enabled}
+        >
+          <legend>PLAYER / PLAYTEST SANDBOX</legend>
+          <div className="dev-player-toggle-grid">
+            <button
+              type="button"
+              className={snapshot.devTools.player.invincible ? "is-active" : ""}
+              aria-pressed={snapshot.devTools.player.invincible}
+              data-testid="developer-invincible"
+              onClick={() => onSetInvincible(!snapshot.devTools.player.invincible)}
+            >
+              <span>INVINCIBLE</span>
+              <strong>{snapshot.devTools.player.invincible ? "ON" : "OFF"}</strong>
+              <small>Blocks gameplay damage and test damage controls.</small>
+            </button>
+            <button
+              type="button"
+              className={snapshot.devTools.player.fly ? "is-active" : ""}
+              aria-pressed={snapshot.devTools.player.fly}
+              data-testid="developer-fly"
+              onClick={() => onSetFly(!snapshot.devTools.player.fly)}
+            >
+              <span>FLY / NOCLIP</span>
+              <strong>{snapshot.devTools.player.fly ? "ON" : "OFF"}</strong>
+              <small>Bypasses gravity, terrain, and building collision.</small>
+            </button>
+          </div>
+          <div className="dev-control-heading">
+            <span id="developer-speed-label">MOVEMENT SPEED</span>
+            <output>{DEVELOPER_SPEED_PROFILES[snapshot.devTools.player.speedMode].multiplier}×</output>
+          </div>
+          <div
+            className="dev-speed-grid"
+            role="group"
+            aria-labelledby="developer-speed-label"
+          >
+            {DEVELOPER_SPEED_MODES.map((mode) => {
+              const profile = DEVELOPER_SPEED_PROFILES[mode];
+              const active = snapshot.devTools.player.speedMode === mode;
+              const testId = mode === "veryFast" ? "very-fast" : mode;
+              return (
+                <button
+                  type="button"
+                  key={mode}
+                  className={active ? "is-active" : ""}
+                  aria-pressed={active}
+                  data-testid={`developer-movement-${testId}`}
+                  onClick={() => onSetSpeedMode(mode)}
+                >
+                  <span>{profile.label}</span>
+                  <strong>{profile.multiplier}×</strong>
+                </button>
+              );
+            })}
+          </div>
+          <p className="dev-horizon-note dev-player-note">
+            FLY: WASD MOVE · SPACE ASCEND · CTRL/C DESCEND · SHIFT BOOST.
+            Disabling flight returns you to the last safe grounded position.
+          </p>
         </fieldset>
 
         <fieldset className="dev-vitals" disabled={!snapshot.devTools.enabled}>

@@ -173,6 +173,13 @@ import {
   ForestStressTest,
   type ForestStressDiagnostics,
 } from "./developer/ForestStressTest";
+import {
+  DEFAULT_DEVELOPER_PLAYER_SANDBOX,
+  isDeveloperSpeedMode,
+  resetDeveloperPlayerSandbox,
+  type DeveloperPlayerSandboxState,
+  type DeveloperSpeedMode,
+} from "./developer/PlayerSandbox";
 import { CANOPY_BENCHMARK_ZONE } from "./world/benchmarkZone";
 
 const FIXED_STEP = 1 / 60;
@@ -288,6 +295,9 @@ export interface GameTestBridge {
   advanceDeveloperMinutes(minutes: number): void;
   setDeveloperClockPaused(paused: boolean): void;
   setDeveloperWeather(weatherId: WeatherId | null): boolean;
+  setDeveloperInvincible(enabled: boolean): boolean;
+  setDeveloperSpeedMode(mode: DeveloperSpeedMode): boolean;
+  setDeveloperFly(enabled: boolean): boolean;
   resetDeveloperOverrides(): void;
   setHorizonMode(mode: HorizonMode): boolean;
   horizon(): HorizonDiagnostics;
@@ -336,6 +346,9 @@ export class Engine {
   private readonly graphicsBenchmark = new GraphicsBenchmark();
   private graphicsFeatures: GraphicsFeatureState = {
     ...DEFAULT_GRAPHICS_FEATURES,
+  };
+  private readonly developerPlayer: DeveloperPlayerSandboxState = {
+    ...DEFAULT_DEVELOPER_PLAYER_SANDBOX,
   };
   private readonly pipeline = new SystemPipeline<GameRuntimeContext>();
   private readonly onSnapshot: (snapshot: GameSnapshot) => void;
@@ -558,6 +571,7 @@ export class Engine {
       started: false,
       paused: false,
       testMode: this.testMode,
+      developerPlayer: this.developerPlayer,
       scanner: this.scanner,
       nearbyTarget: null,
       nearbyDistance: null,
@@ -1495,6 +1509,7 @@ export class Engine {
     if (!enabled) {
       this.graphicsBenchmark.invalidate("Developer mode disabled");
       this.graphicsFeatures = { ...DEFAULT_GRAPHICS_FEATURES };
+      this.resetDeveloperPlayerSandbox();
       this.applyGraphicsFeatures();
     }
     this.environment.setDeveloperMode(enabled);
@@ -1526,13 +1541,68 @@ export class Engine {
     return accepted;
   }
 
+  setDeveloperInvincible(enabled: boolean) {
+    if (!this.environment.getDeveloperState().enabled) return false;
+    const next = Boolean(enabled);
+    if (this.developerPlayer.invincible === next) return false;
+    this.developerPlayer.invincible = next;
+    this.emitSnapshot(true);
+    return true;
+  }
+
+  setDeveloperSpeedMode(mode: DeveloperSpeedMode) {
+    if (
+      !this.environment.getDeveloperState().enabled ||
+      !isDeveloperSpeedMode(mode) ||
+      this.developerPlayer.speedMode === mode
+    ) {
+      return false;
+    }
+    this.developerPlayer.speedMode = mode;
+    this.emitSnapshot(true);
+    return true;
+  }
+
+  setDeveloperFly(enabled: boolean) {
+    if (!this.environment.getDeveloperState().enabled) return false;
+    const next = Boolean(enabled);
+    if (this.developerPlayer.fly === next) return false;
+    this.developerPlayer.fly = next;
+    this.player.verticalVelocity = 0;
+    this.player.jumpBufferRemaining = 0;
+    this.player.coyoteRemaining = 0;
+    if (next) {
+      this.player.grounded = false;
+      this.player.crouching = false;
+      this.player.sprinting = false;
+      this.player.eyeHeight = PLAYER_HEIGHT;
+    } else {
+      this.landDeveloperPlayer();
+    }
+    this.emitSnapshot(true);
+    return true;
+  }
+
   resetDeveloperOverrides() {
     this.environment.resetDeveloperOverrides();
     this.graphicsBenchmark.reset(60);
     this.forestStress.setLevel(2);
     this.graphicsFeatures = { ...DEFAULT_GRAPHICS_FEATURES };
+    this.resetDeveloperPlayerSandbox();
     this.applyGraphicsFeatures();
     this.refreshEnvironment();
+  }
+
+  private resetDeveloperPlayerSandbox() {
+    const wasFlying = this.developerPlayer.fly;
+    resetDeveloperPlayerSandbox(this.developerPlayer);
+    if (wasFlying) this.landDeveloperPlayer();
+  }
+
+  private landDeveloperPlayer() {
+    const safe = this.player.safePosition;
+    const y = this.world.sampleGroundHeight(safe.x, safe.z, safe.y);
+    this.relocatePlayer(safe.x, safe.z, y);
   }
 
   setGraphicsFeature(id: GraphicsFeatureId, enabled: boolean) {
@@ -1558,6 +1628,7 @@ export class Engine {
     this.environment.setShadowStabilization(
       this.graphicsFeatures.shadowStabilization,
     );
+    this.environment.setStormLightning(this.graphicsFeatures.stormLightning);
   }
 
   setGraphicsBenchmarkTarget(target: number) {
@@ -1856,6 +1927,7 @@ export class Engine {
   loadGame() {
     if (!this.saveStore.hasSave()) return false;
     const saved = this.saveStore.load();
+    resetDeveloperPlayerSandbox(this.developerPlayer);
     this.scanned = [...saved.scanned];
     this.inventory = { ...saved.inventory };
     this.discoveredLocations = [...saved.discoveredLocations];
@@ -1942,7 +2014,7 @@ export class Engine {
 
   applyFallImpact(speed: number) {
     const damage = fallDamageForImpact(speed);
-    if (damage <= 0) return 0;
+    if (damage <= 0 || this.developerPlayer.invincible) return 0;
     const previousHealth = this.player.condition.health;
     this.player.condition = applyPlayerDamage(this.player.condition, damage, "fall");
     if (this.player.condition.health < previousHealth) {
@@ -1962,6 +2034,10 @@ export class Engine {
     if (!Number.isFinite(health)) return this.player.condition.health;
     const previousHealth = this.player.condition.health;
     const safe = THREE.MathUtils.clamp(health, 0, MAX_HEALTH);
+    if (this.developerPlayer.invincible && safe < previousHealth) {
+      this.emitSnapshot(true);
+      return previousHealth;
+    }
     this.player.condition = {
       ...this.player.condition,
       health: safe,
@@ -2144,13 +2220,21 @@ export class Engine {
     if (!preserveTravelOrigin) this.benchmarkTravelOrigin = null;
     const persistedPose = preserveTravelOrigin
       ? travelOrigin!
-      : {
-          x: this.player.position.x,
-          y: this.player.position.y,
-          z: this.player.position.z,
-          yaw: this.player.yaw,
-          pitch: this.player.pitch,
-        };
+      : this.developerPlayer.fly
+        ? {
+            x: this.player.safePosition.x,
+            y: this.player.safePosition.y,
+            z: this.player.safePosition.z,
+            yaw: this.player.yaw,
+            pitch: this.player.pitch,
+          }
+        : {
+            x: this.player.position.x,
+            y: this.player.position.y,
+            z: this.player.position.z,
+            yaw: this.player.yaw,
+            pitch: this.player.pitch,
+          };
     const saved = this.saveStore.save({
       scanned: this.scanned,
       inventory: this.inventory,
@@ -2381,6 +2465,7 @@ export class Engine {
         weatherOverride: developer.weatherOverride,
         weatherOptions: this.environment.getDeveloperWeatherOptions(),
         graphicsFeatures: { ...this.graphicsFeatures },
+        player: { ...this.developerPlayer },
       },
       contextStatus: this.contextStatus,
       position: {
@@ -2836,6 +2921,10 @@ export class Engine {
         this.setDeveloperClockPaused(paused);
       },
       setDeveloperWeather: (weatherId) => this.setDeveloperWeather(weatherId),
+      setDeveloperInvincible: (enabled) =>
+        this.setDeveloperInvincible(enabled),
+      setDeveloperSpeedMode: (mode) => this.setDeveloperSpeedMode(mode),
+      setDeveloperFly: (enabled) => this.setDeveloperFly(enabled),
       resetDeveloperOverrides: () => {
         this.resetDeveloperOverrides();
       },

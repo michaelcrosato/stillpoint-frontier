@@ -480,6 +480,8 @@ export class HorizonRenderer {
   private settlementLightInstances = 0;
   private horizonLightsEnabled = true;
   private horizonLightVisibility = 0;
+  private wetSurfacesEnabled = true;
+  private surfaceWetness = 0;
   private sceneryInstances = 0;
   private rebuilds = 0;
 
@@ -521,11 +523,15 @@ export class HorizonRenderer {
   }
 
   setGraphicsFeatures(
-    features: Pick<GraphicsFeatureState, "horizonLights">,
+    features: Pick<GraphicsFeatureState, "horizonLights" | "wetSurfaces">,
   ) {
-    if (this.horizonLightsEnabled === features.horizonLights) return;
+    const lightsChanged = this.horizonLightsEnabled !== features.horizonLights;
+    const wetChanged = this.wetSurfacesEnabled !== features.wetSurfaces;
+    if (!lightsChanged && !wetChanged) return;
     this.horizonLightsEnabled = features.horizonLights;
-    this.updateHorizonLightPresentation();
+    this.wetSurfacesEnabled = features.wetSurfaces;
+    if (lightsChanged) this.updateHorizonLightPresentation();
+    if (wetChanged) this.updateTerrainWetness();
   }
 
   presentEnvironment(state: {
@@ -533,13 +539,12 @@ export class HorizonRenderer {
     night?: number;
     cloudCover?: number;
   }) {
-    const wetness = THREE.MathUtils.clamp(
+    this.surfaceWetness = THREE.MathUtils.clamp(
       Number.isFinite(state.surfaceWetness) ? state.surfaceWetness : 0,
       0,
       1,
     );
-    this.terrainMaterial.roughness = THREE.MathUtils.lerp(0.96, 0.55, wetness);
-    this.terrainMaterial.envMapIntensity = 0.72 * (1 + 0.48 * wetness);
+    this.updateTerrainWetness();
     const night = THREE.MathUtils.clamp(
       Number.isFinite(state.night) ? (state.night as number) : 0,
       0,
@@ -948,5 +953,11 @@ export class HorizonRenderer {
       ? this.horizonLightVisibility * 0.82
       : 0;
     for (const points of this.settlementLightMeshes) points.visible = visible;
+  }
+
+  private updateTerrainWetness() {
+    const wetness = this.wetSurfacesEnabled ? this.surfaceWetness : 0;
+    this.terrainMaterial.roughness = THREE.MathUtils.lerp(0.96, 0.55, wetness);
+    this.terrainMaterial.envMapIntensity = 0.72 * (1 + 0.48 * wetness);
   }
 }

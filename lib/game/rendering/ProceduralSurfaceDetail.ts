@@ -21,6 +21,12 @@ export interface ProceduralSurfaceDetailUniforms {
   uStillpointDetailNormal: { value: number };
   uStillpointDetailFade: { value: THREE.Vector2 };
   uStillpointSurfaceWetness: { value: number };
+  uStillpointCloudShadows: { value: number };
+  uStillpointCloudCover: { value: number };
+  uStillpointDaylight: { value: number };
+  uStillpointWetPooling: { value: number };
+  uStillpointCloudOffset: { value: THREE.Vector2 };
+  uStillpointWeatherExposure: { value: number };
 }
 
 export interface InstalledSurfaceDetail {
@@ -167,6 +173,12 @@ function createUniforms(
       value: new THREE.Vector2(profile.fadeStart, profile.fadeEnd),
     },
     uStillpointSurfaceWetness: { value: 0 },
+    uStillpointCloudShadows: { value: 0 },
+    uStillpointCloudCover: { value: 0 },
+    uStillpointDaylight: { value: 1 },
+    uStillpointWetPooling: { value: 0 },
+    uStillpointCloudOffset: { value: new THREE.Vector2() },
+    uStillpointWeatherExposure: { value: 1 },
   };
 }
 
@@ -178,6 +190,12 @@ uniform float uStillpointDetailRoughness;
 uniform float uStillpointDetailNormal;
 uniform vec2 uStillpointDetailFade;
 uniform float uStillpointSurfaceWetness;
+uniform float uStillpointCloudShadows;
+uniform float uStillpointCloudCover;
+uniform float uStillpointDaylight;
+uniform float uStillpointWetPooling;
+uniform vec2 uStillpointCloudOffset;
+uniform float uStillpointWeatherExposure;
 
 float stillpointPlaneDetail(vec2 point, float frequency) {
   const float stillpointTau = 6.28318530718;
@@ -207,15 +225,27 @@ float stillpointSurfaceDetail(vec3 worldPosition, float frequency) {
     stillpointPlaneDetail(worldPosition.xz, frequency) * geometricNormal.y +
     stillpointPlaneDetail(worldPosition.xy, frequency) * geometricNormal.z;
 }
+
+float stillpointCloudField(vec2 point) {
+  const float stillpointTau = 6.28318530718;
+  vec2 periodic = point * (stillpointTau / 2048.0);
+  float broad = sin(periodic.x * 6.0 + sin(periodic.y * 3.0) * 1.7);
+  float crossing = sin(periodic.y * 9.0 - cos(periodic.x * 4.0) * 1.25);
+  float detail = sin((periodic.x + periodic.y) * 13.0 + broad * 0.82);
+  return clamp(0.5 + broad * 0.24 + crossing * 0.17 + detail * 0.09, 0.0, 1.0);
+}
 `;
 
 const SURFACE_DETAIL_COLOR = /* glsl */ `
 vec3 stillpointViewWorld = (vec4(-vViewPosition, 0.0) * viewMatrix).xyz;
 float stillpointDetailDistance = length(stillpointViewWorld);
-vec3 stillpointDetailPosition = vec3(0.0);
+vec3 stillpointWrappedCamera =
+  mod(mod(cameraPosition, 256.0) + 256.0, 256.0);
+vec3 stillpointDetailPosition = stillpointViewWorld + stillpointWrappedCamera;
 float stillpointDetailValue = 0.5;
 float stillpointDetailAmount = 0.0;
 float stillpointCenteredDetail = 0.0;
+float stillpointWetPoolAmount = 0.0;
 float stillpointFootprint = max(
   length(dFdx(stillpointViewWorld)),
   length(dFdy(stillpointViewWorld))
@@ -224,9 +254,6 @@ if (
   uStillpointDetailEnabled > 0.0001 &&
   stillpointDetailDistance < uStillpointDetailFade.y
 ) {
-  vec3 stillpointWrappedCamera =
-    mod(mod(cameraPosition, 256.0) + 256.0, 256.0);
-  stillpointDetailPosition = stillpointViewWorld + stillpointWrappedCamera;
   stillpointDetailValue = stillpointSurfaceDetail(
     stillpointDetailPosition,
     uStillpointDetailFrequency
@@ -244,6 +271,61 @@ if (
   diffuseColor.rgb *= 1.0 +
     stillpointCenteredDetail * uStillpointDetailColor * stillpointDetailAmount;
 }
+
+if (
+  uStillpointCloudShadows > 0.0001 &&
+  uStillpointCloudCover > 0.04 &&
+  stillpointDetailDistance < 432.0
+) {
+  vec3 stillpointCloudCamera =
+    mod(mod(cameraPosition, 2048.0) + 2048.0, 2048.0);
+  vec2 stillpointCloudPoint =
+    (stillpointViewWorld + stillpointCloudCamera).xz -
+    uStillpointCloudOffset * 4.0;
+  float stillpointCloud = stillpointCloudField(stillpointCloudPoint);
+  float stillpointCloudThreshold = mix(0.77, 0.39, uStillpointCloudCover);
+  float stillpointCloudMask = smoothstep(
+    stillpointCloudThreshold,
+    stillpointCloudThreshold + 0.18,
+    stillpointCloud
+  );
+  float stillpointCloudFade = 1.0 - smoothstep(
+    240.0,
+    432.0,
+    stillpointDetailDistance
+  );
+  float stillpointCloudAmount =
+    stillpointCloudMask *
+    smoothstep(0.04, 0.48, uStillpointCloudCover) *
+    uStillpointDaylight *
+    uStillpointWeatherExposure *
+    uStillpointCloudShadows *
+    stillpointCloudFade;
+  diffuseColor.rgb *= 1.0 - stillpointCloudAmount * 0.18;
+}
+
+if (
+  uStillpointWetPooling > 0.0001 &&
+  uStillpointSurfaceWetness > 0.015 &&
+  stillpointDetailDistance < 210.0
+) {
+  vec3 stillpointPoolDx = dFdx(stillpointDetailPosition);
+  vec3 stillpointPoolDy = dFdy(stillpointDetailPosition);
+  vec3 stillpointPoolNormal = cross(stillpointPoolDx, stillpointPoolDy);
+  float stillpointPoolNormalLength = max(length(stillpointPoolNormal), 0.0001);
+  float stillpointUpFacing = abs(stillpointPoolNormal.y / stillpointPoolNormalLength);
+  float stillpointPoolField = stillpointPlaneDetail(
+    stillpointDetailPosition.xz,
+    24.0
+  );
+  stillpointWetPoolAmount =
+    smoothstep(0.59, 0.82, stillpointPoolField) *
+    smoothstep(0.68, 0.96, stillpointUpFacing) *
+    uStillpointSurfaceWetness *
+    uStillpointWetPooling *
+    (1.0 - smoothstep(110.0, 210.0, stillpointDetailDistance));
+  diffuseColor.rgb *= 1.0 - stillpointWetPoolAmount * 0.085;
+}
 `;
 
 const SURFACE_DETAIL_ROUGHNESS = /* glsl */ `
@@ -255,6 +337,11 @@ roughnessFactor = clamp(
     (1.0 - uStillpointSurfaceWetness * 0.45),
   0.04,
   1.0
+);
+roughnessFactor = mix(
+  roughnessFactor,
+  max(0.04, roughnessFactor * 0.38),
+  stillpointWetPoolAmount * 0.76
 );
 `;
 
@@ -320,7 +407,7 @@ export function installProceduralSurfaceDetail(
     shader.fragmentShader = patchFragmentShader(shader.fragmentShader);
   };
   const cacheKey = () =>
-    `${previousCacheKey.call(material)}|stillpoint-surface-detail-v1-${installGeneration}`;
+    `${previousCacheKey.call(material)}|stillpoint-surface-detail-v2-${installGeneration}`;
   material.onBeforeCompile = compile;
   material.customProgramCacheKey = cacheKey;
   material.needsUpdate = true;

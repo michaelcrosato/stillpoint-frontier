@@ -75,6 +75,10 @@ describe("procedural surface detail", () => {
     );
     expect(shader.fragmentShader).toContain("stillpointSurfaceDetail");
     expect(shader.fragmentShader).toContain("stillpointGradient");
+    expect(shader.fragmentShader).toContain("stillpointCloudField");
+    expect(shader.fragmentShader).toContain("uStillpointCloudOffset * 4.0");
+    expect(shader.fragmentShader).toContain("stillpointWetPoolAmount");
+    expect(shader.fragmentShader).toContain("stillpointDetailDistance < 432.0");
     expect(shader.fragmentShader).toContain(
       "uStillpointDetailEnabled > 0.0001",
     );
@@ -85,8 +89,17 @@ describe("procedural surface detail", () => {
     expect(shader.uniforms.uStillpointDetailEnabled).toBe(
       installed.uniforms.uStillpointDetailEnabled,
     );
+    expect(shader.uniforms.uStillpointCloudShadows).toBe(
+      installed.uniforms.uStillpointCloudShadows,
+    );
+    expect(shader.uniforms.uStillpointCloudOffset).toBe(
+      installed.uniforms.uStillpointCloudOffset,
+    );
+    expect(shader.uniforms.uStillpointWetPooling).toBe(
+      installed.uniforms.uStillpointWetPooling,
+    );
     expect(material.customProgramCacheKey()).toContain(
-      "stillpoint-surface-detail-v1",
+      "stillpoint-surface-detail-v2",
     );
     installed.dispose();
     expect(material.onBeforeCompile).toBe(previousCompile);

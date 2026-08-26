@@ -36,6 +36,40 @@ import { sampleClimate } from "./world/macroWorld";
 const CINEMATIC_PRECIPITATION_POINTS = 720;
 const PERFORMANCE_PRECIPITATION_POINTS = 280;
 
+export function stormLightningFlash(
+  seconds: number,
+  weatherId: WeatherId,
+  precipitationRate: number,
+  enabled = true,
+) {
+  if (!enabled || weatherId !== "storm") return 0;
+  const safeSeconds = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+  const strength = THREE.MathUtils.clamp(
+    (Number.isFinite(precipitationRate) ? precipitationRate : 0) * 1.35 - 0.35,
+    0,
+    1,
+  );
+  if (strength <= 0) return 0;
+  const cycleLength = 12.4;
+  const cycle = Math.floor(safeSeconds / cycleLength);
+  const local = safeSeconds - cycle * cycleLength;
+  const random = Math.sin((cycle + 1) * 12.9898 + 78.233) * 43_758.5453;
+  const offset = 2.1 + (random - Math.floor(random)) * 6.4;
+  const pulse = (center: number, width: number) => {
+    const amount = Math.max(0, 1 - Math.abs(local - center) / width);
+    return amount * amount * (3 - 2 * amount);
+  };
+  return THREE.MathUtils.clamp(
+    Math.max(
+      pulse(offset, 0.075),
+      pulse(offset + 0.18, 0.055) * 0.62,
+      pulse(offset + 0.43, 0.14) * 0.24,
+    ) * strength,
+    0,
+    1,
+  );
+}
+
 export interface EnvironmentRuntime {
   sun: THREE.DirectionalLight;
   sunTarget: THREE.Object3D;
@@ -56,6 +90,7 @@ export interface EnvironmentRuntime {
   getDeveloperWeatherOptions(): DeveloperWeatherOption[];
   setQuality(quality: QualityLevel): void;
   setShadowStabilization(enabled: boolean): void;
+  setStormLightning(enabled: boolean): void;
   setHorizonMode(mode: HorizonMode): void;
   dispose(): void;
 }
@@ -103,6 +138,8 @@ export function stabilizeDirectionalShadowAnchor(
 
 export interface EnvironmentVisualState {
   effectSeconds: number;
+  /** Continuously integrated cloud travel; avoids discontinuities when wind changes. */
+  cloudOffset: THREE.Vector2;
   cloudCover: number;
   precipitationRate: number;
   daylight: number;
@@ -111,6 +148,7 @@ export interface EnvironmentVisualState {
   dust: number;
   /** Smoothed outdoor surface saturation: fast to accumulate, slow to dry. */
   surfaceWetness: number;
+  lightningFlash: number;
   windKph: number;
   windDirection: number;
   sunDirection: THREE.Vector3;
@@ -318,6 +356,7 @@ export function createEnvironment(
       night: { value: 0 },
       goldenHour: { value: 0 },
       dust: { value: 0 },
+      lightningFlash: { value: 0 },
     },
     vertexShader: `
       #include <logdepthbuf_pars_vertex>
@@ -345,6 +384,7 @@ export function createEnvironment(
       uniform float night;
       uniform float goldenHour;
       uniform float dust;
+      uniform float lightningFlash;
 
       float hash31(vec3 p) {
         p = fract(p * 0.1031);
@@ -405,7 +445,10 @@ export function createEnvironment(
         clouds *= mix(0.74, 1.0, cloudCover);
         vec3 weatherCloud = mix(cloudColor, vec3(0.42, 0.34, 0.28), dust * 0.34);
         #include <logdepthbuf_fragment>
-        gl_FragColor = vec4(mix(color, weatherCloud, clouds * 0.68), 1.0);
+        vec3 finalColor = mix(color, weatherCloud, clouds * 0.68);
+        finalColor += vec3(0.58, 0.72, 1.0) * lightningFlash *
+          (0.18 + clouds * 0.34);
+        gl_FragColor = vec4(finalColor, 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }
@@ -447,6 +490,7 @@ export function createEnvironment(
   const sunDay = new THREE.Color(0xffe0b2);
   const sunDawn = new THREE.Color(0xff9a56);
   const moonColor = new THREE.Color(0x91a9c8);
+  const lightningColor = new THREE.Color(0xbdd8ff);
   const temporaryColor = new THREE.Color();
   const sunDirection = new THREE.Vector3();
   const moonDirection = new THREE.Vector3();
@@ -458,9 +502,11 @@ export function createEnvironment(
     up: new THREE.Vector3(),
   };
   let shadowStabilization = true;
+  let stormLightningEnabled = true;
   let surfaceWetness = 0;
   const visualState: EnvironmentVisualState = {
     effectSeconds,
+    cloudOffset: new THREE.Vector2(),
     cloudCover: displaySample.cloudCover,
     precipitationRate: displaySample.precipitationRate,
     daylight: displaySample.daylight,
@@ -468,6 +514,7 @@ export function createEnvironment(
     night: displaySample.night,
     dust: displaySample.dust,
     surfaceWetness,
+    lightningFlash: 0,
     windKph: displaySample.windKph,
     windDirection: displaySample.windDirection,
     sunDirection,
@@ -493,6 +540,12 @@ export function createEnvironment(
     sample.fogDensity * effectiveFogMultiplier(sample) * (1 + sample.night * 0.08);
 
   const applyAtmosphere = (position: THREE.Vector3) => {
+    const lightningFlash = stormLightningFlash(
+      effectSeconds,
+      displaySample.weatherId,
+      displaySample.precipitationRate,
+      stormLightningEnabled,
+    );
     topColor.lerpColors(nightTop, dayTop, displaySample.daylight);
     horizonColor.lerpColors(nightHorizon, dayHorizon, displaySample.daylight);
     groundColor.lerpColors(nightGround, dayGround, displaySample.daylight);
@@ -503,6 +556,9 @@ export function createEnvironment(
     horizonColor.lerp(dustTint, displaySample.dust * 0.64);
     fogColor.lerpColors(groundColor, horizonColor, 0.7);
     cloudColor.lerpColors(overcast, dustTint, displaySample.dust * 0.7);
+    topColor.lerp(lightningColor, lightningFlash * 0.24);
+    horizonColor.lerp(lightningColor, lightningFlash * 0.34);
+    cloudColor.lerp(lightningColor, lightningFlash * 0.52);
 
     skyMaterial.uniforms.topColor.value.copy(topColor);
     skyMaterial.uniforms.horizonColor.value.copy(horizonColor);
@@ -514,6 +570,7 @@ export function createEnvironment(
     skyMaterial.uniforms.night.value = displaySample.night;
     skyMaterial.uniforms.goldenHour.value = displaySample.goldenHour;
     skyMaterial.uniforms.dust.value = displaySample.dust;
+    skyMaterial.uniforms.lightningFlash.value = lightningFlash;
     fog.color.copy(fogColor);
     fog.density = effectiveFogDensity(displaySample);
     (scene.background as THREE.Color).copy(fogColor).multiplyScalar(0.72);
@@ -558,10 +615,16 @@ export function createEnvironment(
       sun.color.copy(moonColor);
       sun.intensity = 0.34 * displaySample.night * (1 - displaySample.cloudCover * 0.52);
     }
+    if (lightningFlash > 0) {
+      sun.color.lerp(lightningColor, lightningFlash * 0.9);
+      sun.intensity += lightningFlash * 7.5;
+    }
     hemisphere.color.copy(topColor).lerp(dayHorizon, 0.34 * displaySample.daylight);
     hemisphere.groundColor.copy(groundColor).multiplyScalar(0.62);
-    hemisphere.intensity = 0.32 + displaySample.lightScale * 1.96;
-    renderer.toneMappingExposure = displaySample.exposure;
+    hemisphere.intensity =
+      0.32 + displaySample.lightScale * 1.96 + lightningFlash * 2.8;
+    renderer.toneMappingExposure =
+      displaySample.exposure * (1 + lightningFlash * 0.26);
 
     sky.position.copy(position);
     stars.points.position.copy(position);
@@ -600,6 +663,7 @@ export function createEnvironment(
     );
 
     visualState.effectSeconds = effectSeconds;
+    visualState.cloudOffset.copy(cloudOffset);
     visualState.cloudCover = displaySample.cloudCover;
     visualState.precipitationRate = displaySample.precipitationRate;
     visualState.daylight = displaySample.daylight;
@@ -607,6 +671,7 @@ export function createEnvironment(
     visualState.night = displaySample.night;
     visualState.dust = displaySample.dust;
     visualState.surfaceWetness = surfaceWetness;
+    visualState.lightningFlash = lightningFlash;
     visualState.windKph = displaySample.windKph;
     visualState.windDirection = displaySample.windDirection;
     visualState.sunColor.copy(sun.color);
@@ -764,6 +829,9 @@ export function createEnvironment(
     },
     setShadowStabilization(enabled) {
       shadowStabilization = enabled;
+    },
+    setStormLightning(enabled) {
+      stormLightningEnabled = enabled;
     },
     setHorizonMode(mode) {
       horizonMode = mode;

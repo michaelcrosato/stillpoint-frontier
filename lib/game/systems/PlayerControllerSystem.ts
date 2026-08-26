@@ -12,6 +12,12 @@ import {
 } from "../config";
 import type { GameSystem } from "../core/SystemPipeline";
 import { ENCUMBERED_WEIGHT } from "../gameplay/playerCondition";
+import {
+  MAX_DEVELOPER_FLIGHT_ALTITUDE,
+  developerFlightDirection,
+  developerSpeedMultiplier,
+} from "../developer/PlayerSandbox";
+import { WORLD_HALF_EXTENT } from "../world/macroWorld";
 import { resolvePlanarMovement } from "./collision";
 import {
   COYOTE_TIME_SECONDS,
@@ -23,6 +29,7 @@ import {
 import type { GameRuntimeContext } from "./runtime";
 
 const BASE_LOOK_SENSITIVITY = 0.00175;
+const WORLD_PLAYER_LIMIT = WORLD_HALF_EXTENT - PLAYER_RADIUS;
 
 export class PlayerControllerSystem implements GameSystem<GameRuntimeContext> {
   readonly id = "player-controller";
@@ -58,6 +65,62 @@ export class PlayerControllerSystem implements GameSystem<GameRuntimeContext> {
     if (context.input.isActionDown("moveForward")) inputZ -= 1;
     if (context.input.isActionDown("moveBackward")) inputZ += 1;
     const inputLength = Math.hypot(inputX, inputZ);
+    const sprintHeld = context.input.isActionDown("sprint");
+    const movementMultiplier = developerSpeedMultiplier(
+      context.developerPlayer.speedMode,
+    );
+
+    if (context.developerPlayer.fly) {
+      context.player.eyeHeight = PLAYER_HEIGHT;
+      const direction = developerFlightDirection({
+        inputX,
+        inputZ,
+        ascend: context.input.isActionDown("jump"),
+        descend: context.input.isActionDown("crouch"),
+        yaw: context.player.yaw,
+        pitch: context.player.pitch,
+      });
+      const speed = (sprintHeld ? SPRINT_SPEED : WALK_SPEED) * movementMultiplier;
+      const nextX = THREE.MathUtils.clamp(
+        context.player.position.x + direction.x * speed * deltaSeconds,
+        -WORLD_PLAYER_LIMIT,
+        WORLD_PLAYER_LIMIT,
+      );
+      const nextZ = THREE.MathUtils.clamp(
+        context.player.position.z + direction.z * speed * deltaSeconds,
+        -WORLD_PLAYER_LIMIT,
+        WORLD_PLAYER_LIMIT,
+      );
+      const groundY = context.world.sampleGroundHeight(
+        nextX,
+        nextZ,
+        context.player.position.y,
+      );
+      context.player.position.set(
+        nextX,
+        THREE.MathUtils.clamp(
+          context.player.position.y + direction.y * speed * deltaSeconds,
+          groundY + 0.05,
+          MAX_DEVELOPER_FLIGHT_ALTITUDE,
+        ),
+        nextZ,
+      );
+      context.player.verticalVelocity = 0;
+      context.player.grounded = false;
+      context.player.crouching = false;
+      context.player.sprinting = false;
+      context.player.stamina = 1;
+      context.player.staminaRecoveryDelay = 0;
+      context.player.jumpBufferRemaining = 0;
+      context.player.coyoteRemaining = 0;
+      context.camera.position.set(
+        context.player.position.x,
+        context.player.position.y + context.player.eyeHeight,
+        context.player.position.z,
+      );
+      context.camera.rotation.set(context.player.pitch, context.player.yaw, 0, "YXZ");
+      return;
+    }
 
     const crouchHeld = context.input.isActionDown("crouch");
     context.player.crouching = crouchHeld ||
@@ -73,7 +136,6 @@ export class PlayerControllerSystem implements GameSystem<GameRuntimeContext> {
       targetEyeHeight,
       deltaSeconds,
     );
-    const sprintHeld = context.input.isActionDown("sprint");
     context.player.sprinting =
       inputLength > 0 &&
       sprintHeld &&
@@ -119,15 +181,26 @@ export class PlayerControllerSystem implements GameSystem<GameRuntimeContext> {
         : context.player.sprinting
           ? SPRINT_SPEED
           : WALK_SPEED;
-      const speed = baseSpeed * (context.inventoryWeight() >= ENCUMBERED_WEIGHT ? 0.84 : 1);
+      const speed =
+        baseSpeed *
+        movementMultiplier *
+        (context.inventoryWeight() >= ENCUMBERED_WEIGHT ? 0.84 : 1);
       const sin = Math.sin(context.player.yaw);
       const cos = Math.cos(context.player.yaw);
       const worldX = inputX * cos + inputZ * sin;
       const worldZ = inputZ * cos - inputX * sin;
       const current = { x: context.player.position.x, z: context.player.position.z };
       const desired = {
-        x: current.x + worldX * speed * deltaSeconds,
-        z: current.z + worldZ * speed * deltaSeconds,
+        x: THREE.MathUtils.clamp(
+          current.x + worldX * speed * deltaSeconds,
+          -WORLD_PLAYER_LIMIT,
+          WORLD_PLAYER_LIMIT,
+        ),
+        z: THREE.MathUtils.clamp(
+          current.z + worldZ * speed * deltaSeconds,
+          -WORLD_PLAYER_LIMIT,
+          WORLD_PLAYER_LIMIT,
+        ),
       };
       const resolved = resolvePlanarMovement(
         current,

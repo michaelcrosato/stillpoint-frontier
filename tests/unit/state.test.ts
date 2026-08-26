@@ -8,6 +8,11 @@ describe("survey progression", () => {
       panelOpen: false,
       clockPaused: false,
       weatherOverride: null,
+      player: {
+        invincible: false,
+        speedMode: "normal",
+        fly: false,
+      },
     });
     expect(INITIAL_SNAPSHOT.devTools.weatherOptions.length).toBeGreaterThan(1);
     expect(INITIAL_SNAPSHOT.environment.clockState).toBe("paused");

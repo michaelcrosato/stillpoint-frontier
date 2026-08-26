@@ -19,6 +19,7 @@ export const FieldGradeShader = {
     uCloudCover: { value: 0 },
     uPrecipitation: { value: 0 },
     uDust: { value: 0 },
+    uLightningFlash: { value: 0 },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -40,6 +41,7 @@ export const FieldGradeShader = {
     uniform float uCloudCover;
     uniform float uPrecipitation;
     uniform float uDust;
+    uniform float uLightningFlash;
     varying vec2 vUv;
 
     float interleavedGradientNoise(vec2 pixel) {
@@ -89,6 +91,8 @@ export const FieldGradeShader = {
         weatherDesaturation * adaptiveStrength
       );
 
+      color += vec3(0.12, 0.18, 0.3) * uLightningFlash;
+
       vec2 centered = vUv * 2.0 - 1.0;
       float vignette = smoothstep(0.28, 1.42, dot(centered, centered));
       color *= 1.0 - vignette * uVignetteStrength;
@@ -112,5 +116,6 @@ export const FieldGradeShader = {
     uCloudCover: { value: number };
     uPrecipitation: { value: number };
     uDust: { value: number };
+    uLightningFlash: { value: number };
   };
 };

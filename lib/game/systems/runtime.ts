@@ -12,6 +12,7 @@ import type { WorldTarget } from "../world/targets";
 import type { PlayerConditionState } from "../gameplay/playerCondition";
 import type { GameSettings } from "../settings";
 import type { ScanCandidate } from "../gameplay/fieldGuide";
+import type { DeveloperPlayerSandboxState } from "../developer/PlayerSandbox";
 
 export interface ScannerRuntimeState {
   active: boolean;
@@ -57,6 +58,7 @@ export interface GameRuntimeContext {
   paused: boolean;
   testMode: boolean;
   developerPanelOpen: boolean;
+  developerPlayer: DeveloperPlayerSandboxState;
   scanner: ScannerRuntimeState;
   nearbyTarget: WorldTarget | null;
   nearbyDistance: number | null;

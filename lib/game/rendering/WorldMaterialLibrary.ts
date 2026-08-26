@@ -68,6 +68,8 @@ interface TrackedRoot {
 export interface WorldMaterialFeatureState {
   surfaceDetail: boolean;
   vegetationWind: boolean;
+  cloudShadows: boolean;
+  wetSurfaces: boolean;
 }
 
 interface WorldMaterialEnvironmentInput {
@@ -75,6 +77,9 @@ interface WorldMaterialEnvironmentInput {
   effectSeconds?: number;
   windKph?: number;
   windDirection?: number;
+  cloudOffset?: Readonly<THREE.Vector2>;
+  cloudCover?: number;
+  daylight?: number;
 }
 
 const DESCRIPTOR_KEY = "stillpointWorldMaterial";
@@ -151,10 +156,15 @@ export class WorldMaterialLibrary {
   private effectSeconds = 0;
   private windKph = 0;
   private windDirection = 0;
+  private readonly cloudOffset = new THREE.Vector2();
+  private cloudCover = 0;
+  private daylight = 1;
   private quality: QualityLevel = "cinematic";
   private features: WorldMaterialFeatureState = {
     surfaceDetail: true,
     vegetationWind: true,
+    cloudShadows: true,
+    wetSurfaces: true,
   };
   private disposed = false;
 
@@ -193,20 +203,35 @@ export class WorldMaterialLibrary {
     this.effectSeconds = Math.max(0, finiteOr(state.effectSeconds, this.effectSeconds));
     this.windKph = Math.max(0, finiteOr(state.windKph, this.windKph));
     this.windDirection = finiteOr(state.windDirection, this.windDirection);
+    if (state.cloudOffset) {
+      this.cloudOffset.set(
+        finiteOr(state.cloudOffset.x, this.cloudOffset.x),
+        finiteOr(state.cloudOffset.y, this.cloudOffset.y),
+      );
+    }
+    this.cloudCover = unit(state.cloudCover, this.cloudCover);
+    this.daylight = unit(state.daylight, this.daylight);
     this.apply();
   }
 
   setFeatures(
-    features: Pick<GraphicsFeatureState, "surfaceDetail" | "vegetationWind">,
+    features: Pick<
+      GraphicsFeatureState,
+      "surfaceDetail" | "vegetationWind" | "cloudShadows" | "wetSurfaces"
+    >,
   ) {
     if (this.disposed) return;
     const next = {
       surfaceDetail: features.surfaceDetail,
       vegetationWind: features.vegetationWind,
+      cloudShadows: features.cloudShadows,
+      wetSurfaces: features.wetSurfaces,
     };
     if (
       next.surfaceDetail === this.features.surfaceDetail &&
-      next.vegetationWind === this.features.vegetationWind
+      next.vegetationWind === this.features.vegetationWind &&
+      next.cloudShadows === this.features.cloudShadows &&
+      next.wetSurfaces === this.features.wetSurfaces
     ) return;
     this.features = next;
     for (const tracked of this.tracked.values()) {
@@ -224,9 +249,17 @@ export class WorldMaterialLibrary {
   get diagnostics() {
     let detailMaterials = 0;
     let windMaterials = 0;
+    let cloudShadowMaterials = 0;
+    let wetSurfaceMaterials = 0;
     for (const tracked of this.tracked.values()) {
-      if (tracked.surfaceDetail) detailMaterials += 1;
+      if (tracked.surfaceDetail && this.features.surfaceDetail) detailMaterials += 1;
       if (tracked.vegetationWind) windMaterials += 1;
+      if (tracked.surfaceDetail && this.features.cloudShadows) {
+        cloudShadowMaterials += 1;
+      }
+      if (tracked.surfaceDetail && this.features.wetSurfaces) {
+        wetSurfaceMaterials += 1;
+      }
     }
     return {
       trackedMaterials: this.tracked.size,
@@ -235,6 +268,10 @@ export class WorldMaterialLibrary {
       detailMaterials,
       vegetationWind: this.features.vegetationWind,
       windMaterials,
+      cloudShadows: this.features.cloudShadows,
+      cloudShadowMaterials,
+      wetSurfaces: this.features.wetSurfaces,
+      wetSurfaceMaterials,
     };
   }
 
@@ -255,7 +292,7 @@ export class WorldMaterialLibrary {
     if (!(material instanceof THREE.MeshStandardMaterial)) return;
     const descriptor = worldMaterialDescriptor(material);
     if (!descriptor) return;
-    const surfaceDetail = this.features.surfaceDetail && descriptor.detail
+    const surfaceDetail = this.needsSurfaceShader() && descriptor.detail
       ? installProceduralSurfaceDetail(material, descriptor.detail)
       : null;
     const vegetationWind = this.features.vegetationWind && descriptor.windAmplitude > 0
@@ -294,7 +331,7 @@ export class WorldMaterialLibrary {
    */
   private rebuildShaderHooks(tracked: TrackedMaterial) {
     this.removeShaderHooks(tracked);
-    if (this.features.surfaceDetail && tracked.descriptor.detail) {
+    if (this.needsSurfaceShader() && tracked.descriptor.detail) {
       tracked.surfaceDetail = installProceduralSurfaceDetail(
         tracked.material,
         tracked.descriptor.detail,
@@ -315,12 +352,22 @@ export class WorldMaterialLibrary {
     tracked.surfaceDetail = null;
   }
 
+  private needsSurfaceShader() {
+    return (
+      this.features.surfaceDetail ||
+      this.features.cloudShadows ||
+      this.features.wetSurfaces
+    );
+  }
+
   private apply() {
     const worldEffects = QUALITY_PRESETS[this.quality].worldEffects;
     const windRadians = (this.windDirection * Math.PI) / 180;
     const windStrength = vegetationWindStrength(this.windKph);
     for (const tracked of this.tracked.values()) {
-      const exposure = tracked.descriptor.weatherExposure * this.wetness;
+      const exposure = this.features.wetSurfaces
+        ? tracked.descriptor.weatherExposure * this.wetness
+        : 0;
       tracked.material.roughness = THREE.MathUtils.lerp(
         tracked.dryRoughness,
         tracked.descriptor.wetRoughness,
@@ -337,6 +384,17 @@ export class WorldMaterialLibrary {
             ? worldEffects.surfaceDetailStrength
             : 0;
         tracked.surfaceDetail.uniforms.uStillpointSurfaceWetness.value = exposure;
+        tracked.surfaceDetail.uniforms.uStillpointCloudShadows.value =
+          this.features.cloudShadows ? worldEffects.surfaceDetailStrength : 0;
+        tracked.surfaceDetail.uniforms.uStillpointCloudCover.value = this.cloudCover;
+        tracked.surfaceDetail.uniforms.uStillpointDaylight.value = this.daylight;
+        tracked.surfaceDetail.uniforms.uStillpointWetPooling.value =
+          this.features.wetSurfaces ? worldEffects.surfaceDetailStrength : 0;
+        tracked.surfaceDetail.uniforms.uStillpointCloudOffset.value.copy(
+          this.cloudOffset,
+        );
+        tracked.surfaceDetail.uniforms.uStillpointWeatherExposure.value =
+          tracked.descriptor.weatherExposure;
       }
       if (tracked.vegetationWind) {
         const uniforms = tracked.vegetationWind.uniforms;

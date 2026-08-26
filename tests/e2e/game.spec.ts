@@ -469,6 +469,11 @@ test("keeps developer time and weather overrides out of the normal save", async 
   const restored = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
   expect(restored?.devTools.enabled).toBe(false);
   expect(restored?.devTools.weatherOverride).toBeNull();
+  expect(restored?.devTools.player).toEqual({
+    invincible: false,
+    speedMode: "normal",
+    fly: false,
+  });
   expect(restored?.environment.hour).toBe(12);
   expect(restored?.environment.minute).toBe(0);
 });
@@ -552,8 +557,11 @@ test("toggles independent session-only graphics modules", async ({ page }) => {
       shadowStabilization: true,
       surfaceDetail: true,
       vegetationWind: true,
+      cloudShadows: true,
+      wetSurfaces: true,
       atmosphericGrade: true,
       horizonLights: true,
+      stormLightning: true,
       selectiveBloom: true,
       ambientOcclusion: true,
       environmentReflections: true,
@@ -586,6 +594,16 @@ test("toggles independent session-only graphics modules", async ({ page }) => {
     () => window.__STILLPOINT_TEST__?.graphics().environmentMap.active,
   )).toBe(false);
 
+  for (const id of ["cloudShadows", "wetSurfaces", "stormLightning"] as const) {
+    const toggle = page.getByTestId(`graphics-feature-${id}`);
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(await page.evaluate(
+      (feature) => window.__STILLPOINT_TEST__?.graphicsFeatures()[feature],
+      id,
+    )).toBe(false);
+  }
+
   await page.getByRole("button", { name: /reset overrides/i }).click();
   await expect(windToggle).toHaveAttribute("aria-pressed", "true");
   expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.graphicsFeatures()))
@@ -593,8 +611,11 @@ test("toggles independent session-only graphics modules", async ({ page }) => {
       shadowStabilization: true,
       surfaceDetail: true,
       vegetationWind: true,
+      cloudShadows: true,
+      wetSurfaces: true,
       atmosphericGrade: true,
       horizonLights: true,
+      stormLightning: true,
       selectiveBloom: true,
       ambientOcclusion: true,
       environmentReflections: true,
@@ -607,12 +628,54 @@ test("toggles independent session-only graphics modules", async ({ page }) => {
       shadowStabilization: true,
       surfaceDetail: true,
       vegetationWind: true,
+      cloudShadows: true,
+      wetSurfaces: true,
       atmosphericGrade: true,
       horizonLights: true,
+      stormLightning: true,
       selectiveBloom: true,
       ambientOcclusion: true,
       environmentReflections: true,
     });
+});
+
+test("provides session-only invincibility, speed tiers, and safe no-clip flight", async ({ page }) => {
+  await openDeterministicWorld(page);
+  await page.getByTestId("enter-frontier").click();
+  await page.getByTestId("developer-launcher").click();
+  await page.getByTestId("developer-mode-toggle").click();
+
+  await page.getByTestId("developer-invincible").click();
+  await page.getByTestId("developer-movement-very-fast").click();
+  await page.getByTestId("developer-fly").click();
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().devTools.player))
+    .toEqual({ invincible: true, speedMode: "veryFast", fly: true });
+
+  const health = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().health);
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.applyFallImpact(34)))
+    .toBe(0);
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().health))
+    .toBe(health);
+
+  await page.getByRole("button", { name: /close & resume/i }).click();
+  await expect(page.getByTestId("developer-player-status")).toContainText("GOD");
+  await expect(page.getByTestId("developer-player-status")).toContainText("FLY");
+  const beforeY = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().position.y ?? 0);
+  await page.keyboard.down("Space");
+  await expect.poll(
+    () => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().position.y ?? 0),
+  ).toBeGreaterThan(beforeY + 0.5);
+  await page.keyboard.up("Space");
+
+  await page.getByTestId("developer-launcher").click();
+  await page.getByTestId("developer-mode-toggle").click();
+  const reset = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
+  expect(reset?.devTools.player).toEqual({
+    invincible: false,
+    speedMode: "normal",
+    fly: false,
+  });
+  expect(reset?.grounded).toBe(true);
 });
 
 test("travels to the render-only canopy lab and scales graphics without simulation load", async ({ page }) => {

@@ -77,6 +77,10 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
   damage from landing velocity, derives HUD tags, and pauses play on incapacitation. A
   recovery action resets health, exposure, stamina, and position to the Field Unit Compound.
   Inventory weight crosses an explicit encumbrance threshold and feeds back into locomotion.
+- `developer/PlayerSandbox` owns session-only playtest traversal policy. The master developer
+  switch gates invincibility, discrete 3×/8× movement tiers, and fly/no-clip controls. Flight
+  follows camera pitch, uses Space and Ctrl/C for world-up movement, clamps to the finite atlas,
+  never persists an airborne pose, and returns to the last stable grounded position when disabled.
 - `LocationDiscoverySystem` resolves the most specific current place in priority order:
   settlement, Field Unit Compound, then biome. Its catalog uses stable IDs and descriptive
   records, while the persisted discovered-ID set drives first-entry notifications and map
@@ -204,6 +208,9 @@ and an encumbrance speed multiplier. Horizontal movement continuously sweeps the
 player footprint against circle and oriented-box colliders with authored vertical bounds, resolves the earliest time of
 impact, slides along rounded corners, and deterministically depenetrates invalid streamed or
 saved positions.
+Developer speed tiers multiply that same swept grounded path after normal gait and encumbrance
+policy. Fly/no-clip is an explicit alternate branch that bypasses gravity, collision, fall damage,
+footsteps, and stamina while retaining the same camera and streamed-world update contracts.
 The movement solver remains a planar sweep selected by the player's vertical interval; this
 leaves a clean seam for capsule movement, slopes, climbing, or vehicles without coupling those
 ideas to React or world generation.
@@ -250,9 +257,12 @@ The initial target is an RTX 3060-class machine at 1440p/60:
 - Detailed terrain and render-only horizon geometry use the same deterministic world-space
   color sampler. Roads, settlement facades, and rocks use restrained category palettes with
   no chunk- or instance-order inputs, preventing streaming seams and reload color changes.
-- `WorldMaterialLibrary` composes tagged PBR policies with two reversible shader modules:
-  periodic, distance-faded surface micro-detail for terrain and structures, and weather-driven
-  GPU vegetation bending. Wind uses one flexibility attribute per geometry, coherent
+- `WorldMaterialLibrary` composes tagged PBR policies with reversible shader modules:
+  periodic, distance-faded surface micro-detail, broad moving cloud shade, spatial rain pooling,
+  and weather-driven GPU vegetation bending. Wet pooling darkens and lowers roughness only on
+  nearby upward-facing exposed patches so PMREM supplies the reflection instead of another pass.
+  Cloud shade fades before the detailed-world boundary and costs no extra draw call. Wind uses
+  one flexibility attribute per geometry, coherent
   world-position phase, expanded culling bounds, and matching shared depth/distance materials
   for shadow casters. Quality strengths live in `QUALITY_PRESETS`; developer A/B switches are
   session-only and benchmark captures record their state.
@@ -264,6 +274,9 @@ The initial target is an RTX 3060-class machine at 1440p/60:
   to daylight, golden hour, cloud, rain, dust, and night without changing simulation state. If an
   optional compositor path throws, the renderer resets its target/state and retries the frame on
   the direct path; a world-material failure still reaches the renderer interrupt.
+- Storm weather drives a deterministic double-flash illumination policy from the simulation
+  effect clock. It briefly lifts the shader sky, directional/hemisphere lighting, and final grade
+  without bolt geometry, extra shadow maps, wall-clock randomness, or idle-frame GPU cost.
 - Distant town, city, and megacity proxies add at most 320 deterministic window/rooftop point
   lights across no more than eight frustum-cullable draws. They are emissive bloom sources only:
   no real lights, shadows, interiors, collision, citizens, or saves. Night/cloud state controls

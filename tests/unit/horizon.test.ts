@@ -104,6 +104,11 @@ describe("fixed-budget horizon HLOD", () => {
     horizon.presentEnvironment({ surfaceWetness: 1 });
     expect((material as THREE.MeshStandardMaterial).roughness).toBeCloseTo(0.55);
     expect((material as THREE.MeshStandardMaterial).envMapIntensity).toBeGreaterThan(0.72);
+    horizon.setGraphicsFeatures({ horizonLights: true, wetSurfaces: false });
+    expect((material as THREE.MeshStandardMaterial).roughness).toBeCloseTo(0.96);
+    expect((material as THREE.MeshStandardMaterial).envMapIntensity).toBeCloseTo(0.72);
+    horizon.setGraphicsFeatures({ horizonLights: true, wetSurfaces: true });
+    expect((material as THREE.MeshStandardMaterial).roughness).toBeCloseTo(0.55);
     horizon.dispose();
   });
 
@@ -123,9 +128,9 @@ describe("fixed-budget horizon HLOD", () => {
     expect(lights?.visible).toBe(true);
     expect(lights?.layers.isEnabled(1)).toBe(true);
 
-    horizon.setGraphicsFeatures({ horizonLights: false });
+    horizon.setGraphicsFeatures({ horizonLights: false, wetSurfaces: true });
     expect(lights?.visible).toBe(false);
-    horizon.setGraphicsFeatures({ horizonLights: true });
+    horizon.setGraphicsFeatures({ horizonLights: true, wetSurfaces: true });
     expect(lights?.visible).toBe(true);
     horizon.presentEnvironment({ surfaceWetness: 0, night: 0, cloudCover: 0 });
     expect(lights?.visible).toBe(false);

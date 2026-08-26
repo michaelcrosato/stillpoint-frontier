@@ -6,6 +6,7 @@ import { WaterSurfaceRuntime } from "../../lib/game/world/WaterSurface";
 function visualState(overrides: Partial<EnvironmentVisualState> = {}): EnvironmentVisualState {
   return {
     effectSeconds: 14.5,
+    cloudOffset: new THREE.Vector2(2, -3),
     cloudCover: 0.35,
     precipitationRate: 0.2,
     daylight: 0.8,
@@ -13,6 +14,7 @@ function visualState(overrides: Partial<EnvironmentVisualState> = {}): Environme
     night: 0.2,
     dust: 0.1,
     surfaceWetness: 0.3,
+    lightningFlash: 0,
     windKph: 28,
     windDirection: 90,
     sunDirection: new THREE.Vector3(0.4, 0.8, 0.2).normalize(),

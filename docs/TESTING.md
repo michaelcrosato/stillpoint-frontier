@@ -156,4 +156,8 @@ work, and the resource plateau test cycles horizon modes during relocation to ca
 Horizon unit coverage also caps deterministic city-light points at 320/eight draws, verifies
 their bloom layer, and exercises day/night plus session-toggle visibility. Rendering-policy tests
 lock the weather/time grade inputs while the developer graphics-module flow resets every
-post-processing, reflection, skyline, shadow, detail, and wind switch to its default-on state.
+post-processing, reflection, skyline, shadow, detail, wind, cloud-shade, wet-pooling, and
+storm-lightning switch to its default-on state. Player-sandbox unit coverage locks 1×/3×/8×
+movement, normalized pitch-aware flight, vertical controls, collision/gravity bypass, and shared
+state reset. The functional browser flow additionally proves invincibility blocks a fatal fall,
+active cheats remain visible after closing the console, and disabling developer mode lands safely.

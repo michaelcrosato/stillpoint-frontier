@@ -88,6 +88,7 @@ export default function GameShell() {
             graphicsFeatures: {
               ...INITIAL_SNAPSHOT.devTools.graphicsFeatures,
             },
+            player: { ...INITIAL_SNAPSHOT.devTools.player },
           },
           position: { x: 4_240, y: 8.4, z: -3_180 },
           heading: 42,
@@ -589,6 +590,22 @@ export default function GameShell() {
           )}
 
           <div className="survival-readout" data-testid="movement-readout">
+            {snapshot.devTools.enabled && (
+              snapshot.devTools.player.invincible ||
+              snapshot.devTools.player.fly ||
+              snapshot.devTools.player.speedMode !== "normal"
+            ) && (
+              <div className="developer-player-status" data-testid="developer-player-status">
+                <span>DEV</span>
+                {snapshot.devTools.player.invincible && <strong>GOD</strong>}
+                {snapshot.devTools.player.fly && <strong>FLY</strong>}
+                {snapshot.devTools.player.speedMode !== "normal" && (
+                  <strong>
+                    {snapshot.devTools.player.speedMode === "fast" ? "3×" : "8×"}
+                  </strong>
+                )}
+              </div>
+            )}
             <div className={`health-line ${snapshot.health < 25 ? "is-critical" : ""}`} data-testid="health-readout">
               <span>VITALS</span>
               <i><b style={{ width: `${snapshot.health}%` }} /></i>
@@ -596,7 +613,7 @@ export default function GameShell() {
             </div>
             <div className="stamina-line">
               <span>
-                {snapshot.crouching ? "CROUCHED" : snapshot.sprinting ? "SPRINTING" : snapshot.grounded ? "READY" : "AIRBORNE"}
+                {snapshot.devTools.player.fly ? "DEV FLIGHT" : snapshot.crouching ? "CROUCHED" : snapshot.sprinting ? "SPRINTING" : snapshot.grounded ? "READY" : "AIRBORNE"}
               </span>
               <i><b style={{ width: `${snapshot.stamina * 100}%` }} /></i>
               <strong>{Math.round(snapshot.stamina * 100)}</strong>
@@ -734,6 +751,9 @@ export default function GameShell() {
           onSetHealth={(health) => engineRef.current?.setPlayerHealth(health)}
           onApplyFall={(speed) => engineRef.current?.applyFallImpact(speed)}
           onRecover={() => engineRef.current?.recoverPlayer()}
+          onSetInvincible={(enabled) => engineRef.current?.setDeveloperInvincible(enabled)}
+          onSetSpeedMode={(mode) => engineRef.current?.setDeveloperSpeedMode(mode)}
+          onSetFly={(enabled) => engineRef.current?.setDeveloperFly(enabled)}
           onTravelToForestStressTest={() => engineRef.current?.travelToForestStressTest()}
           onSetForestStressLevel={(level) => engineRef.current?.setForestStressLevel(level)}
           onSetGraphicsBenchmarkTarget={(target) => engineRef.current?.setGraphicsBenchmarkTarget(target)}

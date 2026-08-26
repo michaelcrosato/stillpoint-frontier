@@ -331,6 +331,7 @@ export class RenderPipeline {
     this.gradePass.uniforms.uCloudCover.value = state.cloudCover;
     this.gradePass.uniforms.uPrecipitation.value = state.precipitationRate;
     this.gradePass.uniforms.uDust.value = state.dust;
+    this.gradePass.uniforms.uLightningFlash.value = state.lightningFlash;
   }
 
   setFeatures(features: RenderPipelineFeatureState) {

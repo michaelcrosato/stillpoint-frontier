@@ -47,6 +47,10 @@ import {
   DEFAULT_GRAPHICS_FEATURES,
   type GraphicsFeatureState,
 } from "./rendering/GraphicsFeatures";
+import {
+  DEFAULT_DEVELOPER_PLAYER_SANDBOX,
+  type DeveloperPlayerSandboxState,
+} from "./developer/PlayerSandbox";
 
 export interface NearbyTargetSnapshot {
   id: string;
@@ -136,6 +140,7 @@ export interface DeveloperToolsSnapshot {
   weatherOverride: WeatherId | null;
   weatherOptions: DeveloperWeatherOption[];
   graphicsFeatures: GraphicsFeatureState;
+  player: DeveloperPlayerSandboxState;
 }
 
 export interface GraphicsPipelineSnapshot {
@@ -271,6 +276,7 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
     weatherOverride: null,
     weatherOptions: developerWeatherOptions("grey_meadow"),
     graphicsFeatures: { ...DEFAULT_GRAPHICS_FEATURES },
+    player: { ...DEFAULT_DEVELOPER_PLAYER_SANDBOX },
   },
   contextStatus: "ready",
   position: { x: 0, y: 0, z: 0 },

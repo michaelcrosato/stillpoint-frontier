@@ -110,7 +110,12 @@ describe("world material library", () => {
       vegetationWind: true,
       windMaterials: 1,
     });
-    library.setFeatures({ surfaceDetail: false, vegetationWind: false });
+    library.setFeatures({
+      surfaceDetail: false,
+      vegetationWind: false,
+      cloudShadows: false,
+      wetSurfaces: false,
+    });
     expect(library.diagnostics).toMatchObject({
       surfaceDetail: false,
       vegetationWind: false,
@@ -157,7 +162,12 @@ describe("world material library", () => {
     const originalCompile = material.onBeforeCompile;
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(), material);
     const library = new WorldMaterialLibrary();
-    library.setFeatures({ surfaceDetail: false, vegetationWind: false });
+    library.setFeatures({
+      surfaceDetail: false,
+      vegetationWind: false,
+      cloudShadows: false,
+      wetSurfaces: false,
+    });
     library.track(mesh);
     expect(material.onBeforeCompile).toBe(originalCompile);
     expect(library.diagnostics).toMatchObject({
@@ -165,15 +175,83 @@ describe("world material library", () => {
       windMaterials: 0,
     });
 
-    library.setFeatures({ surfaceDetail: true, vegetationWind: true });
+    library.setFeatures({
+      surfaceDetail: true,
+      vegetationWind: true,
+      cloudShadows: true,
+      wetSurfaces: true,
+    });
     expect(material.onBeforeCompile).not.toBe(originalCompile);
     expect(library.diagnostics).toMatchObject({
       detailMaterials: 1,
       windMaterials: 1,
     });
 
-    library.setFeatures({ surfaceDetail: false, vegetationWind: false });
+    library.setFeatures({
+      surfaceDetail: false,
+      vegetationWind: false,
+      cloudShadows: false,
+      wetSurfaces: false,
+    });
     expect(material.onBeforeCompile).toBe(originalCompile);
+    library.dispose();
+    mesh.geometry.dispose();
+    material.dispose();
+  });
+
+  it("keeps cloud shade and wet pooling independently active without micro-detail", () => {
+    const material = tagWorldMaterial(
+      new THREE.MeshStandardMaterial({ roughness: 0.9, envMapIntensity: 1 }),
+      { role: "terrain", weatherExposure: 1, wetRoughness: 0.3 },
+    );
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(), material);
+    const library = new WorldMaterialLibrary();
+    library.setFeatures({
+      surfaceDetail: false,
+      vegetationWind: false,
+      cloudShadows: true,
+      wetSurfaces: true,
+    });
+    library.track(mesh);
+    library.present({
+      surfaceWetness: 1,
+      effectSeconds: 25,
+      windDirection: 90,
+      cloudOffset: new THREE.Vector2(8, -5),
+      cloudCover: 0.8,
+      daylight: 0.9,
+    });
+    const shader = {
+      uniforms: {} as Record<string, THREE.IUniform>,
+      vertexShader: "#include <common>",
+      fragmentShader: [
+        "#include <common>",
+        "void main() {",
+        "#include <color_fragment>",
+        "#include <roughnessmap_fragment>",
+        "#include <normal_fragment_maps>",
+        "}",
+      ].join("\n"),
+    };
+    material.onBeforeCompile(shader as never, {} as THREE.WebGLRenderer);
+    expect(shader.uniforms.uStillpointDetailEnabled.value).toBe(0);
+    expect(shader.uniforms.uStillpointCloudShadows.value).toBeGreaterThan(0);
+    expect(shader.uniforms.uStillpointCloudOffset.value.toArray()).toEqual([8, -5]);
+    expect(shader.uniforms.uStillpointWetPooling.value).toBeGreaterThan(0);
+    expect(material.roughness).toBeCloseTo(0.3);
+
+    library.setFeatures({
+      surfaceDetail: false,
+      vegetationWind: false,
+      cloudShadows: true,
+      wetSurfaces: false,
+    });
+    expect(material.roughness).toBeCloseTo(0.9);
+    expect(library.diagnostics).toMatchObject({
+      detailMaterials: 0,
+      cloudShadowMaterials: 1,
+      wetSurfaceMaterials: 0,
+    });
     library.dispose();
     mesh.geometry.dispose();
     material.dispose();
