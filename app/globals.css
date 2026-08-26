@@ -37,12 +37,37 @@ button {
 }
 
 .game-shell {
+  --ui-micro: 9px;
+  --ui-label: 10px;
+  --ui-body: 12px;
+  --ui-value: 14px;
   position: relative;
   width: 100vw;
   height: 100svh;
   overflow: hidden;
   background: #171a18;
   isolation: isolate;
+}
+
+.game-shell[data-interface-scale="compact"] {
+  --ui-micro: 8px;
+  --ui-label: 9px;
+  --ui-body: 11px;
+  --ui-value: 13px;
+}
+
+.game-shell[data-interface-scale="large"] {
+  --ui-micro: 11px;
+  --ui-label: 12px;
+  --ui-body: 14px;
+  --ui-value: 16px;
+}
+
+.game-shell[data-interface-scale="extraLarge"] {
+  --ui-micro: 13px;
+  --ui-label: 14px;
+  --ui-body: 16px;
+  --ui-value: 18px;
 }
 
 .game-canvas {
@@ -511,6 +536,50 @@ button {
   text-align: center;
 }
 
+.navigation-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 9px;
+  border: 1px solid rgba(232, 226, 214, 0.2);
+  background: linear-gradient(90deg, rgba(13, 15, 14, 0.16), rgba(13, 15, 14, 0.72) 20% 80%, rgba(13, 15, 14, 0.16));
+}
+
+.navigation-summary > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 7px 9px 8px;
+  border-left: 1px solid rgba(232, 226, 214, 0.12);
+}
+
+.navigation-summary > div:first-child {
+  border-left: 0;
+}
+
+.navigation-summary span {
+  color: rgba(232, 226, 214, 0.52);
+  font: 700 var(--ui-micro)/1 var(--mono);
+  letter-spacing: 0.14em;
+}
+
+.navigation-summary strong,
+.navigation-summary time {
+  overflow: hidden;
+  color: var(--paper);
+  font: 700 var(--ui-value)/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.navigation-summary > div:nth-child(n + 3) strong {
+  color: var(--signal);
+}
+
+.navigation-summary.is-reached > div:nth-child(n + 3) strong {
+  color: var(--ember);
+}
+
 .compass-heading {
   display: flex;
   gap: 10px;
@@ -624,99 +693,9 @@ button {
   transform: translateX(-50%);
 }
 
-.waypoint-guide {
-  position: absolute;
-  top: clamp(174px, 13vw, 204px);
-  left: 50%;
-  display: grid;
-  grid-template-columns: 29px minmax(120px, auto) auto;
-  gap: 10px;
-  align-items: center;
-  min-width: 270px;
-  padding: 8px 10px;
-  border: 1px solid rgba(153, 194, 163, 0.4);
-  background: linear-gradient(90deg, rgba(13, 15, 14, 0.82), rgba(13, 15, 14, 0.56));
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.03);
-  font-family: var(--mono);
-  transform: translateX(-50%);
-}
-
-.waypoint-guide > i {
-  display: grid;
-  width: 27px;
-  height: 27px;
-  place-items: center;
-  border: 1px solid var(--signal);
-  color: var(--signal);
-  font-style: normal;
-}
-
-.waypoint-guide > div,
-.waypoint-guide > p {
-  display: grid;
-  gap: 3px;
-  margin: 0;
-}
-
-.waypoint-guide span {
-  color: var(--paper-muted);
-  font: 7px/1 var(--mono);
-  letter-spacing: 0.12em;
-}
-
-.waypoint-guide > div strong {
-  overflow: hidden;
-  max-width: 190px;
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.waypoint-guide > p {
-  justify-items: end;
-  padding-left: 11px;
-  border-left: 1px solid var(--line);
-}
-
-.waypoint-guide > p strong {
-  color: var(--signal);
-  font-size: 10px;
-  letter-spacing: 0.07em;
-}
-
-.waypoint-guide.is-reached {
-  border-color: rgba(216, 117, 58, 0.62);
-}
-
-.waypoint-guide.is-reached > i,
-.waypoint-guide.is-reached > p strong {
+.compass-waypoint.is-reached {
   border-color: var(--ember);
-  color: var(--ember);
-}
-
-.world-waypoint {
-  position: absolute;
-  display: grid;
-  justify-items: center;
-  gap: 8px;
-  color: var(--signal);
-  font: 700 7px/1 var(--mono);
-  letter-spacing: 0.08em;
-  text-shadow: 0 1px 4px #000;
-  transform: translate(-50%, -50%);
-}
-
-.world-waypoint i {
-  width: 18px;
-  height: 18px;
-  border: 2px solid currentColor;
-  box-shadow: 0 0 0 5px rgba(153, 194, 163, 0.12);
-  transform: rotate(45deg);
-}
-
-.world-waypoint.is-reached {
+  background: rgba(216, 117, 58, 0.18);
   color: var(--ember);
 }
 
@@ -762,7 +741,6 @@ button {
 }
 
 .mission-card,
-.radar-card,
 .region-card {
   position: absolute;
   top: 28%;
@@ -845,13 +823,8 @@ button {
   background: var(--signal);
 }
 
-.radar-card {
-  right: clamp(28px, 3.6vw, 58px);
-  width: 190px;
-}
-
 .region-card {
-  top: calc(28% + 218px);
+  top: 28%;
   right: clamp(28px, 3.6vw, 58px);
   width: 190px;
   padding: 15px 17px;
@@ -904,79 +877,6 @@ button {
   font-size: 8px;
   line-height: 1.35;
   text-transform: uppercase;
-}
-
-.radar-heading {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 12px;
-  font: 8px/1 var(--mono);
-  letter-spacing: 0.1em;
-}
-
-.radar-heading span {
-  color: var(--paper-muted);
-}
-
-.radar-grid {
-  position: relative;
-  aspect-ratio: 1;
-  overflow: hidden;
-  border: 1px solid rgba(232, 226, 214, 0.22);
-  border-radius: 50%;
-  background:
-    linear-gradient(rgba(232, 226, 214, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(232, 226, 214, 0.08) 1px, transparent 1px),
-    radial-gradient(circle, transparent 0 32%, rgba(232, 226, 214, 0.09) 32.4% 33%, transparent 33.4% 65%, rgba(232, 226, 214, 0.08) 65.4% 66%, transparent 66.4%);
-  background-size: 25% 25%, 25% 25%, 100% 100%;
-}
-
-.radar-grid::before,
-.radar-grid::after {
-  position: absolute;
-  content: "";
-  background: rgba(232, 226, 214, 0.15);
-}
-
-.radar-grid::before {
-  top: 50%;
-  right: 0;
-  left: 0;
-  height: 1px;
-}
-
-.radar-grid::after {
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  width: 1px;
-}
-
-.radar-player {
-  position: absolute;
-  top: calc(50% - 4px);
-  left: calc(50% - 4px);
-  z-index: 2;
-  width: 8px;
-  height: 8px;
-  border: 2px solid var(--paper);
-  transform: rotate(45deg);
-}
-
-.radar-signal {
-  position: absolute;
-  z-index: 3;
-  width: 6px;
-  height: 6px;
-  margin: -3px;
-  background: var(--ember);
-  border-radius: 50%;
-  box-shadow: 0 0 0 4px rgba(216, 117, 58, 0.13);
-}
-
-.radar-signal.is-scanned {
-  background: var(--signal);
-  box-shadow: 0 0 0 4px rgba(153, 194, 163, 0.12);
 }
 
 .crosshair {
@@ -1295,19 +1195,38 @@ kbd {
 
 .dev-panel {
   position: absolute;
-  top: 22px;
-  right: 22px;
-  bottom: 22px;
+  inset: 24px auto 24px 50%;
   display: flex;
-  width: min(470px, calc(100vw - 44px));
+  width: min(1440px, calc(100vw - 48px));
   flex-direction: column;
-  overflow: auto;
+  overflow: hidden;
   border: 1px solid rgba(232, 226, 214, 0.28);
   outline: 1px solid rgba(16, 18, 17, 0.9);
   background:
     linear-gradient(145deg, rgba(25, 28, 26, 0.98), rgba(12, 14, 13, 0.98)),
     var(--ink);
   box-shadow: 0 22px 90px rgba(0, 0, 0, 0.5);
+  transform: translateX(-50%);
+}
+
+.dev-panel-body {
+  display: grid;
+  min-height: 0;
+  flex: 1 1 auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  overflow-y: auto;
+  border-bottom: 1px solid var(--line);
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.dev-panel-column {
+  min-width: 0;
+  overflow: visible;
+}
+
+.dev-panel-column + .dev-panel-column {
+  border-left: 1px solid var(--line);
 }
 
 .dev-panel::before {
@@ -2763,7 +2682,6 @@ kbd {
   }
 
   .entry-footer p,
-  .radar-card,
   .region-card,
   .system-readout {
     display: none;
@@ -2776,10 +2694,6 @@ kbd {
   .compass {
     justify-self: end;
     width: min(390px, 48vw);
-  }
-
-  .waypoint-guide {
-    top: 176px;
   }
 
   .mission-card {
@@ -2864,16 +2778,6 @@ kbd {
     max-width: 100%;
     font-size: 5.5px;
     white-space: nowrap;
-  }
-
-  .waypoint-guide {
-    top: 164px;
-    width: calc(100vw - 48px);
-    min-width: 0;
-  }
-
-  .waypoint-guide > div strong {
-    max-width: 36vw;
   }
 
   .entry-footer {
@@ -3709,4 +3613,245 @@ kbd {
   .rest-options button small { grid-column: 1; grid-row: auto; }
   .scanner-readout { width: min(260px, calc(100vw - 40px)); }
   .feature-notice { right: 18px; bottom: 164px; left: 18px; width: auto; }
+}
+
+/* Readable, renderer-independent interface typography. */
+.hud-brand small,
+.system-readout span,
+.compass-heading span,
+.compass-mark b,
+.relay-list,
+.relay-list strong,
+.region-card > p,
+.region-card span,
+.region-card small,
+.interaction-prompt div span,
+.interaction-prompt small,
+.inventory-belt small,
+.controls-strip,
+kbd,
+.coordinates,
+.scanner-readout header,
+.scanner-readout small,
+.benchmark-hud > header span,
+.benchmark-hud > footer,
+.benchmark-hud > div span,
+.feature-notice p,
+.feature-notice small {
+  font-size: var(--ui-micro) !important;
+}
+
+.system-readout strong,
+.compass-heading strong,
+.compass-heading em,
+.compass-mark.is-cardinal b,
+.mission-card > p:not(.eyebrow),
+.region-card strong,
+.region-card .crowd-readout strong,
+.region-card .environment-readout strong,
+.interaction-prompt div strong,
+.stamina-line,
+.inventory-belt strong,
+.coordinates strong,
+.scanner-readout p,
+.benchmark-hud > header strong,
+.benchmark-hud > header > b,
+.benchmark-hud > div strong {
+  font-size: var(--ui-label) !important;
+}
+
+.field-panel p,
+.feature-panel p,
+.pause-panel p,
+.context-panel p,
+.incapacitated-panel > p:not(.eyebrow) {
+  font-size: var(--ui-body) !important;
+}
+
+.field-panel small,
+.feature-panel small,
+.field-panel-footer,
+.inspection-header,
+.inspection-panel footer {
+  font-size: var(--ui-micro) !important;
+}
+
+.field-panel label,
+.field-panel legend,
+.field-panel button,
+.field-panel kbd,
+.settings-section > h3,
+.settings-range,
+.settings-toggle,
+.settings-button-grid button,
+.binding-list button {
+  font-size: var(--ui-label) !important;
+}
+
+.settings-range output,
+.inventory-list p {
+  font-size: var(--ui-body) !important;
+}
+
+.settings-button-grid small,
+.binding-list kbd {
+  font-size: var(--ui-micro) !important;
+}
+
+.interface-scale-grid {
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  margin-bottom: 20px;
+}
+
+.health-line,
+.developer-player-status,
+.pause-panel .pause-action-grid button,
+.map-playtest-badge,
+.map-panel header button,
+.map-player,
+.map-beacon,
+.map-waypoint,
+.map-waypoint b,
+.fast-travel-heading strong,
+.fast-travel-list button strong,
+.map-navigation > span,
+.map-navigation button,
+.map-body aside > p,
+.map-body dl div {
+  font-size: var(--ui-label) !important;
+}
+
+.condition-strip span,
+.pause-panel .pause-action-grid button span,
+.map-instruction,
+.map-survey-marker,
+.map-settlement b,
+.fast-travel-heading span,
+.fast-travel-status,
+.map-body aside .fast-travel-list button small,
+.fast-travel-list button > b {
+  font-size: var(--ui-micro) !important;
+}
+
+.map-navigation > strong {
+  font-size: var(--ui-body) !important;
+}
+
+.map-settlement b {
+  max-width: calc(var(--ui-micro) * 10);
+}
+
+.dev-panel :is(.eyebrow, legend, label, button, select, .dev-horizon-heading, .dev-control-heading > span) {
+  font-size: var(--ui-label) !important;
+}
+
+.dev-panel :is(.dev-session-notice p, .dev-horizon-note, .dev-horizon-grid button > small, .dev-feature-grid button > small, .dev-master small, .dev-load-scale, .dev-lab-travel span, .dev-time-scale, .dev-preset-grid button small, .dev-weather-status span, .dev-player-toggle-grid button small, .dev-vitals-status, .dev-benchmark-footnote, .dev-benchmark-context) {
+  font-size: var(--ui-micro) !important;
+}
+
+.dev-panel :is(.dev-horizon-status, .dev-feature-grid button > span, .dev-feature-grid button > strong, .dev-lab-heading span, .dev-lab-counts span, .dev-lab-counts strong, .dev-benchmark-results span, .dev-benchmark-results strong, .dev-preset-grid button, .dev-inline-controls button) {
+  font-size: var(--ui-label) !important;
+}
+
+.dev-panel :is(.dev-horizon-grid button > span, .dev-lab-heading strong, .dev-weather-status strong, .dev-player-toggle-grid button span, .dev-player-toggle-grid button strong, .dev-speed-grid button span, .dev-speed-grid button strong) {
+  font-size: var(--ui-body) !important;
+}
+
+.dev-panel-footer {
+  flex: 0 0 auto;
+  grid-template-columns: minmax(180px, 220px) minmax(240px, 340px);
+  justify-content: end;
+  margin-top: 0;
+  padding-top: 18px;
+}
+
+.game-shell[data-interface-scale="large"] .compass {
+  width: clamp(360px, 36vw, 500px);
+}
+
+.game-shell[data-interface-scale="extraLarge"] .compass {
+  width: clamp(400px, 40vw, 560px);
+}
+
+.game-shell[data-interface-scale="large"] .mission-card {
+  width: 280px;
+}
+
+.game-shell[data-interface-scale="extraLarge"] .mission-card {
+  width: 310px;
+}
+
+.game-shell[data-interface-scale="large"] .region-card {
+  width: 220px;
+}
+
+.game-shell[data-interface-scale="extraLarge"] .region-card {
+  width: 250px;
+}
+
+.game-shell[data-interface-scale="large"] .survival-readout {
+  width: min(600px, 52vw);
+}
+
+.game-shell[data-interface-scale="extraLarge"] .survival-readout {
+  width: min(680px, 58vw);
+}
+
+@media (max-width: 900px) {
+  .dev-panel {
+    inset: 16px;
+    width: auto;
+    transform: none;
+  }
+
+  .dev-panel-body {
+    display: block;
+  }
+
+  .dev-panel-column + .dev-panel-column {
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .dev-panel-footer {
+    grid-template-columns: 1fr 1.4fr;
+  }
+
+  .game-shell[data-interface-scale] .compass {
+    width: min(500px, 56vw);
+  }
+}
+
+@media (max-width: 620px) {
+  .navigation-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .navigation-summary > div:nth-child(3) {
+    border-left: 0;
+    border-top: 1px solid rgba(232, 226, 214, 0.12);
+  }
+
+  .navigation-summary > div:nth-child(4) {
+    border-top: 1px solid rgba(232, 226, 214, 0.12);
+  }
+
+  .game-shell[data-interface-scale] .compass {
+    width: 100%;
+  }
+
+  .game-shell[data-interface-scale] .mission-card,
+  .game-shell[data-interface-scale] .survival-readout {
+    right: 24px;
+    left: 24px;
+    width: auto;
+  }
+
+  .interface-scale-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dev-panel-footer {
+    grid-template-columns: 1fr;
+  }
 }

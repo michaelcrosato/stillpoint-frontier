@@ -21,6 +21,7 @@ describe("local preferences", () => {
     const settings = {
       ...DEFAULT_GAME_SETTINGS,
       fov: 82,
+      interfaceScale: "large" as const,
       masterVolume: 0.44,
       quality: "ultra" as const,
       worldDetail: 4 as const,
@@ -39,6 +40,7 @@ describe("local preferences", () => {
     const settings = new PreferencesStore(storage).load();
     expect(settings.fov).toBe(79);
     expect(settings.worldDetail).toBe(DEFAULT_GAME_SETTINGS.worldDetail);
+    expect(settings.interfaceScale).toBe(DEFAULT_GAME_SETTINGS.interfaceScale);
   });
 
   it("recovers from invalid versions and storage failures", () => {

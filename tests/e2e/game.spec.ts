@@ -328,7 +328,8 @@ test("sets, replaces, guides, and clears a map waypoint", async ({ page }, testI
 
   await attachScreenshot(page, testInfo, "map-waypoint-set");
   await page.getByRole("button", { name: /close/i }).click();
-  await expect(page.getByTestId("waypoint-guide")).toContainText(/map waypoint/i);
+  await expect(page.getByTestId("navigation-bearing")).toHaveText(/\d{3}°/);
+  await expect(page.getByTestId("navigation-distance")).toHaveText(/(?:M|KM)$/);
   await expect(page.getByTestId("waypoint-compass-marker")).toBeVisible();
 
   await page.evaluate(() => window.__STILLPOINT_TEST__?.setHeading(359));
@@ -336,10 +337,16 @@ test("sets, replaces, guides, and clears a map waypoint", async ({ page }, testI
   await page.evaluate(() => window.__STILLPOINT_TEST__?.setHeading(1));
   await expect(page.getByTestId("compass")).toContainText("001°");
   await expect(page.getByTestId("compass-tape")).toContainText("N");
+  await expect(page.getByTestId("waypoint-compass-marker")).toHaveClass(/is-offscreen/);
+  await expect(page.getByTestId("waypoint-compass-marker")).toHaveAttribute("data-direction", "left");
 
   await page.getByRole("button", { name: /map/i }).click();
   await page.getByTestId("clear-waypoint").click();
   await expect(page.getByTestId("map-waypoint")).toBeHidden();
+  await page.getByRole("button", { name: /close/i }).click();
+  await expect(page.getByTestId("navigation-bearing")).toHaveText("---°");
+  await expect(page.getByTestId("navigation-distance")).toHaveText("--");
+  await expect(page.getByTestId("waypoint-compass-marker")).toBeHidden();
   expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().navigation)).toBeNull();
 });
 
@@ -855,6 +862,26 @@ test("persists local view settings and a rebound control independently of the fi
 
   await page.getByRole("button", { name: /settings/i }).click();
   await expect(page.getByTestId("settings-overlay")).toBeVisible();
+  const standardLabelSize = await page.locator(".settings-section > h3").first()
+    .evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
+  const standardHudSize = await page.locator(".health-line")
+    .evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
+  await page.getByTestId("interface-scale-large").click();
+  await expect(page.getByTestId("game-shell")).toHaveAttribute(
+    "data-interface-scale",
+    "large",
+  );
+  await expect
+    .poll(() => page.evaluate(
+      () => window.__STILLPOINT_TEST__?.snapshot().settings.interfaceScale,
+    ))
+    .toBe("large");
+  const largeLabelSize = await page.locator(".settings-section > h3").first()
+    .evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
+  const largeHudSize = await page.locator(".health-line")
+    .evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
+  expect(largeLabelSize).toBeGreaterThan(standardLabelSize);
+  expect(largeHudSize).toBeGreaterThan(standardHudSize);
   const fov = page.locator("label").filter({ hasText: "FIELD OF VIEW" }).locator("input");
   await fov.fill("82");
   await expect
@@ -888,6 +915,7 @@ test("persists local view settings and a rebound control independently of the fi
   await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
   const restored = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
   expect(restored?.settings.fov).toBe(82);
+  expect(restored?.settings.interfaceScale).toBe("large");
   expect(restored?.settings.worldDetail).toBe(4);
   expect(restored?.settings.keyBindings.moveForward).toBe("KeyZ");
   expect(restored?.saveStatus).toBe("unsaved");

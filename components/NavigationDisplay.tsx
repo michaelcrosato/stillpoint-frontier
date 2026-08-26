@@ -8,25 +8,25 @@ import {
   formatHeading,
   formatNavigationDistance,
 } from "../lib/game/navigation/math";
-import type { NavigationTargetSource } from "../lib/game/navigation/NavigationService";
 import type { GamePresentationStore } from "../lib/game/navigation/presentation";
+import type { EnvironmentSnapshot } from "../lib/game/state";
 
 const COMPASS_SPAN = 60;
 
-function sourceLabel(source: NavigationTargetSource) {
-  switch (source.kind) {
-    case "player":
-      return "PLAYER MARK";
-    case "quest":
-      return "QUEST OBJECTIVE";
-    case "script":
-      return "SCRIPTED ROUTE";
-    case "system":
-      return "SYSTEM TARGET";
-  }
-}
+const CLOCK_STATE_LABEL: Record<EnvironmentSnapshot["clockState"], string> = {
+  running: "RUNNING",
+  paused: "PAUSED",
+  frozen: "DEV FROZEN",
+  test_hold: "TEST HOLD",
+};
 
-export function CompassTape({ store }: { store: GamePresentationStore }) {
+export function CompassTape({
+  store,
+  environment,
+}: {
+  store: GamePresentationStore;
+  environment: EnvironmentSnapshot;
+}) {
   const presentation = useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,
@@ -40,13 +40,56 @@ export function CompassTape({ store }: { store: GamePresentationStore }) {
   const waypointOffscreen = navigation
     ? Math.abs(navigation.relativeBearing) >= COMPASS_SPAN - 2
     : false;
+  const direction = !navigation || Math.abs(navigation.relativeBearing) < 4
+    ? "ahead"
+    : navigation.relativeBearing < 0
+      ? "left"
+      : "right";
+  const clock = `${String(environment.hour).padStart(2, "0")}:${String(environment.minute).padStart(2, "0")}`;
+  const navigationLabel = navigation
+    ? `Waypoint ${formatHeading(navigation.bearing)}, ${formatNavigationDistance(navigation.distance)}, ${navigation.reached ? "arrived" : direction}`
+    : "No active waypoint";
 
   return (
     <div
       className="compass"
       data-testid="compass"
-      aria-label={`Heading ${formatHeading(presentation.heading)}, ${cardinalForHeading(presentation.heading)}`}
+      role="group"
+      aria-label={`Heading ${formatHeading(presentation.heading)}, ${cardinalForHeading(presentation.heading)}. ${navigationLabel}`}
     >
+      <div
+        className={`navigation-summary ${navigation?.reached ? "is-reached" : ""}`}
+        data-testid="world-clock"
+        role="group"
+        aria-label={`Day ${environment.day}, time ${clock}. ${navigationLabel}`}
+      >
+        <div>
+          <span>DAY</span>
+          <strong>{String(environment.day).padStart(3, "0")}</strong>
+        </div>
+        <div>
+          <span>TIME</span>
+          <time dateTime={clock}>{clock}</time>
+        </div>
+        <div>
+          <span>WAYPOINT</span>
+          <strong data-testid="navigation-bearing">
+            {navigation ? formatHeading(navigation.bearing) : "---°"}
+          </strong>
+        </div>
+        <div>
+          <span>DISTANCE</span>
+          <strong data-testid="navigation-distance">
+            {navigation
+              ? formatNavigationDistance(navigation.distance)
+              : "--"}
+          </strong>
+        </div>
+        <span className="sr-only">{environment.phase.toUpperCase()}</span>
+        <span className="sr-only" data-testid="world-clock-state">
+          {CLOCK_STATE_LABEL[environment.clockState]}
+        </span>
+      </div>
       <div className="compass-heading">
         <span>HEADING</span>
         <strong>{formatHeading(presentation.heading)}</strong>
@@ -64,9 +107,9 @@ export function CompassTape({ store }: { store: GamePresentationStore }) {
         ))}
         {navigation && (
           <span
-            className={`compass-waypoint ${waypointOffscreen ? "is-offscreen" : ""}`}
+            className={`compass-waypoint ${waypointOffscreen ? "is-offscreen" : ""} ${navigation.reached ? "is-reached" : ""}`}
             data-testid="waypoint-compass-marker"
-            data-direction={navigation.relativeBearing < 0 ? "left" : "right"}
+            data-direction={direction}
             style={{ left: `${50 + (waypointOffset / (COMPASS_SPAN * 2)) * 100}%` }}
           >
             {waypointOffscreen ? (navigation.relativeBearing < 0 ? "‹" : "›") : ""}
@@ -75,55 +118,5 @@ export function CompassTape({ store }: { store: GamePresentationStore }) {
         <span className="compass-center" />
       </div>
     </div>
-  );
-}
-
-export function WaypointGuide({ store }: { store: GamePresentationStore }) {
-  const presentation = useSyncExternalStore(
-    store.subscribe,
-    store.getSnapshot,
-    store.getServerSnapshot,
-  );
-  const navigation = presentation.navigation;
-  if (!navigation) return null;
-  const direction =
-    Math.abs(navigation.relativeBearing) < 4
-      ? "↑"
-      : navigation.relativeBearing < 0
-        ? "←"
-        : "→";
-
-  return (
-    <>
-      <div
-        className={`waypoint-guide ${navigation.reached ? "is-reached" : ""}`}
-        data-testid="waypoint-guide"
-        aria-label={`${navigation.target.label}, ${formatNavigationDistance(navigation.distance)}`}
-      >
-        <i aria-hidden="true">{navigation.reached ? "✓" : direction}</i>
-        <div>
-          <span>{sourceLabel(navigation.target.source)}</span>
-          <strong>{navigation.target.label}</strong>
-        </div>
-        <p>
-          <strong>{navigation.reached ? "ARRIVED" : formatNavigationDistance(navigation.distance)}</strong>
-          <span>{formatHeading(navigation.bearing)}</span>
-        </p>
-      </div>
-      {presentation.waypointScreen?.visible && (
-        <div
-          className={`world-waypoint ${navigation.reached ? "is-reached" : ""}`}
-          data-testid="world-waypoint"
-          style={{
-            left: `${presentation.waypointScreen.xPercent}%`,
-            top: `${presentation.waypointScreen.yPercent}%`,
-          }}
-          aria-hidden="true"
-        >
-          <i />
-          <span>{formatNavigationDistance(navigation.distance)}</span>
-        </div>
-      )}
-    </>
   );
 }

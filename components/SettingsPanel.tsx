@@ -10,9 +10,12 @@ import {
 } from "../lib/game/config";
 import {
   GAME_ACTIONS,
+  INTERFACE_SCALES,
+  INTERFACE_SCALE_DEFINITIONS,
   actionLabel,
   keyLabel,
   type GameAction,
+  type InterfaceScale,
 } from "../lib/game/settings";
 import {
   WORLD_DETAIL_PRESETS,
@@ -30,6 +33,7 @@ interface SettingsPanelProps {
   onSetQuality(quality: QualityLevel): void;
   onSetHorizon(mode: HorizonMode): void;
   onSetWorldDetail(level: WorldDetailLevel): void;
+  onSetInterfaceScale(scale: InterfaceScale): void;
   onRebind(action: GameAction, code: string): void;
   onReset(): void;
 }
@@ -44,6 +48,7 @@ export default function SettingsPanel({
   onSetQuality,
   onSetHorizon,
   onSetWorldDetail,
+  onSetInterfaceScale,
   onRebind,
   onReset,
 }: SettingsPanelProps) {
@@ -125,6 +130,31 @@ export default function SettingsPanel({
 
         <div className="settings-columns">
           <div className="settings-section">
+            <h3>ACCESSIBILITY / INTERFACE</h3>
+            <div
+              className="settings-button-grid interface-scale-grid"
+              role="group"
+              aria-label="Interface text size"
+            >
+              {INTERFACE_SCALES.map((scale) => {
+                const definition = INTERFACE_SCALE_DEFINITIONS[scale];
+                const active = snapshot.settings.interfaceScale === scale;
+                return (
+                  <button
+                    key={scale}
+                    type="button"
+                    className={active ? "is-active" : ""}
+                    aria-pressed={active}
+                    data-testid={`interface-scale-${scale}`}
+                    onClick={() => onSetInterfaceScale(scale)}
+                  >
+                    <span>{definition.label}</span>
+                    <small>{definition.percentage}% · {definition.description}</small>
+                  </button>
+                );
+              })}
+            </div>
+
             <h3>VIEW / CONTROL</h3>
             <label className="settings-range">
               <span>FIELD OF VIEW <output>{Math.round(snapshot.settings.fov)}°</output></span>

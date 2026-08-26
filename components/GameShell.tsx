@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CompassTape, WaypointGuide } from "./NavigationDisplay";
+import { CompassTape } from "./NavigationDisplay";
 import DeveloperPanel from "./DeveloperPanel";
 import BenchmarkHud from "./BenchmarkHud";
 import ContainerPanel from "./ContainerPanel";
@@ -27,7 +27,6 @@ import {
   currentContractObjective,
 } from "../lib/game/gameplay/contracts";
 import { ITEM_DEFINITIONS, type ItemId } from "../lib/game/gameplay/items";
-import { clamp } from "../lib/game/navigation/math";
 import { GamePresentationStore } from "../lib/game/navigation/presentation";
 import { keyLabel } from "../lib/game/settings";
 import { INITIAL_SNAPSHOT, nextUnscannedBeacon, type GameSnapshot } from "../lib/game/state";
@@ -262,7 +261,11 @@ export default function GameShell() {
     encumbered: "ENCUMBERED",
   };
   return (
-    <main className="game-shell" data-testid="game-shell">
+    <main
+      className="game-shell"
+      data-testid="game-shell"
+      data-interface-scale={snapshot.settings.interfaceScale}
+    >
       <canvas
         ref={canvasRef}
         className="game-canvas"
@@ -390,7 +393,10 @@ export default function GameShell() {
               </div>
             </div>
 
-            <CompassTape store={presentationStore} />
+            <CompassTape
+              store={presentationStore}
+              environment={snapshot.environment}
+            />
 
             <div className="system-readout">
               <div>
@@ -435,8 +441,6 @@ export default function GameShell() {
               </button>
             </div>
           </header>
-
-          <WorldClock environment={snapshot.environment} />
 
           <aside className="mission-card" data-testid="mission-card">
             <p className="eyebrow">ACTIVE DIRECTIVE</p>
@@ -485,28 +489,6 @@ export default function GameShell() {
             </div>
           </aside>
 
-          <aside className="radar-card" aria-label="Local signal radar">
-            <div className="radar-heading">
-              <span>LOCAL ARRAY</span>
-              <strong>480M</strong>
-            </div>
-            <div className="radar-grid">
-              <span className="radar-player" aria-label="Player position" />
-              {BEACONS.map((beacon) => {
-                const left = 50 + clamp((beacon.x - snapshot.position.x) / 4.8, -42, 42);
-                const top = 50 + clamp((beacon.z - snapshot.position.z) / 4.8, -42, 42);
-                return (
-                  <span
-                    key={beacon.id}
-                    className={`radar-signal ${snapshot.scanned.includes(beacon.id) ? "is-scanned" : ""}`}
-                    style={{ left: `${left}%`, top: `${top}%` }}
-                    title={beacon.name}
-                  />
-                );
-              })}
-            </div>
-          </aside>
-
           <aside className="region-card" data-testid="region-card">
             <p>{snapshot.biome.region}</p>
             <h2>{snapshot.biome.name}</h2>
@@ -537,8 +519,6 @@ export default function GameShell() {
             <span />
             <i />
           </div>
-
-          <WaypointGuide store={presentationStore} />
 
           <BenchmarkHud snapshot={snapshot} />
 
@@ -840,6 +820,7 @@ export default function GameShell() {
           onSetQuality={(quality) => engineRef.current?.setQuality(quality)}
           onSetHorizon={(mode) => engineRef.current?.setHorizonMode(mode)}
           onSetWorldDetail={(level) => engineRef.current?.setWorldDetail(level)}
+          onSetInterfaceScale={(scale) => engineRef.current?.setInterfaceScale(scale)}
           onRebind={(action, code) => engineRef.current?.setKeyBinding(action, code)}
           onReset={() => engineRef.current?.resetSettings()}
         />

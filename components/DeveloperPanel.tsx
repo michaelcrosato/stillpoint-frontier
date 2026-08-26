@@ -208,15 +208,17 @@ export default function DeveloperPanel({
           </button>
         </header>
 
-        <div className="dev-session-notice" role="note">
+        <div className="dev-panel-body">
+          <div className="dev-panel-column dev-panel-column-primary">
+            <div className="dev-session-notice" role="note">
           <span aria-hidden="true">◇</span>
           <p>
             <strong>SESSION-ONLY SANDBOX</strong>
             Time, weather, player sandbox, load-lab, and capture state are session-only. Rendering preferences are saved locally.
           </p>
-        </div>
+            </div>
 
-        <button
+            <button
           type="button"
           className={`dev-master ${snapshot.devTools.enabled ? "is-active" : ""}`}
           aria-pressed={snapshot.devTools.enabled}
@@ -228,7 +230,7 @@ export default function DeveloperPanel({
             <strong>{snapshot.devTools.enabled ? "ENABLED" : "DISABLED"}</strong>
           </span>
           <i aria-hidden="true"><b /></i>
-        </button>
+            </button>
 
         <fieldset className="dev-rendering">
           <legend>RENDERING / SAVED LOCALLY</legend>
@@ -308,6 +310,9 @@ export default function DeveloperPanel({
             })}
           </div>
         </fieldset>
+
+          </div>
+          <div className="dev-panel-column dev-panel-column-secondary">
 
         <fieldset className="dev-performance" disabled={!snapshot.devTools.enabled}>
           <legend>PERFORMANCE LAB / DEVELOPER OPT-IN</legend>
@@ -620,6 +625,9 @@ export default function DeveloperPanel({
             <button type="button" onClick={onRecover}>RECOVER PLAYER</button>
           </div>
         </fieldset>
+
+          </div>
+        </div>
 
         <footer className="dev-panel-footer">
           <button

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_GAME_SETTINGS,
   GAME_ACTIONS,
+  INTERFACE_SCALES,
   isBindableCode,
   keyLabel,
   normalizeGameSettings,
@@ -34,6 +35,20 @@ describe("game settings", () => {
     expect(result.quality).toBe("cinematic");
     expect(result.horizonMode).toBe("extended");
     expect(result.worldDetail).toBe(4);
+    expect(result.interfaceScale).toBe("standard");
+  });
+
+  it("normalizes the persisted interface scale", () => {
+    expect(INTERFACE_SCALES).toEqual([
+      "compact",
+      "standard",
+      "large",
+      "extraLarge",
+    ]);
+    expect(normalizeGameSettings({ interfaceScale: "extraLarge" }).interfaceScale)
+      .toBe("extraLarge");
+    expect(normalizeGameSettings({ interfaceScale: "oversized" }).interfaceScale)
+      .toBe(DEFAULT_GAME_SETTINGS.interfaceScale);
   });
 
   it("accepts the opt-in Ultra rendering profile", () => {

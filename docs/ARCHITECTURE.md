@@ -13,8 +13,8 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
 - `Engine` owns the WebGL renderer, fixed 60 Hz simulation clock, lifecycle, diagnostics,
   pause/context-loss behavior, save/load orchestration, player-facing overlays, and the
   narrow deterministic test bridge.
-- `settings` defines the complete action catalog and normalized view, control, audio,
-  quality, horizon, world-detail, and keybinding preferences. `PreferencesStore` keeps those local
+- `settings` defines the complete action catalog and normalized interface scale, view, control,
+  audio, quality, horizon, world-detail, and keybinding preferences. `PreferencesStore` keeps those local
   preferences in a version-one slot separate from world progression, so resetting or
   loading a game does not silently replace the player's controls. Rebinding swaps a
   conflicting action instead of leaving duplicate or unbound controls, and `InputManager`
@@ -144,10 +144,12 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
 - `GameShell` translates serializable engine snapshots into the HUD, map, pause, inventory,
   settings, inspection, contracts, crafting, field-guide, dialogue, container, rest,
   incapacitation, location-discovery, and error interfaces. A separate
-  tiny presentation store publishes heading, bearing,
-  distance, and near-target screen projection once per rendered frame, so the scrolling
-  compass remains smooth without repainting the entire shell at 60+ Hz. The renderer never
-  reaches into React state.
+  tiny presentation store publishes heading, bearing, distance, and near-target screen projection
+  once per rendered frame, so the scrolling compass remains smooth without repainting the entire
+  shell at 60+ Hz. The top-center navigation instrument combines day, time, absolute waypoint
+  bearing, and distance above that compass; relative bearing drives its center marker and edge
+  arrows. It deliberately replaces the separate radar and floating waypoint card. The renderer
+  never reaches into React state.
 - `rendering/GpuFrameTimer` wraps the complete presented frame in a non-blocking
   `EXT_disjoint_timer_query_webgl2` query only during an active capture. It polls once on
   later frames, caps outstanding queries, discards disjoint epochs, and never stalls the GPU.
@@ -196,9 +198,9 @@ Quest destinations and survey-marker targets are rebuilt from restored progressi
 The atlas uses `+X = east`, `-Z = north`, and north-zero clockwise bearings. Map clicks are
 converted through tested bidirectional atlas helpers. The compass builds a local unwrapped
 five-degree tick window around camera yaw, which preserves continuous motion through the
-359°/000° seam. Waypoint guidance always provides distance, absolute bearing, relative
-bearing, map placement, and an arrival latch; nearby in-view targets also receive a
-projected world marker.
+359°/000° seam. Waypoint guidance always provides distance, absolute bearing, relative bearing,
+map placement, and an arrival latch. The HUD keeps guidance instrument-like: bearing and distance
+are read above the compass while relative direction is shown on the compass tape.
 
 Movement treats player position as feet rather than camera position. The controller owns
 gravity, grounded state, jump velocity, crouch eye height, sprint state, stamina, and a

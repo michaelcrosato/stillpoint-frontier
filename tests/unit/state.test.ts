@@ -28,6 +28,7 @@ describe("survey progression", () => {
     expect(INITIAL_SNAPSHOT.conditions).toEqual([]);
     expect(INITIAL_SNAPSHOT.inventoryOpen).toBe(false);
     expect(INITIAL_SNAPSHOT.settingsOpen).toBe(false);
+    expect(INITIAL_SNAPSHOT.settings.interfaceScale).toBe("standard");
     expect(INITIAL_SNAPSHOT.currentLocation.id).toBe("landmark:field-unit-compound");
   });
   it("adds each discovery exactly once", () => {

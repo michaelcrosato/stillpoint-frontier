@@ -95,7 +95,8 @@ five-degree compass windows, arbitrary map/world coordinate round trips, non-squ
 clicks, target validation, player/quest target replacement, stale clears, one-shot arrival,
 auto-clearing scripted targets, manual-waypoint save migration, and render-frame store
 notifications. Browser coverage sets and replaces a pin through actual map coordinates,
-checks the HUD guide and compass marker, and restores the manual waypoint after reload.
+checks the compact HUD bearing/distance readouts and compass marker, and restores the manual
+waypoint after reload.
 
 Atmosphere tests cover all day phases, day rollover, noon/night light ordering, seeded
 random-access weather, legal weather menus for all seven biomes, impossible climate

@@ -157,6 +157,7 @@ import {
   rebindAction,
   type GameAction,
   type GameSettings,
+  type InterfaceScale,
 } from "./settings";
 import {
   addLocationDiscovery,
@@ -1830,6 +1831,19 @@ export class Engine {
     this.settings = next;
     this.runtime.settings = this.settings;
     this.horizon.setDetailLevel(next.worldDetail);
+    this.persistPreferences();
+    this.emitSnapshot(true);
+    return true;
+  }
+
+  setInterfaceScale(interfaceScale: InterfaceScale) {
+    const next = normalizeGameSettings(
+      { ...this.settings, interfaceScale },
+      this.horizonMode,
+    );
+    if (next.interfaceScale === this.settings.interfaceScale) return false;
+    this.settings = next;
+    this.runtime.settings = this.settings;
     this.persistPreferences();
     this.emitSnapshot(true);
     return true;

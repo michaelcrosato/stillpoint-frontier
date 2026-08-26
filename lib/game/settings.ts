@@ -5,6 +5,24 @@ import {
   type WorldDetailLevel,
 } from "./world/WorldLodPolicy";
 
+export const INTERFACE_SCALES = [
+  "compact",
+  "standard",
+  "large",
+  "extraLarge",
+] as const;
+
+export type InterfaceScale = (typeof INTERFACE_SCALES)[number];
+
+export const INTERFACE_SCALE_DEFINITIONS: Readonly<
+  Record<InterfaceScale, { label: string; percentage: number; description: string }>
+> = Object.freeze({
+  compact: { label: "COMPACT", percentage: 90, description: "Maximum HUD density" },
+  standard: { label: "STANDARD", percentage: 100, description: "Readable default" },
+  large: { label: "LARGE", percentage: 120, description: "Larger field text" },
+  extraLarge: { label: "X-LARGE", percentage: 140, description: "Maximum legibility" },
+});
+
 export const GAME_ACTIONS = [
   "moveForward",
   "moveBackward",
@@ -28,6 +46,7 @@ export type GameAction = (typeof GAME_ACTIONS)[number];
 export type KeyBindings = Record<GameAction, string>;
 
 export interface GameSettings {
+  interfaceScale: InterfaceScale;
   fov: number;
   lookSensitivity: number;
   invertY: boolean;
@@ -60,6 +79,7 @@ export const DEFAULT_KEY_BINDINGS: KeyBindings = Object.freeze({
 });
 
 export const DEFAULT_GAME_SETTINGS: GameSettings = Object.freeze({
+  interfaceScale: "standard",
   fov: 67,
   lookSensitivity: 1,
   invertY: false,
@@ -99,6 +119,10 @@ function finiteClamp(value: unknown, fallback: number, minimum: number, maximum:
     : fallback;
 }
 
+export function isInterfaceScale(value: unknown): value is InterfaceScale {
+  return INTERFACE_SCALES.includes(value as InterfaceScale);
+}
+
 export function isBindableCode(value: unknown): value is string {
   return typeof value === "string" && VALID_KEY_CODE.test(value);
 }
@@ -124,6 +148,9 @@ export function normalizeGameSettings(
     ? value as Partial<Record<keyof GameSettings, unknown>>
     : {};
   return {
+    interfaceScale: isInterfaceScale(source.interfaceScale)
+      ? source.interfaceScale
+      : DEFAULT_GAME_SETTINGS.interfaceScale,
     fov: finiteClamp(source.fov, DEFAULT_GAME_SETTINGS.fov, 55, 95),
     lookSensitivity: finiteClamp(
       source.lookSensitivity,
