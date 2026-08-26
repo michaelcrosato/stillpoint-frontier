@@ -2,6 +2,16 @@
   "name": "stillpoint-frontier",
   "version": "0.1.0",
   "private": true,
+  "description": "A deterministic first-person procedural open-world foundation built with Three.js.",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/michaelcrosato/stillpoint-frontier.git"
+  },
+  "homepage": "https://stillpoint-frontier.michaelcrosato.chatgpt.site",
+  "bugs": {
+    "url": "https://github.com/michaelcrosato/stillpoint-frontier/issues"
+  },
   "engines": {
     "node": ">=22.13.0"
   },

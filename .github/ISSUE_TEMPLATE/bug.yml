@@ -1,0 +1,46 @@
+name: Bug report
+description: Report a reproducible gameplay, rendering, or tooling defect.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for helping improve Stillpoint Frontier. Do not report security vulnerabilities here; use the Security tab instead.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: Public site, v40, or a commit SHA
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS, browser version, GPU, and selected quality/horizon settings.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Include the world seed/location and whether an existing save is required.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Add screenshots, video, console output, traces, or benchmark reports where useful.
