@@ -25,6 +25,16 @@ function visualState(overrides: Partial<EnvironmentVisualState> = {}): Environme
 }
 
 describe("shared seamless water surface", () => {
+  it("provides every uniform required by Three's fog refresh path", () => {
+    const runtime = new WaterSurfaceRuntime("ultra");
+    expect(runtime.material.fog).toBe(true);
+    expect(runtime.uniforms.fogColor?.value).toBeInstanceOf(THREE.Color);
+    expect(runtime.uniforms.fogDensity?.value).toBeTypeOf("number");
+    expect(runtime.uniforms.fogNear?.value).toBeTypeOf("number");
+    expect(runtime.uniforms.fogFar?.value).toBeTypeOf("number");
+    runtime.dispose();
+  });
+
   it("uses absolute world coordinates and follows atmosphere state", () => {
     const runtime = new WaterSurfaceRuntime("cinematic");
     expect(runtime.material.name).toBe("shared-world-water");

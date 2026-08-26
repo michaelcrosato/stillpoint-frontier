@@ -37,6 +37,11 @@ export class WaterSurfaceRuntime {
 
   constructor(quality: QualityLevel) {
     this.uniforms = {
+      // ShaderMaterial does not inject fog uniforms automatically. Declaring
+      // the fog chunks while omitting these wrappers makes Three's
+      // refreshFogUniforms() dereference undefined as soon as water enters the
+      // camera frustum.
+      ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog),
       uTime: { value: 0 },
       uSunDirection: { value: new THREE.Vector3(0, 1, 0) },
       uSunColor: { value: new THREE.Color(0xffddb0) },

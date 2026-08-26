@@ -114,7 +114,10 @@ describe("world material library", () => {
     expect(library.diagnostics).toMatchObject({
       surfaceDetail: false,
       vegetationWind: false,
+      detailMaterials: 0,
+      windMaterials: 0,
     });
+    expect(material.onBeforeCompile).toBe(originalCompile);
     library.untrack(mesh);
     expect(material.onBeforeCompile).toBe(originalCompile);
     mesh.dispose();
@@ -143,6 +146,36 @@ describe("world material library", () => {
     expect(material.onBeforeCompile).toBe(originalCompile);
     first.geometry.dispose();
     second.geometry.dispose();
+    material.dispose();
+  });
+
+  it("keeps disabled shader features off the material compile path", () => {
+    const material = tagWorldMaterial(
+      new THREE.MeshStandardMaterial(),
+      { role: "terrain", windAmplitude: 0.25 },
+    );
+    const originalCompile = material.onBeforeCompile;
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(), material);
+    const library = new WorldMaterialLibrary();
+    library.setFeatures({ surfaceDetail: false, vegetationWind: false });
+    library.track(mesh);
+    expect(material.onBeforeCompile).toBe(originalCompile);
+    expect(library.diagnostics).toMatchObject({
+      detailMaterials: 0,
+      windMaterials: 0,
+    });
+
+    library.setFeatures({ surfaceDetail: true, vegetationWind: true });
+    expect(material.onBeforeCompile).not.toBe(originalCompile);
+    expect(library.diagnostics).toMatchObject({
+      detailMaterials: 1,
+      windMaterials: 1,
+    });
+
+    library.setFeatures({ surfaceDetail: false, vegetationWind: false });
+    expect(material.onBeforeCompile).toBe(originalCompile);
+    library.dispose();
+    mesh.geometry.dispose();
     material.dispose();
   });
 });

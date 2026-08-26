@@ -200,10 +200,18 @@ export class WorldMaterialLibrary {
     features: Pick<GraphicsFeatureState, "surfaceDetail" | "vegetationWind">,
   ) {
     if (this.disposed) return;
-    this.features = {
+    const next = {
       surfaceDetail: features.surfaceDetail,
       vegetationWind: features.vegetationWind,
     };
+    if (
+      next.surfaceDetail === this.features.surfaceDetail &&
+      next.vegetationWind === this.features.vegetationWind
+    ) return;
+    this.features = next;
+    for (const tracked of this.tracked.values()) {
+      this.rebuildShaderHooks(tracked);
+    }
     this.apply();
   }
 
@@ -247,10 +255,10 @@ export class WorldMaterialLibrary {
     if (!(material instanceof THREE.MeshStandardMaterial)) return;
     const descriptor = worldMaterialDescriptor(material);
     if (!descriptor) return;
-    const surfaceDetail = descriptor.detail
+    const surfaceDetail = this.features.surfaceDetail && descriptor.detail
       ? installProceduralSurfaceDetail(material, descriptor.detail)
       : null;
-    const vegetationWind = descriptor.windAmplitude > 0
+    const vegetationWind = this.features.vegetationWind && descriptor.windAmplitude > 0
       ? installVegetationWind(material, descriptor.windAmplitude)
       : null;
     this.tracked.set(material, {
@@ -274,10 +282,37 @@ export class WorldMaterialLibrary {
   }
 
   private restoreMaterial(tracked: TrackedMaterial) {
-    tracked.vegetationWind?.dispose();
-    tracked.surfaceDetail?.dispose();
+    this.removeShaderHooks(tracked);
     tracked.material.roughness = tracked.dryRoughness;
     tracked.material.envMapIntensity = tracked.dryEnvironmentIntensity;
+  }
+
+  /**
+   * Hooks are a stack: surface detail is installed first and wind wraps it.
+   * Always remove them in reverse order and rebuild the complete stack so an
+   * independent feature toggle can never leave a stale callback underneath.
+   */
+  private rebuildShaderHooks(tracked: TrackedMaterial) {
+    this.removeShaderHooks(tracked);
+    if (this.features.surfaceDetail && tracked.descriptor.detail) {
+      tracked.surfaceDetail = installProceduralSurfaceDetail(
+        tracked.material,
+        tracked.descriptor.detail,
+      );
+    }
+    if (this.features.vegetationWind && tracked.descriptor.windAmplitude > 0) {
+      tracked.vegetationWind = installVegetationWind(
+        tracked.material,
+        tracked.descriptor.windAmplitude,
+      );
+    }
+  }
+
+  private removeShaderHooks(tracked: TrackedMaterial) {
+    tracked.vegetationWind?.dispose();
+    tracked.vegetationWind = null;
+    tracked.surfaceDetail?.dispose();
+    tracked.surfaceDetail = null;
   }
 
   private apply() {
