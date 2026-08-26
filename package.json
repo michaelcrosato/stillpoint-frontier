@@ -24,6 +24,7 @@
     "test:unit": "bash scripts/sites-env.sh -- vitest run",
     "test:coverage": "bash scripts/sites-env.sh -- vitest run --coverage",
     "test:rendered": "node --test tests/rendered-html.test.mjs",
+    "test:browser:install": "bash scripts/sites-env.sh -- playwright install chromium",
     "test:e2e": "bash scripts/sites-env.sh -- playwright test --project=functional-chromium --project=webgl-fallback",
     "test:visual": "bash scripts/sites-env.sh -- playwright test --project=visual-chromium --workers=1",
     "test:visual:compare": "VISUAL_BASELINES=1 bash scripts/sites-env.sh -- playwright test --project=visual-chromium --workers=1",

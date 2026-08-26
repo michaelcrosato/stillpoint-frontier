@@ -31,7 +31,7 @@ jobs:
         run: npm run install:ci
 
       - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+        run: bash scripts/sites-env.sh -- playwright install --with-deps chromium
 
       - name: Run the complete CI gate
         run: npm run test:ci

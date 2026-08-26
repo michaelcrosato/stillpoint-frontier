@@ -70,7 +70,8 @@ npm run build
 Install Playwright's browser once before running the browser suites:
 
 ```bash
-npx playwright install --with-deps chromium
+npx playwright install-deps chromium
+npm run test:browser:install
 npm run test:e2e
 npm run test:visual
 ```

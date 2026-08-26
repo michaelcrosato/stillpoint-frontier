@@ -17,9 +17,11 @@ still produce reviewable evidence.
   `VISUAL_BASELINES=1` is set in a pinned browser environment.
 - `npm run test:ci` — complete CI gate.
 
-Install the Playwright browser once in a new environment with
-`npx playwright install --with-deps chromium`. Keep browser version, OS image, viewport,
-DPR, locale, timezone, seed, and quality profile pinned before accepting golden images.
+Install Playwright's Linux dependencies and project-scoped browser once in a new
+environment with `npx playwright install-deps chromium` followed by
+`npm run test:browser:install`. The project-scoped command uses the same isolated home
+directory as the test suites. Keep browser version, OS image, viewport, DPR, locale,
+timezone, seed, and quality profile pinned before accepting golden images.
 
 ## Deterministic browser mode
 
