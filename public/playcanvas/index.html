@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#071013" />
+    <meta
+      name="description"
+      content="Stillpoint Frontier — a WebGPU-first low-poly exploration game built with PlayCanvas Engine v2."
+    />
+    <title>Stillpoint Frontier</title>
+    <script type="module" crossorigin src="./assets/index-D31Q_WUi.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-BGk5v-Th.css">
+  </head>
+  <body>
+    <canvas id="application-canvas" aria-label="Stillpoint Frontier game view"></canvas>
+
+    <div id="boot" class="screen screen--visible">
+      <div class="boot__wash"></div>
+      <main class="boot__panel">
+        <p class="eyebrow">FIELD BUILD // 0.1</p>
+        <h1>STILLPOINT<br /><span>FRONTIER</span></h1>
+        <p class="boot__lede">
+          Three silent relays wait beyond the basin. Restore them. Return to the Stillpoint.
+        </p>
+        <div class="boot__status" id="boot-status">
+          <span class="status-dot"></span>
+          <span id="boot-status-text">Preparing renderer…</span>
+        </div>
+        <button id="enter-button" class="enter" type="button" disabled>
+          <span>ENTER THE FRONTIER</span>
+          <small>Click to engage pointer lock</small>
+        </button>
+        <div class="controls-grid" aria-label="Controls">
+          <div><kbd>WASD</kbd><span>Move</span></div>
+          <div><kbd>Mouse</kbd><span>Look</span></div>
+          <div><kbd>E</kbd><span>Interact</span></div>
+          <div><kbd>Shift</kbd><span>Sprint</span></div>
+          <div><kbd>Space</kbd><span>Jump</span></div>
+          <div><kbd>Q</kbd><span>Quality</span></div>
+        </div>
+      </main>
+      <footer class="boot__footer">
+        <span>PLAYCANVAS ENGINE V2</span>
+        <span>WEBGPU FIRST</span>
+        <span>NO ANIMATION CLIPS</span>
+      </footer>
+    </div>
+
+    <div id="hud" class="hud" aria-hidden="true">
+      <div class="hud__top-left">
+        <div class="brand-mark"><i></i><span>STILLPOINT<br />FIELD UNIT</span></div>
+        <div class="objective-card">
+          <p class="eyebrow">PRIMARY DIRECTIVE</p>
+          <p id="objective-text">Restore the frontier relays</p>
+          <div id="challenge-list" class="challenge-list"></div>
+        </div>
+      </div>
+
+      <div class="hud__top-center">
+        <div id="compass" class="compass">
+          <span id="compass-left">NW</span>
+          <strong id="compass-main">N</strong>
+          <span id="compass-right">NE</span>
+        </div>
+      </div>
+
+      <div class="hud__top-right">
+        <div class="telemetry">
+          <div><span>RENDERER</span><strong id="renderer-value">—</strong></div>
+          <div><span>PROFILE</span><strong id="quality-value">ULTRA</strong></div>
+          <div><span>FRAME</span><strong id="fps-value">— FPS</strong></div>
+        </div>
+      </div>
+
+      <div id="crosshair" class="crosshair"><i></i><i></i><i></i><i></i></div>
+
+      <div id="interaction" class="interaction" aria-live="polite">
+        <span class="interaction__key">E</span>
+        <span id="interaction-label">INTERACT</span>
+        <span class="interaction__track"><i id="interaction-progress"></i></span>
+      </div>
+
+      <div id="toast" class="toast" aria-live="polite">
+        <p id="toast-kicker" class="eyebrow">FIELD LOG</p>
+        <strong id="toast-title"></strong>
+        <span id="toast-detail"></span>
+      </div>
+
+      <div class="hud__bottom-left">
+        <div class="position-readout">
+          <span>GRID POSITION</span>
+          <strong id="position-value">000.0 / 000.0</strong>
+        </div>
+      </div>
+
+      <div class="hud__bottom-right">
+        <div class="hint">ESC RELEASE CURSOR&nbsp;&nbsp;•&nbsp;&nbsp;Q CYCLE QUALITY</div>
+      </div>
+    </div>
+
+    <div id="pause" class="pause-card" aria-hidden="true">
+      <p class="eyebrow">FIELD LINK SUSPENDED</p>
+      <strong>CLICK TO RESUME</strong>
+      <span>Pointer released</span>
+    </div>
+
+    <div id="victory" class="screen victory" aria-hidden="true">
+      <main class="victory__panel">
+        <p class="eyebrow">NETWORK STATUS // RESTORED</p>
+        <h2>THE FRONTIER<br /><span>REMEMBERS.</span></h2>
+        <p>All three relays answer the Stillpoint. The wider world is ready for new modules.</p>
+        <button id="continue-button" class="enter" type="button"><span>KEEP EXPLORING</span></button>
+      </main>
+    </div>
+
+    <div id="fatal" class="screen fatal" aria-hidden="true">
+      <main class="fatal__panel">
+        <p class="eyebrow">BOOT FAILURE</p>
+        <h2>THE FRONTIER<br /><span>COULD NOT OPEN.</span></h2>
+        <pre id="fatal-message"></pre>
+      </main>
+    </div>
+
+  </body>
+</html>
