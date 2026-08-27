@@ -16,7 +16,9 @@ meaningfully playable.
 - Public project: `https://stillpoint-frontier.michaelcrosato.chatgpt.site`
 - Deployed game checkpoint: v40
 - Deployed source commit: `09a577127da31cab20dda3b4009d6b73ecbc06a6`
-- This local-kit branch adds setup guidance only; its game source matches that checkpoint.
+- `main` now includes local-development, dependency, input, browser-test, and CI
+  hardening beyond that deployed source. v40 remains the live public checkpoint until a
+  later deployment is requested.
 
 ## Environment
 
