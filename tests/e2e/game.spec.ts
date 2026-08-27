@@ -1511,6 +1511,7 @@ test("entry and fixed world views are visually reviewable @visual", async ({ pag
 });
 
 test("megacity day and night activity are visually reviewable @visual", async ({ page }, testInfo) => {
+  test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   const mega = getSettlement("vesper-crown");
@@ -1554,7 +1555,8 @@ test("HUD and territory-map fixtures are visually reviewable without a GPU @visu
   await attachScreenshot(page, testInfo, "territory-map-fixture");
 
   await page.goto("/?visual=dev", { waitUntil: "load" });
-  await expect(page.getByTestId("developer-panel")).toContainText("SESSION-ONLY SANDBOX");
+  await expect(page.getByTestId("developer-panel")).toContainText("ISOLATED QUICK-START");
+  await expect(page.getByTestId("developer-panel")).toContainText("PLAYTEST SANDBOX");
   await expect(page.getByTestId("developer-panel")).toContainText("Canopy drizzle");
   await expect(page.getByTestId("horizon-mode-standard")).toBeVisible();
   await expect(page.getByTestId("horizon-mode-extended")).toBeVisible();
