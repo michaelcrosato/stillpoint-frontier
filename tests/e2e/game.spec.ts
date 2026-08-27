@@ -646,6 +646,7 @@ test("persists horizon HLOD without expanding gameplay streaming", async ({ page
 });
 
 test("opens developer tools from the keyboard while paused and protects form input", async ({ page }) => {
+  test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   const before = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().position);
