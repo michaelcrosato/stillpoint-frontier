@@ -223,6 +223,7 @@ function audioLevelsFromSettings(
 export interface GameTestBridge {
   isReady(): boolean;
   snapshot(): GameSnapshot;
+  renderOnce(): boolean;
   teleport(x: number, z: number, y?: number): void;
   faceBeacon(beaconId: BeaconId): void;
   discover(beaconId: BeaconId): void;
@@ -337,6 +338,7 @@ interface EngineOptions {
   canvas: HTMLCanvasElement;
   testMode?: boolean;
   storageEnabled?: boolean;
+  continuousRendering?: boolean;
   onSnapshot: (snapshot: GameSnapshot) => void;
   onPresentation?: (presentation: GamePresentation) => void;
   onRendererError?: (error: unknown) => void;
@@ -371,6 +373,7 @@ export class Engine {
   private readonly onPresentation: (presentation: GamePresentation) => void;
   private readonly onRendererError: (error: unknown) => void;
   private readonly testMode: boolean;
+  private readonly continuousRendering: boolean;
   private readonly saveStore: SaveStore;
   private readonly preferencesStore: PreferencesStore;
   private readonly projectionPoint = new THREE.Vector3();
@@ -460,6 +463,7 @@ export class Engine {
   constructor(options: EngineOptions) {
     this.canvas = options.canvas;
     this.testMode = options.testMode ?? false;
+    this.continuousRendering = options.continuousRendering ?? true;
     this.onSnapshot = options.onSnapshot;
     this.onPresentation = options.onPresentation ?? (() => undefined);
     this.onRendererError = options.onRendererError ?? (() => undefined);
@@ -2539,11 +2543,14 @@ export class Engine {
       );
       this.flashlight.present(this.camera);
       this.emitPresentation();
-      const renderMetrics = this.renderPipeline.render(
-        delta,
-        this.graphicsBenchmark.isMeasuringGpu,
-      );
-      this.graphicsBenchmark.resolveGpuSamples(renderMetrics.gpuSamples);
+      if (this.continuousRendering) {
+        this.renderCurrentFrame(
+          delta,
+          timestamp,
+          frameIntervalMilliseconds,
+          cpuFrameStartedAt,
+        );
+      }
       this.trackPerformance(timestamp);
       if (
         this.started &&
@@ -2553,18 +2560,6 @@ export class Engine {
         this.persist();
         this.lastClockPersistTime = timestamp;
       }
-      const graphics = this.renderPipeline.diagnostics;
-      this.graphicsBenchmark.recordFrame({
-        frameToken: renderMetrics.frameToken,
-        timestampMs: timestamp,
-        frameIntervalMs: frameIntervalMilliseconds,
-        cpuWorkMs: performance.now() - cpuFrameStartedAt,
-        cpuRenderMs: renderMetrics.cpuRenderMilliseconds,
-        drawCalls: graphics.drawCalls,
-        triangles: graphics.triangles,
-        gpuQuerySubmitted: renderMetrics.gpuQuerySubmitted,
-        hidden: document.hidden,
-      });
         this.emitSnapshot(timestamp - this.lastSnapshotTime > 140);
       }
     } catch (error) {
@@ -2574,6 +2569,41 @@ export class Engine {
     }
     this.animationFrame = requestAnimationFrame(this.frame);
   };
+
+  private renderCurrentFrame(
+    deltaSeconds: number,
+    timestamp: number,
+    frameIntervalMilliseconds: number,
+    cpuFrameStartedAt: number,
+  ) {
+    const renderMetrics = this.renderPipeline.render(
+      deltaSeconds,
+      this.graphicsBenchmark.isMeasuringGpu,
+    );
+    this.graphicsBenchmark.resolveGpuSamples(renderMetrics.gpuSamples);
+    const graphics = this.renderPipeline.diagnostics;
+    this.graphicsBenchmark.recordFrame({
+      frameToken: renderMetrics.frameToken,
+      timestampMs: timestamp,
+      frameIntervalMs: frameIntervalMilliseconds,
+      cpuWorkMs: performance.now() - cpuFrameStartedAt,
+      cpuRenderMs: renderMetrics.cpuRenderMilliseconds,
+      drawCalls: graphics.drawCalls,
+      triangles: graphics.triangles,
+      gpuQuerySubmitted: renderMetrics.gpuQuerySubmitted,
+      hidden: document.hidden,
+    });
+  }
+
+  private renderOnce() {
+    if (this.disposed || !this.ready || this.contextStatus !== "ready") {
+      return false;
+    }
+    const timestamp = performance.now();
+    this.renderCurrentFrame(0, timestamp, 0, timestamp);
+    this.emitSnapshot(true);
+    return true;
+  }
 
   private trackPerformance(timestamp: number) {
     this.framesSinceSample += 1;
@@ -2976,6 +3006,7 @@ export class Engine {
     window.__STILLPOINT_TEST__ = {
       isReady: () => this.ready,
       snapshot: () => structuredClone(this.snapshot),
+      renderOnce: () => this.renderOnce(),
       teleport: (x, z, y) => {
         this.relocatePlayer(x, z, y);
         this.emitSnapshot(true);

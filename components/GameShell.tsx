@@ -188,6 +188,8 @@ export default function GameShell() {
     const testMode = parameters.get("test") === "1";
     const storageEnabled =
       !testMode || parameters.get("storage") === "1";
+    const continuousRendering =
+      !testMode || parameters.get("render") !== "manual";
     const reportRendererError = (error: unknown) => {
       console.error("Stillpoint renderer failure", error);
       if (!active) return;
@@ -203,6 +205,7 @@ export default function GameShell() {
         canvas,
         testMode,
         storageEnabled,
+        continuousRendering,
         onSnapshot: (nextSnapshot) => {
           if (active) setSnapshot(nextSnapshot);
         },

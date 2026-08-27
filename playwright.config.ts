@@ -27,9 +27,19 @@ export default defineConfig({
     colorScheme: "dark",
     locale: "en-US",
     timezoneId: "UTC",
-    trace: "retain-on-failure",
+    // Retained trace/video capture continuously reads the WebGL framebuffer,
+    // which can starve browser automation on hosted SwiftShader runners.
+    // CI keeps DOM/network/source traces and explicit failure screenshots.
+    trace: process.env.CI
+      ? {
+          mode: "retain-on-failure",
+          screenshots: false,
+          snapshots: true,
+          sources: true,
+        }
+      : "retain-on-failure",
     screenshot: "only-on-failure",
-    video: "retain-on-failure",
+    video: process.env.CI ? "off" : "retain-on-failure",
   },
   projects: [
     {
