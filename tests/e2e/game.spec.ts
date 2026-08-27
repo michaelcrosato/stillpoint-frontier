@@ -14,15 +14,18 @@ import { TWO_STORY_BUILDING } from "../../lib/game/world/twoStoryBuilding";
 import { WORLD_DETAIL_PRESETS } from "../../lib/game/world/WorldLodPolicy";
 
 const MAX_LAZY_GEOMETRY_WARMUP = 4;
+const WORLD_READY_TIMEOUT_MS = 30_000;
 
 async function waitForWorldReady(page: Page) {
   // Cold software-WebGL runners can take longer than ordinary UI assertions
   // to stream and compile the deterministic opening world.
-  await expect(page.getByTestId("entry-screen")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("entry-screen")).toBeVisible({
+    timeout: WORLD_READY_TIMEOUT_MS,
+  });
   await page.waitForFunction(
     () => window.__STILLPOINT_TEST__?.isReady() === true,
     undefined,
-    { timeout: 20_000 },
+    { timeout: WORLD_READY_TIMEOUT_MS },
   );
 }
 

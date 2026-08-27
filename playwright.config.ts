@@ -1,5 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const functionalViewport = process.env.CI
+  ? { width: 1024, height: 768 }
+  : { width: 1440, height: 900 };
+
 export default defineConfig({
   testDir: "tests/e2e",
   outputDir: "test-results",
@@ -31,6 +35,11 @@ export default defineConfig({
     {
       name: "functional-chromium",
       grepInvert: /@(visual|fallback)/,
+      use: {
+        // Hosted runners use software WebGL, so keep functional coverage above
+        // the desktop breakpoints without rendering visual-baseline dimensions.
+        viewport: functionalViewport,
+      },
     },
     {
       name: "visual-chromium",
