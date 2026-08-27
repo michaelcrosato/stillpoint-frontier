@@ -15,12 +15,20 @@ import { WORLD_DETAIL_PRESETS } from "../../lib/game/world/WorldLodPolicy";
 
 const MAX_LAZY_GEOMETRY_WARMUP = 4;
 
-async function openDeterministicWorld(page: Page) {
-  await page.goto("/?test=1", { waitUntil: "load" });
+async function waitForWorldReady(page: Page) {
   // Cold software-WebGL runners can take longer than ordinary UI assertions
   // to stream and compile the deterministic opening world.
   await expect(page.getByTestId("entry-screen")).toBeVisible({ timeout: 20_000 });
-  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  await page.waitForFunction(
+    () => window.__STILLPOINT_TEST__?.isReady() === true,
+    undefined,
+    { timeout: 20_000 },
+  );
+}
+
+async function openDeterministicWorld(page: Page) {
+  await page.goto("/?test=1", { waitUntil: "load" });
+  await waitForWorldReady(page);
 }
 
 async function attachScreenshot(page: Page, testInfo: TestInfo, name: string) {
@@ -539,8 +547,7 @@ test("keeps developer time and weather overrides out of the normal save", async 
   await page.goto("/?test=1&storage=1", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
-  await expect(page.getByTestId("entry-screen")).toBeVisible({ timeout: 20_000 });
-  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  await waitForWorldReady(page);
   await page.getByTestId("enter-frontier").click();
   await page.evaluate(() => window.__STILLPOINT_TEST__?.setWorldMinutes(12 * 60));
 
@@ -578,8 +585,7 @@ test("keeps developer time and weather overrides out of the normal save", async 
   await expect(page.getByTestId("developer-panel")).toBeHidden();
 
   await page.reload({ waitUntil: "load" });
-  await expect(page.getByTestId("entry-screen")).toBeVisible();
-  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  await waitForWorldReady(page);
   await page.getByTestId("enter-frontier").click();
   const restored = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
   expect(restored?.devTools.enabled).toBe(false);
@@ -598,8 +604,7 @@ test("persists horizon HLOD without expanding gameplay streaming", async ({ page
   await page.goto("/?test=1&storage=1", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
-  await expect(page.getByTestId("entry-screen")).toBeVisible({ timeout: 20_000 });
-  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  await waitForWorldReady(page);
   await page.getByTestId("enter-frontier").click();
   const simulationBefore = await page.evaluate(() => ({
     targets: window.__STILLPOINT_TEST__?.targets().length,
@@ -637,8 +642,7 @@ test("persists horizon HLOD without expanding gameplay streaming", async ({ page
   expect(maximum.horizon?.settlementInstances ?? 0).toBeLessThan(200);
 
   await page.reload({ waitUntil: "load" });
-  await expect(page.getByTestId("entry-screen")).toBeVisible({ timeout: 20_000 });
-  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  await waitForWorldReady(page);
   const restored = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
   expect(restored?.horizonMode).toBe("unlimited");
   expect(restored?.settings.worldDetail).toBe(4);
@@ -844,8 +848,7 @@ test("keeps a normal survey save untouched by the developer quick start", async 
   await page.goto("/?test=1&storage=1", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
-  await expect(page.getByTestId("entry-screen")).toBeVisible();
-  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  await waitForWorldReady(page);
   await page.getByTestId("enter-frontier").click();
   await page.evaluate(() => {
     window.__STILLPOINT_TEST__?.teleport(1_234, -5_678);
@@ -857,8 +860,7 @@ test("keeps a normal survey save untouched by the developer quick start", async 
   expect(surveySave).not.toBeNull();
 
   await page.reload({ waitUntil: "load" });
-  await expect(page.getByTestId("entry-screen")).toBeVisible();
-  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  await waitForWorldReady(page);
   await page.getByTestId("enter-developer").click();
   await page.evaluate(() => {
     window.__STILLPOINT_TEST__?.discover("meridian-vault");
@@ -961,7 +963,7 @@ test("keeps opt-in canopy lab travel out of the normal player save", async ({ pa
   await page.goto("/?test=1&storage=1", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
-  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  await waitForWorldReady(page);
   await page.getByTestId("enter-frontier").click();
   const origin = await page.evaluate(
     () => window.__STILLPOINT_TEST__?.snapshot().position,
@@ -976,7 +978,7 @@ test("keeps opt-in canopy lab travel out of the normal player save", async ({ pa
   ).toBe(true);
 
   await page.reload({ waitUntil: "load" });
-  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  await waitForWorldReady(page);
   await page.getByTestId("enter-frontier").click();
   const restored = await page.evaluate(
     () => window.__STILLPOINT_TEST__?.snapshot(),
@@ -1044,15 +1046,14 @@ test("restores a saved survey after reload", async ({ page }) => {
   await page.goto("/?test=1&storage=1", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
-  await expect(page.getByTestId("entry-screen")).toBeVisible();
-  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  await waitForWorldReady(page);
   await page.getByTestId("enter-frontier").click();
   await page.evaluate(() => window.__STILLPOINT_TEST__?.discover("amber-relay"));
   await page.evaluate(() => window.__STILLPOINT_TEST__?.setWaypoint(1_250, -3_400));
   await expect(page.getByTestId("mission-card")).toContainText("RECOVERED");
 
   await page.reload({ waitUntil: "load" });
-  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await waitForWorldReady(page);
   await page.getByTestId("enter-frontier").click();
   await expect(page.getByTestId("mission-card")).toContainText("RECOVERED");
   expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().scanned)).toEqual([
@@ -1067,8 +1068,7 @@ test("persists local view settings and a rebound control independently of the fi
   await page.goto("/?test=1&storage=1", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
-  await expect(page.getByTestId("entry-screen")).toBeVisible();
-  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  await waitForWorldReady(page);
 
   await page.getByRole("button", { name: /settings/i }).click();
   await expect(page.getByTestId("settings-overlay")).toBeVisible();
@@ -1126,8 +1126,7 @@ test("persists local view settings and a rebound control independently of the fi
   await page.getByTestId("settings-overlay").getByRole("button", { name: /close/i }).last().click();
   await expect(page.getByTestId("settings-overlay")).toBeHidden();
   await page.reload({ waitUntil: "load" });
-  await expect(page.getByTestId("entry-screen")).toBeVisible();
-  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  await waitForWorldReady(page);
   const restored = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
   expect(restored?.settings.fov).toBe(82);
   expect(restored?.settings.interfaceScale).toBe("large");
@@ -1225,8 +1224,7 @@ test("saves and restores player pose, condition, and discovered locations", asyn
   await page.goto("/?test=1&storage=1", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
-  await expect(page.getByTestId("entry-screen")).toBeVisible();
-  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  await waitForWorldReady(page);
   await page.getByTestId("enter-frontier").click();
   await expect
     .poll(() => page.evaluate(
@@ -1348,8 +1346,7 @@ test("collects and harvests deterministic resources without duplicate loot", asy
   await page.goto("/?test=1&storage=1", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
-  await expect(page.getByTestId("entry-screen")).toBeVisible();
-  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  await waitForWorldReady(page);
   await page.getByTestId("enter-frontier").click();
 
   const targets = await page.evaluate(() => window.__STILLPOINT_TEST__?.targets() ?? []);
@@ -1408,8 +1405,7 @@ test("collects and harvests deterministic resources without duplicate loot", asy
   await attachScreenshot(page, testInfo, "resource-harvested");
 
   await page.reload({ waitUntil: "load" });
-  await expect(page.getByTestId("entry-screen")).toBeVisible();
-  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
+  await waitForWorldReady(page);
   const restored = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
   expect(restored?.inventory.stone).toBe(3);
   expect(restored?.inventory.wood).toBe(4);
