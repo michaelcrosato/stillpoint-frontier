@@ -2,7 +2,6 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import {
   ANIMAL_CHUNK_LOAD_RADIUS,
-  CHUNK_SIZE,
   QUALITY_LEVELS,
   type QualityLevel,
 } from "../config";
@@ -228,6 +227,10 @@ export class AnimalEngine {
         mesh.setMatrixAt(index, matrix);
       });
       if (recipes.length > 0) mesh.instanceMatrix.needsUpdate = true;
+      // Terrain height, flight, and reactions can move instances outside a
+      // fixed streaming sphere. Bound the matrices used by this exact frame.
+      // Wildlife is capped at 72 instances across all species.
+      mesh.computeBoundingSphere();
     }
   }
 
@@ -247,13 +250,6 @@ export class AnimalEngine {
     }
     for (const key of this.loaded.keys()) {
       if (!desired.has(key)) this.loaded.delete(key);
-    }
-    const radius = (ANIMAL_CHUNK_LOAD_RADIUS + 1.15) * CHUNK_SIZE;
-    for (const mesh of this.meshes.values()) {
-      mesh.boundingSphere = new THREE.Sphere(
-        new THREE.Vector3(center.x * CHUNK_SIZE, 8, center.z * CHUNK_SIZE),
-        radius,
-      );
     }
     this.rebuildVisibleRecipes();
     this.present();

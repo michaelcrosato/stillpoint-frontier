@@ -243,23 +243,29 @@ export class ChunkManager {
     const center = worldToChunk(playerX, playerZ);
     const nextActiveKey = chunkKey(center.x, center.z);
     if (nextActiveKey === this.activeChunkKey && this.loaded.size > 0) return false;
-    this.activeChunkKey = nextActiveKey;
+    // A partial load must remain retryable, including at the same center.
+    this.activeChunkKey = "";
     this.activeChunkX = center.x;
     this.activeChunkZ = center.z;
 
-    const desired = new Set<string>();
-    for (const coordinate of chunksAround(center, WORLD_CHUNK_LOAD_RADIUS)) {
-      const key = chunkKey(coordinate.x, coordinate.z);
-      desired.add(key);
-      if (!this.loaded.has(key)) this.loadChunk(coordinate.x, coordinate.z);
+    const coordinates = chunksAround(center, WORLD_CHUNK_LOAD_RADIUS);
+    const desired = new Set(coordinates.map(({ x, z }) => chunkKey(x, z)));
+    try {
+      // Retire departures before allocating arrivals: teleports must not
+      // temporarily retain two complete neighborhoods of GPU resources.
+      for (const [key, chunk] of this.loaded) {
+        if (desired.has(key)) continue;
+        this.disposeChunk(chunk);
+        this.loaded.delete(key);
+      }
+      for (const coordinate of coordinates) {
+        const key = chunkKey(coordinate.x, coordinate.z);
+        if (!this.loaded.has(key)) this.loadChunk(coordinate.x, coordinate.z);
+      }
+      this.activeChunkKey = nextActiveKey;
+    } finally {
+      this.refreshCaches();
     }
-
-    for (const [key, chunk] of this.loaded) {
-      if (desired.has(key)) continue;
-      this.disposeChunk(chunk);
-      this.loaded.delete(key);
-    }
-    this.refreshCaches();
     return true;
   }
 
@@ -488,6 +494,14 @@ export class ChunkManager {
   sampleGroundHeight(x: number, z: number, referenceY?: number) {
     const supports = authoredBuildingSupportCandidates(x, z);
     return selectWalkableSupport(supports, referenceY) ?? sampleTerrainHeight(x, z);
+  }
+
+  sampleOverheadHeight(x: number, z: number, minimumY: number) {
+    if (![x, z, minimumY].every(Number.isFinite)) return null;
+    const overhead = authoredBuildingSupportCandidates(x, z)
+      .filter((height) => Number.isFinite(height) && height >= minimumY)
+      .sort((left, right) => left - right)[0];
+    return overhead ?? null;
   }
 
   canStandAt(x: number, z: number, feetY: number, radius: number) {
@@ -770,6 +784,8 @@ export class ChunkManager {
         x: beacon.x,
         z: beacon.z,
         radius: 2.8,
+        minY: target.root.position.y,
+        maxY: target.root.position.y + 9.5,
       });
       if (this.scanned.has(beacon.id)) this.applyScannedAppearance(target.root);
     }
@@ -1304,6 +1320,8 @@ export class ChunkManager {
           halfWidth: width * 0.5,
           halfDepth: depth * 0.5,
           rotation,
+          minY: groundY,
+          maxY: groundY + height,
         });
 
         const bandCount = Math.min(
@@ -1446,6 +1464,8 @@ export class ChunkManager {
       halfWidth: settlement.tier === "megacity" ? 9 : 4,
       halfDepth: 4,
       rotation: 0,
+      minY: marker.position.y - height / 2,
+      maxY: marker.position.y + height / 2,
     });
   }
 
@@ -1551,6 +1571,8 @@ export class ChunkManager {
         x,
         z,
         radius: colliderRadius,
+        minY: groundY,
+        maxY: groundY + size * 1.5,
       });
       const item: ItemId = primaryResource === "ore" ? "ore" : "stone";
       const targetRoot = new THREE.Group();
@@ -1639,6 +1661,8 @@ export class ChunkManager {
         x,
         z,
         radius: colliderRadius,
+        minY: baseY,
+        maxY: baseY + 8.6 * species.relativeHeight * size,
       });
       placed.push({
         id,
@@ -1786,11 +1810,13 @@ export class ChunkManager {
         rendered,
         performanceDecorativeCount,
       );
+      // All quality modes share these matrices. Bounds must include the full
+      // population before Performance hides its higher-detail suffix.
+      groundcover.computeBoundingSphere();
       groundcover.count = qualityUsesHighDetail(this.quality)
         ? groundcover.userData.highDetailCount
         : groundcover.userData.performanceCount;
       groundcover.instanceMatrix.needsUpdate = true;
-      groundcover.computeBoundingSphere();
       root.add(groundcover);
       if (representative) {
         const guide = GROUNDCOVER_GUIDE[profile.groundcover];
@@ -1866,7 +1892,8 @@ export class ChunkManager {
       );
       if (!placement) continue;
       const { x, z } = placement;
-      position.set(x, sampleTerrainHeight(x, z) + 2.25 * heightScale, z);
+      const groundY = sampleTerrainHeight(x, z);
+      position.set(x, groundY + 2.25 * heightScale, z);
       quaternion.setFromEuler(new THREE.Euler(0, rotation, 0));
       scale.set(1, heightScale, depthScale);
       matrix.compose(position, quaternion, scale);
@@ -1879,6 +1906,8 @@ export class ChunkManager {
         halfWidth: 0.325,
         halfDepth: 1.1 * depthScale,
         rotation,
+        minY: groundY,
+        maxY: groundY + 5 * heightScale,
       });
       renderedCount += 1;
     }
@@ -2052,6 +2081,8 @@ export class ChunkManager {
         x: target.root.position.x,
         z: target.root.position.z,
         radius: target.item === "wood" ? 0.58 : 1.56,
+        minY: target.root.position.y,
+        maxY: target.root.position.y + (target.item === "wood" ? 8.5 : 1.8),
       });
     }
   }

@@ -1,78 +1,57 @@
-# Stillpoint Frontier — Local Codex Guide
+# Working on Stillpoint Frontier
 
-## Product direction
+## Read first
 
-Stillpoint Frontier is primarily a reusable, modular foundation for future first-person
-games. Prioritize robust shared systems: terrain and world generation, buildings, roads,
-NPCs, movement, interaction, graphics, sound, persistence, performance, accessibility,
-developer tools, and testing.
+- README.md: setup, controls, repository map, and release commands.
+- docs/ARCHITECTURE.md: ownership and performance contracts.
+- docs/TESTING.md: automated checks and GPU acceptance.
+- docs/AUDIT.md: recent fixes, known limits, and refactor priorities.
 
-Avoid substantial narrative content for now. Small vertical slices, test locations, and
-minimal gameplay are welcome when they exercise reusable systems or make the project
-meaningfully playable.
+## Product and source rules
 
-## Current checkpoint
+Three.js is the canonical engine. Preserve the existing world and survey saves.
+Keep code modular, deterministic, and testable. Prefer confirmed fixes and measured
+improvements over broad rewrites. Do not add story content unless requested.
+Use short, clear language.
 
-- Public project: `https://stillpoint-frontier.michaelcrosato.chatgpt.site`
-- Deployed game checkpoint: v40
-- Deployed source commit: `09a577127da31cab20dda3b4009d6b73ecbc06a6`
-- `main` now includes local-development, dependency, input, browser-test, and CI
-  hardening beyond that deployed source. v40 remains the live public checkpoint until a
-  later deployment is requested.
+- Pure gameplay rules belong in lib/game/gameplay/.
+- Install simulation behavior through core/FeatureRegistry and systems/.
+- Engine composes systems and owns lifecycle. Avoid unrelated algorithms there.
+- Render camera state must not replace player position or gameplay aim.
+- World recipes derive from stable seed, coordinates, and feature namespace.
+- Render-only detail must not expand collision, interaction, or AI residency.
+- Each GPU resource needs an owner and a disposal path.
+- Use ui/dialogFocus.ts for modal keyboard boundaries.
 
-## Environment
+## State safety
 
-- Use WSL2 with Ubuntu on Windows.
-- Keep the checkout under the Linux filesystem, such as `~/code/stillpoint-frontier`.
-- Do not run the project from `/mnt/c/...`.
-- Use Node.js 22.13.0 or newer. The included `.nvmrc` selects the tested minimum.
-- Run project commands in Bash, not native PowerShell. Several scripts require Linux,
-  `flock`, `curl`, and GNU `timeout`.
-- Run the game server in WSL and playtest it in Windows Chrome or Edge so the real GPU and
-  display refresh rate are exercised.
+- Keep inventory grants and resource removal atomic.
+- Emit progression events only for changes that happened.
+- Batch notifications from one inventory transfer before reconciling evidence;
+  reconcile unrelated player actions individually to preserve objective ordering.
+- Rest timestamps do not prove duration. Credit actual rest minutes.
+- Normalize saves. Reject unknown or inherited catalog keys.
+- Use world/heightBounds.ts for player and placement heights. The canyon has
+  dry ground below −600 m.
+- Display settings must write only preferences, not survey progress.
+- Use gameplay/crafting.ts availability rules in both controls and transactions.
+- Developer quick-start must never write the survey slot.
+- Preferences are separate from survey state and remain shared.
+- Failed writes must not hide readable previous saves.
+- Add migrations and tests before changing the save schema.
 
-## Working principles
+## Verification and releases
 
-- Inspect the relevant systems and tests before editing.
-- Keep world generation deterministic and seeded.
-- Preserve save compatibility unless a migration or intentional reset is part of the task.
-- Prefer data-driven and reusable systems over one-off authored behavior.
-- Keep gameplay, rendering, persistence, navigation, cartography, and developer tooling
-  modular. Do not grow a single catch-all component when a focused module is practical.
-- Retain graphics fallbacks, quality controls, toggles, and performance budgets.
-- Do not remove a working feature merely to simplify a new implementation.
-- Do not add secrets, generated build output, dependencies, or browser test artifacts to Git.
+Use locked dependencies. Do not upgrade packages as incidental cleanup.
+Run typecheck, lint, coverage, production build, and test:rendered before release.
+Two unit workers are the default; use --maxWorkers=1 on constrained machines.
+Do not raise test timeouts to hide a regression.
 
-## Commands
+WebGL acceptance needs a real browser/GPU. State what was and was not tested.
+Do not claim measured FPS gains from source review alone.
 
-```bash
-nvm use
-npm run install:ci
-npm run dev
-```
-
-Before handing off a meaningful checkpoint, run the relevant tests and normally include:
-
-```bash
-npm run typecheck
-npm run lint
-npm run test:unit
-npm run build
-```
-
-For browser-facing or rendering changes, also use the appropriate Playwright suites:
-
-```bash
-npm run test:e2e
-npm run test:visual
-```
-
-## Deployment
-
-The public ChatGPT Site is controlled by the Sites project and its authenticated tooling;
-there is no generic local `npm deploy` command. When the Sites lifecycle is available,
-deploy each verified, coherent checkpoint to the current public site as requested by the
-project owner. When it is unavailable, commit the work locally and report the exact commit
-so it can be imported and deployed from the managed project chat.
-
-Never put deployment credentials in the repository.
+Use the current Sites workflow and existing .openai/hosting.json project ID.
+The owner wants completed, verified game changes published publicly. Follow
+platform permissions and stop if an approval or access check blocks publishing.
+Do not publish unrelated concurrent changes. Keep credentials, saves, generated
+output, dependencies, and caches out of Git.

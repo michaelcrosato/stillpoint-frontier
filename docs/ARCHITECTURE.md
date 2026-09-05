@@ -13,12 +13,31 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
 - `Engine` owns the WebGL renderer, fixed 60 Hz simulation clock, lifecycle, diagnostics,
   pause/context-loss behavior, save/load orchestration, player-facing overlays, and the
   narrow deterministic test bridge.
+- `camera/CameraRig` owns one continuous, saved-local view distance. Its semantic bands are
+  exact first person, over-shoulder third person, and an elevated isometric-style perspective.
+  The existing perspective render camera remains stable for the post-processing pipeline,
+  while a separate player-eye camera preserves locomotion, interaction, scanning, flashlight,
+  and audio contracts. A bounded sphere sweep against terrain, height-aware world colliders,
+  and authored overhead floors/roofs retracts the camera immediately and releases it smoothly; teleports and recovery snap both
+  poses. Displaced views project the authoritative player-eye aim ray back into screen space,
+  so their reticle stays truthful without moving gameplay origin. `camera/PlayerAvatar` adds
+  only a rigid render silhouette outside first person.
+  The requested semantic mode is a UI label, not evidence that the camera has reached
+  its endpoint. Reticle placement uses the render-frame presentation stream until
+  distance reaches zero. Near-zero pitch blending preserves extreme player look angles.
+  Authored surface sweeps query the lowest support at or above each subsegment's
+  inclusive lower bound and test both travel directions; they do not reuse the
+  player-foot reference that selects walkable stairs.
 - `settings` defines the complete action catalog and normalized interface scale, view, control,
   audio, quality, horizon, world-detail, and keybinding preferences. `PreferencesStore` keeps those local
   preferences in a version-one slot separate from world progression, so resetting or
   loading a game does not silently replace the player's controls. Rebinding swaps a
   conflicting action instead of leaving duplicate or unbound controls, and `InputManager`
   exposes actions rather than hard-coded keys to gameplay systems.
+  Optional C/right-Ctrl/right-Shift aliases yield to explicit bindings. Resolved key
+  lists are cached until bindings change. Handled UI events do not enter gameplay.
+  Captured gameplay accepts restored HUD button focus, while text-entry targets
+  remain protected. Map Ctrl/Cmd shortcuts and modified wheels belong to the browser.
 - `FeatureRegistry` is the public extension seam. A new gameplay feature installs one or
   more ordered systems without editing the engine kernel.
 - `SystemPipeline` executes systems in stable phase order. The current feature contributes
@@ -31,6 +50,10 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
   rendered solid is paired with a circle or exact oriented-box collider from the same recipe;
   a 16 m uniform grid narrows each swept movement query. Placement reserves roads, water,
   beacons, opening objectives, and existing solids before an instance becomes visible.
+  Departing chunks are retired before arrivals, keeping teleport residency within
+  the same 81-chunk bound. A center is marked complete only after loading succeeds;
+  gameplay caches refresh even when a load fails. Mid-factory allocation cleanup
+  and automatic Engine recovery from streaming exceptions remain separate work.
 - `world/benchmarkZone` and `developer/ForestStressTest` form a technical proving ground,
   not a content location. Grid `64:-60` carries one analytic shallow lake, a cleared shore
   approach, a persistent shared-water lake surface, and a lazily resident seven-by-seven
@@ -103,6 +126,9 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
   doors, records, inspection, discovery, damage, recovery, and saves. The graph has separate
   master, ambient, and effects gains, stops dynamic beds while paused, and is disabled in
   deterministic test mode; no downloaded audio asset or per-frame node churn is required.
+  Pointer-lock pause, tab hiding, and context loss call `silenceAmbient()` directly:
+  scheduled gain ramps are cancelled and all four beds are zeroed without waiting
+  for another simulation frame. Active mixing restores the beds.
 - `world/vegetation` is the catalog and low-poly geometry factory for twelve woody species
   and seven ground-cover families. `ChunkManager` preserves the original tree placement
   stream and persistent IDs, selects tree appearance from a separate style seed, and batches
@@ -151,7 +177,7 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
   hierarchy of trunk, regional, and local roads. Crownstep and Rimstead are village-budget
   landmark gateways with visible map labels and two independent road approaches each. Chunks clip those features into local
   render recipes; the complete map is never resident as geometry.
-- Pure modules (`terrain`, `random`, `collision`, `locomotion`, `interactions`, and `state`) contain simulation rules that
+- Pure modules (`terrain`, `random`, `collision`, `locomotion`, `camera/CameraRig`, `interactions`, and `state`) contain simulation rules that
   are testable without React, a browser, or a GPU. The same rule applies to settings,
   player-condition, interaction-prompt, audio-model, items, contracts, crafting, field-guide,
   loot, rest, wildlife reactions, progression, and location-discovery modules.
@@ -162,6 +188,9 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
   copy is derived from target action plus current bindings. `world/inspectables` adds stable,
   low-cost readable records at the starting compound; opening one pauses simulation and
   presents its title, source, and body through the same interaction path.
+  Scanner selection applies its distance/alignment score before visibility queries.
+  Only a candidate that can beat the best visible subject needs terrain/collider
+  checks. A blocked subject never prevents another candidate from winning.
 - `gameplay/items` is the inventory catalog and arithmetic seam. Every material and usable
   field item has a stable ID, stack limit, category, description, unit weight, and optional
   use behavior. `gameplay/crafting`, `loot`, and `resting` are pure outcome reducers;
@@ -172,6 +201,9 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
   code. `gameplay/contractEvidence` reconciles ordered objectives from durable facts so doing a
   one-time action early cannot soft-lock a contract. Static contracts, recipes, guide records,
   loot tables, dialogue, and interior layouts stay data-driven; only bounded progress is serialized.
+  Notifications from one container transfer are reduced as one batch before evidence
+  reconciliation to avoid double-crediting inventory. Separate player actions still
+  reconcile immediately so ordered objectives advance before the next action.
 - `world/spawnFeatures` composes deterministic interior props, colliders, workbenches,
   containers, beds, scanner subjects, and authored personnel around the three opening
   buildings. Layout validation shares the authored footprints and reserves every door,
@@ -186,6 +218,8 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
   bearing, and distance above that compass; relative bearing drives its center marker and edge
   arrows. It deliberately replaces the separate radar and floating waypoint card. The renderer
   never reaches into React state.
+  `ui/dialogFocus` supplies one modal boundary policy, including initial heading focus,
+  disabled/hidden controls, and single-control inspection dialogs.
 - `rendering/GpuFrameTimer` wraps the complete presented frame in a non-blocking
   `EXT_disjoint_timer_query_webgl2` query only during an active capture. It polls once on
   later frames, caps outstanding queries, discards disjoint epochs, and never stalls the GPU.
@@ -217,18 +251,28 @@ Persistent resource IDs include the feature, recipe version, chunk coordinate, a
 index. Pickups, trees, and rock outcrops are reduced through a pure idempotent interaction
 function. Only a sparse `{hits, removed}` world delta is saved; generated chunks remain
 derivable. Inventory and its matching entity delta are written in the same save operation.
+A complete yield must fit before the resource is removed; otherwise prior work remains
+and no collection event is emitted. Rest objectives count actual event duration, not
+timestamp-only evidence. Last-write status and readable-save availability are independent.
 The version-eight envelope retains survey records, inventory, sparse entity and door state,
 the manual map waypoint, total world minutes, the last horizon mode, player position and
 look direction, health/wetness/cold stress, discovered locations, contract progress, field-guide
 records, partially looted containers plus durable loot evidence, placed structures, recipe unlocks, NPC flags, and the
 last rest time. Versions one through seven migrate in place and every field is bounded and
 normalized independently; a newer-version payload is never overwritten by an older client.
+Player and placement heights share `world/heightBounds`: −1,000 to 5,000 m.
+The lower bound includes the dry Sunscar Canyon floor below −600 m. Validate
+new authored terrain against this contract before release.
 Static definitions, NPC schedule positions, weather, and animal
 reaction state remain derived rather than stored. The engine
 autosaves during active play every 30 seconds and on material state changes, exposes explicit
 Save Now and Load Last Save actions, and rebuilds generated world state before relocating the
 player on load. Settings are also written immediately to the separate preferences slot; the
 saved horizon remains a legacy migration fallback only when no preference exists.
+Horizon changes and Reset Settings write only preferences. They must not create
+or replace a survey save. `gameplay/crafting.craftingStatus` is the common
+availability rule for fabrication controls and the inventory transaction. An
+output stack at capacity is distinct from a missing ingredient.
 Quest destinations, authored terrain-landmark trailheads, and survey-marker targets are rebuilt
 from restored progression after load.
 Developer quick-start sessions reuse the same empty-save factory and world rehydration path but
@@ -285,6 +329,10 @@ The initial target is an RTX 3060-class machine at 1440p/60:
 - Wildlife is capped at 72 rigid instances in cinematic/Ultra mode and 36 in performance mode,
   spread across no more than six candidates per chunk with no shadows, pathfinding, or
   persistent AI; each visible resident carries only a bounded four-mode reaction record.
+  AnimalEngine recomputes each species' culling sphere from the presented instance
+  matrices. This covers moving animals on Crownspire and below sea level in Sunscar;
+  a fixed sphere near sea level does not. The extra bound calculation visits at most
+  72 instances per presented frame and adds no draw calls or resident animals.
 - One shadow-casting directional sun/moon key; 2K shadow map in cinematic and 4K in Ultra. Dynamic
   weather changes palette, fog, exposure, and one shader-driven precipitation field.
 - Persistent field torches keep emissive markers while only the nearest 12 cinematic/Ultra or six
@@ -304,22 +352,39 @@ The initial target is an RTX 3060-class machine at 1440p/60:
   color sampler. Roads, settlement facades, and rocks use restrained category palettes with
   no chunk- or instance-order inputs, preventing streaming seams and reload color changes.
 - `WorldMaterialLibrary` composes tagged PBR policies with reversible shader modules:
+  root tracking applies current policy only to newly retained materials; existing
+  shared references do not trigger a registry-wide rewrite. Environment/quality
+  changes still update the registry as needed. The shader modules provide
   periodic, distance-faded surface micro-detail, broad moving cloud shade, spatial rain pooling,
   and weather-driven GPU vegetation bending. Wet pooling darkens and lowers roughness only on
   nearby upward-facing exposed patches so PMREM supplies the reflection instead of another pass.
   Cloud shade fades before the detailed-world boundary and costs no extra draw call. Wind uses
   one flexibility attribute per geometry, coherent
-  world-position phase, expanded culling bounds, and matching shared depth/distance materials
-  for shadow casters. Quality strengths live in `QUALITY_PRESETS`; developer A/B switches are
+  world-position phase and expanded culling bounds. Wind-deformed shadow overrides are
+  disabled; vegetation shadow silhouettes remain static. Quality strengths live in `QUALITY_PRESETS`; developer A/B switches are
   session-only and benchmark captures record their state.
 - A camera-centered procedural sky renders sun/moon discs, horizon glow, and multi-layer
   wind-driven clouds without texture assets. One shared world-space water shader renders all
   river and sea chunks with seamless ripples, Fresnel tinting, and weather-aware sun glint.
+- EnvironmentMapRuntime owns its reflection texture and borrows the renderer for PMREM
+  capture. A finally block restores the prior render target, cube face, mip level,
+  clear policy, tone mapping, XR flag, and capture background on success or failure.
+  Failed updates retain the previous reflection and do not retry the same atmosphere
+  signature each frame. This isolates renderer state; it does not prove that Three
+  releases every internal allocation when capture fails partway through.
 - The compositor keeps ACES/output conversion last, with independently switchable selective
   bloom, Ultra-only near-field GTAO, and a restrained atmosphere-aware grade. The grade responds
   to daylight, golden hour, cloud, rain, dust, and night without changing simulation state. If an
-  optional compositor path throws, the renderer resets its target/state and retries the frame on
-  the direct path; a world-material failure still reaches the renderer interrupt.
+  optional compositor path throws, the renderer restores clear and material state, resets its
+  target, and retries the direct path. ShortRangeGtaoPass also restores point/line visibility,
+  camera range, and shadow policy in finally. Its small Three r185 internal visibility adapter
+  needs regression checks during Three upgrades. A world-material failure still reaches the
+  renderer interrupt.
+  Startup uses synchronous `renderer.compile()` with render-target restoration,
+  followed by the existing two warm-up renders before starting the frame loop.
+  The awaited startup boundary remains, but no uncancellable Three shader-poll
+  timer can survive disposal or context replacement. This trades potential boot
+  blocking for a bounded resource lifetime.
 - Storm weather drives a deterministic double-flash illumination policy from the simulation
   effect clock. It briefly lifts the shader sky, directional/hemisphere lighting, and final grade
   without bolt geometry, extra shadow maps, wall-clock randomness, or idle-frame GPU cost.
@@ -329,7 +394,9 @@ The initial target is an RTX 3060-class machine at 1440p/60:
   their fade and a session A/B switch can remove the layer entirely.
 - Renderer diagnostics expose FPS, active chunks, selected horizon, far tiles, far triangles,
   settlement proxies, optical visibility, drawing-buffer resolution/DPR, draw calls, and
-  CPU/GPU render time to the HUD and tests. A deliberate 10-second capture compares p95
+  CPU/GPU render time to the HUD and tests. GPU identity and framebuffer samples are
+  cached per context lifetime; frame counters come directly from renderer.info.
+  A deliberate 10-second capture compares p95
   work against selectable 60–240 Hz frame budgets. CPU and GPU are pipelined, so headroom
   uses `max(CPU p95, GPU p95)`, not their sum; 1% low comes from the rAF-interval p99. GPU
   submission/resolution coverage and a minimum foreground sample count prevent partial
@@ -345,9 +412,9 @@ The initial target is an RTX 3060-class machine at 1440p/60:
   is reported separately as `PASS`, `MISS`, or `CAP_LIMITED`, so a 144 Hz target measured on
   a stable 60 Hz display is not mistaken for an engine-budget failure. Real acceptance
   captures belong on pinned hardware.
-- Every unloaded chunk explicitly disposes geometries and materials.
+- Every unloaded chunk disposes owned geometry/materials and releases shared material references.
 
 The next production hardening modules are worker-based chunk recipes, floating-origin
-rebasing, shared asset reference counting, vertical capsule
+rebasing, shared geometry ownership, vertical capsule
 collision, and authored road routing around water and grades. Their boundaries already
 align with the present world, system, and feature layers.

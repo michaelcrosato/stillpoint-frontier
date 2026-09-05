@@ -65,6 +65,30 @@ function context(
 }
 
 describe("interaction system routing", () => {
+  it("skips line-of-sight queries for candidates that cannot beat a visible target", () => {
+    const targets = Array.from({ length: 20 }, (_, index) => target("collect", {
+      id: `pickup:${index}`, kind: "pickup",
+      position: new THREE.Vector3(0, 1.72, -1 - index * 0.1),
+    }));
+    const runtime = context(targets, ["KeyE"]);
+    new InteractionSystem().update(runtime);
+    expect(runtime.nearbyTarget).toBe(targets[0]);
+    expect(runtime.performInteraction).toHaveBeenCalledWith(targets[0]);
+    expect(runtime.world.hasLineOfSight).toHaveBeenCalledOnce();
+  });
+
+  it("continues to a visible candidate when the best-scoring one is blocked", () => {
+    const targets = [1, 2, 3].map((distance) => target("collect", {
+      id: `pickup:${distance}`, kind: "pickup",
+      position: new THREE.Vector3(0, 1.72, -distance),
+    }));
+    const runtime = context(targets, ["KeyE"]);
+    vi.mocked(runtime.world.hasLineOfSight).mockReturnValueOnce(false);
+    new InteractionSystem().update(runtime);
+    expect(runtime.performInteraction).toHaveBeenCalledWith(targets[1]);
+    expect(runtime.world.hasLineOfSight).toHaveBeenCalledTimes(2);
+  });
+
   it("uses one E press to select and toggle a facing door", () => {
     const door = target("toggle");
     const runtime = context(door, ["KeyE"]);

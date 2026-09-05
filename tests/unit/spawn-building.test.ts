@@ -407,6 +407,17 @@ describe("single spawn building prototype", () => {
     expect(world.targets.filter((target) => target.kind === "door")).toHaveLength(3);
     expect(world.sampleGroundHeight(SPAWN_BUILDING.x, SPAWN_BUILDING.z))
       .toBeCloseTo(SPAWN_BUILDING.floorY);
+    expect(world.sampleOverheadHeight(
+      SPAWN_BUILDING.x,
+      SPAWN_BUILDING.z,
+      SPAWN_BUILDING.floorY + PLAYER_HEIGHT,
+    )).toBeCloseTo(SPAWN_BUILDING.roofY);
+    expect(world.sampleOverheadHeight(
+      SPAWN_BUILDING.x + SPAWN_BUILDING.roofStairwellMinX + 0.01,
+      SPAWN_BUILDING.z,
+      SPAWN_BUILDING.floorY + PLAYER_HEIGHT,
+    )).toBeNull();
+    expect(world.sampleOverheadHeight(Number.NaN, 0, 0)).toBeNull();
     expect(isPlanarPositionClear({ x: 0, z: 8 }, world.colliders, PLAYER_RADIUS))
       .toBe(true);
 

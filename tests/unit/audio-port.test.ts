@@ -10,6 +10,8 @@ class FakeAudioParam {
   value = 0;
   readonly targets: number[] = [];
 
+  cancelScheduledValues() {}
+
   setTargetAtTime(value: number) {
     this.value = value;
     this.targets.push(value);
@@ -158,6 +160,7 @@ function exercisePort(audio: AudioPort) {
     settlement: 0.2,
     lowpassHz: 2_000,
   });
+  audio.silenceAmbient();
   audio.playCue("door-open", { position: { x: 2, y: 1, z: 3 } });
   audio.playFootstep("stone", 0.8, { position: { x: 0, y: 0, z: 0 } });
 }
@@ -248,6 +251,16 @@ describe("audio port", () => {
       });
       expect(await audio.unlock()).toBe(true);
       const context = FakeAudioContext.latest!;
+
+      const mix = { wind: 1, weather: 1, wildlife: 1, settlement: 1, lowpassHz: 2_000 };
+      audio.updateMix(mix);
+      const ambientGains = context.gains.slice(3, 7);
+      expect(ambientGains).toHaveLength(4);
+      expect(ambientGains.every((node) => node.gain.value > 0)).toBe(true);
+      audio.silenceAmbient();
+      expect(ambientGains.map((node) => node.gain.value)).toEqual([0, 0, 0, 0]);
+      audio.updateMix(mix);
+      expect(ambientGains.every((node) => node.gain.value > 0)).toBe(true);
 
       audio.setLevels({ master: 0.45, ambient: 0.35, effects: 0.25 });
       audio.setListenerPose({

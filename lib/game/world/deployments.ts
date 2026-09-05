@@ -9,6 +9,7 @@ import type { RestSiteDefinition } from "../gameplay/resting";
 import type { PlanarCollider } from "../systems/collision";
 import type { WorldTarget } from "./targets";
 import { WORLD_HALF_EXTENT } from "./macroWorld";
+import { isSupportedWorldHeight } from "./heightBounds";
 
 export type PlacementArchetype =
   | "bedroll"
@@ -312,13 +313,12 @@ export function normalizePlacedEntities(value: unknown) {
       typeof source.archetypeId !== "string" ||
       !ARCHETYPES.has(source.archetypeId as PlacementArchetype) ||
       typeof source.x !== "number" ||
-      typeof source.y !== "number" ||
+      !isSupportedWorldHeight(source.y) ||
       typeof source.z !== "number" ||
       typeof source.yaw !== "number" ||
       ![source.x, source.y, source.z, source.yaw].every(Number.isFinite) ||
       Math.abs(source.x) > WORLD_HALF_EXTENT ||
-      Math.abs(source.z) > WORLD_HALF_EXTENT ||
-      source.y < -100 || source.y > 5_000
+      Math.abs(source.z) > WORLD_HALF_EXTENT
     ) continue;
     const wrapped = ((source.yaw + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
     records.push({

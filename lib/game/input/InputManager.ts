@@ -1,5 +1,6 @@
 import {
   DEFAULT_KEY_BINDINGS,
+  GAME_ACTIONS,
   type GameAction,
   type KeyBindings,
 } from "../settings";
@@ -11,22 +12,50 @@ const ACTION_ALTERNATES: Partial<Record<GameAction, readonly string[]>> = {
   harvest: ["Mouse0"],
 };
 
-function shouldIgnoreKeyTarget(target: EventTarget | null, code: string) {
-  if (!(target instanceof HTMLElement)) return false;
-  if (target.isContentEditable || target.matches("input, select, textarea")) {
-    return code !== "Escape";
+/** Explicit user bindings own a key; optional shortcuts yield to them. */
+export function resolveActionKeys(bindings: Readonly<KeyBindings>) {
+  const assigned = new Set(Object.values(bindings));
+  const resolved = {} as Record<GameAction, readonly string[]>;
+  for (const action of GAME_ACTIONS) {
+    resolved[action] = [bindings[action], ...(ACTION_ALTERNATES[action] ?? [])
+      .filter((code) => !assigned.has(code))];
   }
-  // Preserve native button activation without letting focus on a HUD control
-  // disable unrelated bound actions such as L for the flashlight.
-  return target.matches("button, [role='button']") && (code === "Space" || code === "Enter");
+  return resolved;
+}
+
+function isEditableTarget(target: EventTarget | null, pointerLocked: boolean) {
+  if (!(target instanceof HTMLElement)) return false;
+  return (
+    target.isContentEditable ||
+    target.matches("input, select, textarea") ||
+    (!pointerLocked && target.matches("button, [role='button']"))
+  );
+}
+
+export function normalizeCameraWheelDelta(
+  deltaY: number,
+  deltaMode: number,
+  modified = false,
+) {
+  if (modified || !Number.isFinite(deltaY)) return 0;
+  const modeScale = deltaMode === 1 ? 18 : deltaMode === 2 ? 180 : 1;
+  return Math.max(-240, Math.min(240, deltaY * modeScale));
+}
+
+export function accumulateCameraWheelDelta(current: number, next: number) {
+  const safeCurrent = Number.isFinite(current) ? current : 0;
+  const safeNext = Number.isFinite(next) ? next : 0;
+  return Math.max(-480, Math.min(480, safeCurrent + safeNext));
 }
 
 export class InputManager {
   private held = new Set<string>();
   private pressed = new Set<string>();
   private lookDelta = { x: 0, y: 0 };
+  private cameraZoomDelta = 0;
   private onPointerLockChange?: (locked: boolean) => void;
-  private bindings: KeyBindings;
+  private actionKeys: Record<GameAction, readonly string[]>;
+  private capturedKeys: Set<string>;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -34,12 +63,14 @@ export class InputManager {
     bindings: Readonly<KeyBindings> = DEFAULT_KEY_BINDINGS,
   ) {
     this.onPointerLockChange = onPointerLockChange;
-    this.bindings = { ...bindings };
+    this.actionKeys = resolveActionKeys(bindings);
+    this.capturedKeys = new Set([...CORE_GAME_KEYS, ...Object.values(bindings)]);
     window.addEventListener("keydown", this.handleKeyDown);
     window.addEventListener("keyup", this.handleKeyUp);
     window.addEventListener("blur", this.handleBlur);
     window.addEventListener("mouseup", this.handleMouseUp);
     this.canvas.addEventListener("mousedown", this.handleMouseDown);
+    this.canvas.addEventListener("wheel", this.handleWheel, { passive: false });
     document.addEventListener("mousemove", this.handleMouseMove);
     document.addEventListener("pointerlockchange", this.handlePointerLockChange);
     document.addEventListener("pointerlockerror", this.handlePointerLockError);
@@ -64,8 +95,7 @@ export class InputManager {
   }
 
   isActionDown(action: GameAction) {
-    return [this.bindings[action], ...(ACTION_ALTERNATES[action] ?? [])]
-      .some((code) => this.held.has(code));
+    return this.actionKeys[action].some((code) => this.held.has(code));
   }
 
   consumePressed(code: string) {
@@ -75,14 +105,15 @@ export class InputManager {
   }
 
   consumeActionPressed(action: GameAction) {
-    const codes = [this.bindings[action], ...(ACTION_ALTERNATES[action] ?? [])];
+    const codes = this.actionKeys[action];
     const wasPressed = codes.some((code) => this.pressed.has(code));
     for (const code of codes) this.pressed.delete(code);
     return wasPressed;
   }
 
   setBindings(bindings: Readonly<KeyBindings>) {
-    this.bindings = { ...bindings };
+    this.actionKeys = resolveActionKeys(bindings);
+    this.capturedKeys = new Set([...CORE_GAME_KEYS, ...Object.values(bindings)]);
     this.reset();
   }
 
@@ -90,6 +121,12 @@ export class InputManager {
     const delta = { ...this.lookDelta };
     this.lookDelta.x = 0;
     this.lookDelta.y = 0;
+    return delta;
+  }
+
+  consumeCameraZoomDelta() {
+    const delta = this.cameraZoomDelta;
+    this.cameraZoomDelta = 0;
     return delta;
   }
 
@@ -103,19 +140,22 @@ export class InputManager {
     window.removeEventListener("blur", this.handleBlur);
     window.removeEventListener("mouseup", this.handleMouseUp);
     this.canvas.removeEventListener("mousedown", this.handleMouseDown);
+    this.canvas.removeEventListener("wheel", this.handleWheel);
     document.removeEventListener("mousemove", this.handleMouseMove);
     document.removeEventListener("pointerlockchange", this.handlePointerLockChange);
     document.removeEventListener("pointerlockerror", this.handlePointerLockError);
     this.held.clear();
     this.pressed.clear();
+    this.lookDelta.x = 0;
+    this.lookDelta.y = 0;
+    this.cameraZoomDelta = 0;
   }
 
   private handleKeyDown = (event: KeyboardEvent) => {
-    if (shouldIgnoreKeyTarget(event.target, event.code)) return;
-    if (
-      CORE_GAME_KEYS.has(event.code) ||
-      Object.values(this.bindings).includes(event.code)
-    ) {
+    if (event.defaultPrevented) return;
+    if (!this.isLocked() && (event.ctrlKey || event.metaKey || event.altKey)) return;
+    if (isEditableTarget(event.target, this.isLocked()) && event.code !== "Escape") return;
+    if (this.capturedKeys.has(event.code)) {
       event.preventDefault();
     }
     if (!event.repeat) this.pressed.add(event.code);
@@ -131,6 +171,7 @@ export class InputManager {
     this.pressed.clear();
     this.lookDelta.x = 0;
     this.lookDelta.y = 0;
+    this.cameraZoomDelta = 0;
   };
 
   private handleMouseMove = (event: MouseEvent) => {
@@ -147,6 +188,20 @@ export class InputManager {
 
   private handleMouseUp = (event: MouseEvent) => {
     if (event.button === 0) this.held.delete("Mouse0");
+  };
+
+  private handleWheel = (event: WheelEvent) => {
+    if (!this.isLocked() || event.ctrlKey || event.metaKey) return;
+    event.preventDefault();
+    const normalized = normalizeCameraWheelDelta(
+      event.deltaY,
+      event.deltaMode,
+      event.ctrlKey || event.metaKey,
+    );
+    this.cameraZoomDelta = accumulateCameraWheelDelta(
+      this.cameraZoomDelta,
+      normalized,
+    );
   };
 
   private handlePointerLockChange = () => {

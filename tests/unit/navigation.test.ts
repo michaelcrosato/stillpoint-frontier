@@ -295,26 +295,45 @@ describe("render-frame presentation store", () => {
       unwrappedHeading: 0,
       navigation: guidance,
       waypointScreen: { visible: true, xPercent: 50, yPercent: 40 },
+      aimScreen: null,
     });
     store.publish({
       heading: 0,
       unwrappedHeading: 0,
       navigation: { ...guidance, distance: guidance.distance + 1 },
       waypointScreen: { visible: true, xPercent: 50, yPercent: 40 },
+      aimScreen: null,
     });
     store.publish({
       heading: 0,
       unwrappedHeading: 0,
       navigation: { ...guidance, distance: guidance.distance + 1 },
       waypointScreen: { visible: false, xPercent: 51, yPercent: 41 },
+      aimScreen: null,
     });
     store.publish({
       heading: 0,
       unwrappedHeading: 0,
       navigation: null,
       waypointScreen: null,
+      aimScreen: { visible: true, xPercent: 48, yPercent: 62 },
     });
-    expect(listener).toHaveBeenCalledTimes(4);
+    store.publish({
+      heading: 0,
+      unwrappedHeading: 0,
+      navigation: null,
+      waypointScreen: null,
+      aimScreen: { visible: true, xPercent: 49, yPercent: 62 },
+    });
+    expect(listener).toHaveBeenCalledTimes(5);
+    store.publish({
+      heading: 0,
+      unwrappedHeading: 0,
+      navigation: null,
+      waypointScreen: null,
+      aimScreen: { visible: true, xPercent: 49, yPercent: 62 },
+    });
+    expect(listener).toHaveBeenCalledTimes(5);
     expect(store.getServerSnapshot()).toBe(INITIAL_PRESENTATION);
   });
 });

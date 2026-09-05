@@ -9,6 +9,9 @@ const toTarget = new THREE.Vector3();
 const RESOURCE_MIN_ALIGNMENT = 0.42;
 const RESOURCE_ALIGNMENT_WEIGHT = 5;
 const DIRECTION_EPSILON = 1e-6;
+const PRIORITY_TARGET_KINDS = new Set<WorldTarget["kind"]>([
+  "door", "inspectable", "station", "container", "rest", "npc",
+]);
 export const INTERACTION_MAX_VERTICAL_DELTA = 2.05;
 
 type WorldTargetWithInteractionRadius = WorldTarget & {
@@ -152,13 +155,10 @@ export class InteractionSystem implements GameSystem<GameRuntimeContext> {
       if (distance > target.maxDistance) continue;
       const alignment = forward.dot(toTarget.normalize());
       if (alignment < (target.kind === "pickup" ? 0.5 : 0.58)) continue;
-      if (!targetHasLineOfSight(context, target)) continue;
-      const priority = ["door", "inspectable", "station", "container", "rest", "npc"]
-        .includes(target.kind)
-        ? -0.35
-        : 0;
+      const priority = PRIORITY_TARGET_KINDS.has(target.kind) ? -0.35 : 0;
       const score = distance + (1 - alignment) * 4 + priority;
       if (score >= bestScore) continue;
+      if (!targetHasLineOfSight(context, target)) continue;
       bestScore = score;
       bestTarget = target;
       bestDistance = distance;

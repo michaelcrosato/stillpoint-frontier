@@ -26,6 +26,17 @@ function captureContext(): GraphicsBenchmarkContext {
       reeds: 1_024,
     },
     viewpoint: { x: 6_144, y: 8, z: -5_930, heading: 0, fov: 76 },
+    camera: {
+      mode: "firstPerson",
+      targetDistance: 0,
+      distance: 0,
+      collisionLimited: false,
+      isometricAngleDegrees: 56,
+      x: 6_144,
+      y: 9.72,
+      z: -5_930,
+      effectiveFov: 76,
+    },
     environment: {
       worldMinutes: 840,
       weatherId: "fair",

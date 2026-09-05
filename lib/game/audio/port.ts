@@ -40,6 +40,8 @@ export interface AudioPort<CueId extends string = AudioCue> {
   setLevels(levels: Readonly<AudioLevels>): void;
   setListenerPose(pose: Readonly<AudioListenerPose>): void;
   updateMix(mix: Readonly<AmbientMix>): void;
+  /** Stop ambient beds even when simulation frames are suspended. */
+  silenceAmbient(): void;
   playFootstep(
     surface: FootstepSurface,
     intensity?: number,

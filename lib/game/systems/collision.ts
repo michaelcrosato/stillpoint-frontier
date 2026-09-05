@@ -62,6 +62,8 @@ const MAX_SWEEP_ITERATIONS = 8;
 const LINE_OF_SIGHT_ENDPOINT_EPSILON = 1e-4;
 const LINE_OF_SIGHT_TERRAIN_CLEARANCE = 0.04;
 const MAX_TERRAIN_SIGHT_SAMPLES = 128;
+const MAX_CAMERA_TERRAIN_SAMPLES = 192;
+const MAX_CAMERA_OVERHEAD_SAMPLES = 192;
 
 function isFinitePosition(position: PlanarPosition) {
   return Number.isFinite(position.x) && Number.isFinite(position.z);
@@ -289,6 +291,145 @@ export function isColliderLineOfSightClear(
     if (interiorMax - interiorMin > EPSILON) return false;
   }
   return true;
+}
+
+/**
+ * Returns the earliest normalized hit along a spatial segment. A clearance
+ * radius expands horizontal and vertical collider bounds so camera booms can
+ * be treated as a small sphere instead of a zero-width ray.
+ */
+export function firstColliderSegmentHitFraction(
+  origin: Readonly<SpatialPosition>,
+  target: Readonly<SpatialPosition>,
+  colliders: readonly PlanarCollider[],
+  clearance = 0,
+) {
+  if (!isFiniteSpatialPosition(origin) || !isFiniteSpatialPosition(target)) return 0;
+  const safeClearance = Number.isFinite(clearance) ? Math.max(0, clearance) : 0;
+  const movement = {
+    x: target.x - origin.x,
+    z: target.z - origin.z,
+  };
+  const movementY = target.y - origin.y;
+  let earliest = Infinity;
+  for (const collider of colliders) {
+    if (!isValidCollider(collider)) continue;
+    const expanded: PlanarCollider = collider.shape === "circle"
+      ? {
+          ...collider,
+          radius: collider.radius + safeClearance,
+          minY: collider.minY === undefined ? undefined : collider.minY - safeClearance,
+          maxY: collider.maxY === undefined ? undefined : collider.maxY + safeClearance,
+        }
+      : {
+          ...collider,
+          halfWidth: collider.halfWidth + safeClearance,
+          halfDepth: collider.halfDepth + safeClearance,
+          minY: collider.minY === undefined ? undefined : collider.minY - safeClearance,
+          maxY: collider.maxY === undefined ? undefined : collider.maxY + safeClearance,
+        };
+    const planarInterval = expanded.shape === "circle"
+      ? segmentCircleInterval(origin, movement, expanded)
+      : segmentBoxInterval(origin, movement, expanded);
+    if (!planarInterval) continue;
+    const verticalInterval = segmentVerticalInterval(origin.y, movementY, expanded);
+    if (!verticalInterval) continue;
+    const overlap = intersectIntervals(planarInterval, verticalInterval);
+    if (!overlap || overlap.max <= LINE_OF_SIGHT_ENDPOINT_EPSILON) continue;
+    earliest = Math.min(
+      earliest,
+      Math.max(LINE_OF_SIGHT_ENDPOINT_EPSILON, overlap.min),
+    );
+  }
+  return Number.isFinite(earliest) ? clampUnit(earliest) : null;
+}
+
+/**
+ * Bounded terrain sweep for camera booms. The endpoint is included because a
+ * camera may never settle inside the ground. It returns the previous clear
+ * sample so the caller stays on the safe side of the surface.
+ */
+export function firstTerrainSegmentHitFraction(
+  origin: Readonly<SpatialPosition>,
+  target: Readonly<SpatialPosition>,
+  sampleHeight: (x: number, z: number) => number,
+  clearance = 0,
+  sampleSpacing = 0.75,
+) {
+  if (!isFiniteSpatialPosition(origin) || !isFiniteSpatialPosition(target)) return 0;
+  const safeClearance = Number.isFinite(clearance) ? Math.max(0, clearance) : 0;
+  const horizontalDistance = Math.hypot(target.x - origin.x, target.z - origin.z);
+  const safeSpacing = Number.isFinite(sampleSpacing) && sampleSpacing > 0
+    ? Math.max(0.2, sampleSpacing)
+    : 0.75;
+  const sampleCount = Math.min(
+    MAX_CAMERA_TERRAIN_SAMPLES,
+    Math.max(1, Math.ceil(horizontalDistance / safeSpacing)),
+  );
+  for (let index = 1; index <= sampleCount; index += 1) {
+    const time = index / sampleCount;
+    const x = origin.x + (target.x - origin.x) * time;
+    const z = origin.z + (target.z - origin.z) * time;
+    const segmentY = origin.y + (target.y - origin.y) * time;
+    const terrainY = sampleHeight(x, z);
+    if (!Number.isFinite(terrainY) || terrainY + safeClearance >= segmentY) {
+      return Math.max(0, (index - 1) / sampleCount);
+    }
+  }
+  return null;
+}
+
+/**
+ * Bounded, bidirectional sweep against authored horizontal surfaces. The
+ * callback returns the lowest support at or above the local swept lower bound,
+ * or null inside an intentional opening. Returning the previous clear sample
+ * keeps the camera on the player's side of a slab, including descending booms.
+ */
+export function firstOverheadSegmentHitFraction(
+  origin: Readonly<SpatialPosition>,
+  target: Readonly<SpatialPosition>,
+  sampleOverheadHeight: (x: number, z: number, minimumY: number) => number | null,
+  clearance = 0,
+  sampleSpacing = 0.55,
+) {
+  if (!isFiniteSpatialPosition(origin) || !isFiniteSpatialPosition(target)) return 0;
+  const safeClearance = Number.isFinite(clearance) ? Math.max(0, clearance) : 0;
+  const segmentDistance = Math.hypot(
+    target.x - origin.x,
+    target.y - origin.y,
+    target.z - origin.z,
+  );
+  const safeSpacing = Number.isFinite(sampleSpacing) && sampleSpacing > 0
+    ? Math.max(0.2, sampleSpacing)
+    : 0.55;
+  const sampleCount = Math.min(
+    MAX_CAMERA_OVERHEAD_SAMPLES,
+    Math.max(1, Math.ceil(segmentDistance / safeSpacing)),
+  );
+  let previousSegmentY = origin.y;
+  for (let index = 1; index <= sampleCount; index += 1) {
+    const time = index / sampleCount;
+    const x = origin.x + (target.x - origin.x) * time;
+    const z = origin.z + (target.z - origin.z) * time;
+    const segmentY = origin.y + (target.y - origin.y) * time;
+    const lowerY = Math.min(previousSegmentY, segmentY) - safeClearance;
+    const upperY = Math.max(previousSegmentY, segmentY) + safeClearance;
+    const overheadY = sampleOverheadHeight(x, z, lowerY);
+    if (overheadY === null) {
+      previousSegmentY = segmentY;
+      continue;
+    }
+    if (!Number.isFinite(overheadY)) return 0;
+    if (overheadY >= lowerY && overheadY <= upperY) {
+      return Math.max(0, (index - 1) / sampleCount);
+    }
+    previousSegmentY = segmentY;
+  }
+  return null;
+}
+
+function clampUnit(value: number) {
+  return Math.min(1, Math.max(0, value));
 }
 
 /**

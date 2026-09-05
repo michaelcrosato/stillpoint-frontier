@@ -7,6 +7,30 @@ import {
 } from "../../lib/game/rendering/WorldMaterialLibrary";
 
 describe("world material library", () => {
+  it("initializes new materials once without rewriting earlier streamed roots", () => {
+    const library = new WorldMaterialLibrary();
+    const geometry = new THREE.BoxGeometry();
+    const materials: THREE.MeshStandardMaterial[] = [];
+    let writes = 0;
+    for (let index = 0; index < 81; index += 1) {
+      const material = tagWorldMaterial(new THREE.MeshStandardMaterial(), { role: "terrain" });
+      let roughness = material.roughness;
+      Object.defineProperty(material, "roughness", {
+        get: () => roughness,
+        set: (value: number) => { roughness = value; writes += 1; },
+      });
+      materials.push(material);
+      library.track(new THREE.Mesh(geometry, material));
+    }
+    expect(writes).toBe(81);
+    library.track(new THREE.Mesh(geometry, materials[0]));
+    expect(writes).toBe(81);
+    library.present({ surfaceWetness: 0.75 });
+    expect(writes).toBe(162);
+    library.dispose();
+    for (const material of materials) material.dispose();
+    geometry.dispose();
+  });
   it("applies wet PBR policy and restores shared materials after the last root", () => {
     const material = tagWorldMaterial(
       new THREE.MeshStandardMaterial({ roughness: 0.9, envMapIntensity: 1 }),

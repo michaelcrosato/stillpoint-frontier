@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   PlanarCollisionIndex,
   colliderIntersectsVerticalRange,
+  firstColliderSegmentHitFraction,
+  firstOverheadSegmentHitFraction,
+  firstTerrainSegmentHitFraction,
   isColliderLineOfSightClear,
   isPlanarPositionClear,
   isTerrainLineOfSightClear,
@@ -367,5 +370,125 @@ describe("line-of-sight collision", () => {
       (_x, z) => z < -4 && z > -6 ? 2.2 : 0,
     )).toBe(false);
     expect(isTerrainLineOfSightClear(origin, far, () => Number.NaN)).toBe(false);
+  });
+});
+
+describe("camera boom collision", () => {
+  const origin = { x: 0, y: 2, z: 0 };
+  const target = { x: 0, y: 2, z: 10 };
+
+  it("returns the first height-aware collider entry with clearance", () => {
+    const nearWall: BoxCollider = {
+      ...building,
+      id: "near-camera-wall",
+      z: 4,
+      halfWidth: 2,
+      halfDepth: 0.25,
+      minY: 0,
+      maxY: 3,
+    };
+    const farCircle: CircleCollider = {
+      ...circle,
+      id: "far-camera-column",
+      z: 8,
+      radius: 0.5,
+      minY: 0,
+      maxY: 4,
+    };
+    expect(firstColliderSegmentHitFraction(origin, target, [farCircle, nearWall], 0.25))
+      .toBeCloseTo(0.35, 5);
+    expect(firstColliderSegmentHitFraction(
+      { ...origin, y: 6 },
+      { ...target, y: 6 },
+      [nearWall],
+      0.2,
+    )).toBeNull();
+  });
+
+  it("returns the previous clear terrain sample and includes the endpoint", () => {
+    const ridge = firstTerrainSegmentHitFraction(
+      origin,
+      target,
+      (_x, z) => z >= 5 ? 3 : 0,
+      0.2,
+      1,
+    );
+    expect(ridge).toBeCloseTo(0.4, 5);
+    expect(firstTerrainSegmentHitFraction(origin, target, () => 0)).toBeNull();
+    expect(firstTerrainSegmentHitFraction(origin, target, () => Number.NaN)).toBe(0);
+    expect(firstTerrainSegmentHitFraction(origin, { ...target, y: 0 }, () => 0, 0, 20))
+      .toBe(0);
+  });
+
+  it("returns the previous clear sample below an overhead surface", () => {
+    const overhead = firstOverheadSegmentHitFraction(
+      origin,
+      { x: 0, y: 8, z: 6 },
+      () => 5,
+      0.2,
+      1,
+    );
+    expect(overhead).not.toBeNull();
+    expect(overhead ?? 1).toBeLessThan(0.5);
+    expect(firstOverheadSegmentHitFraction(
+      origin,
+      { x: 0, y: 8, z: 6 },
+      () => null,
+      0.2,
+      1,
+    )).toBeNull();
+    expect(firstOverheadSegmentHitFraction(
+      origin,
+      { x: 0, y: 8, z: 6 },
+      () => Number.NaN,
+    )).toBe(0);
+  });
+
+  it("distinguishes crossing a roof from entering its footprint above it", () => {
+    const risingTarget = { x: 0, y: 8, z: 10 };
+    expect(firstOverheadSegmentHitFraction(
+      origin,
+      risingTarget,
+      (_x, z) => z >= 2 ? 5 : null,
+      0.2,
+      0.5,
+    )).not.toBeNull();
+    expect(firstOverheadSegmentHitFraction(
+      origin,
+      risingTarget,
+      (_x, z) => z >= 8 ? 5 : null,
+      0.2,
+      0.5,
+    )).toBeNull();
+  });
+
+  it.each([[2, 8], [8, 2], [5, 5]])("blocks a surface in either swept direction (%s to %s)", (fromY, toY) => {
+    const hit = firstOverheadSegmentHitFraction(
+      { x: 0, y: fromY, z: 0 },
+      { x: 0, y: toY, z: 10 },
+      (_x, z, minimumY) => z >= 2 && 5 >= minimumY ? 5 : null,
+      0.2,
+      0.5,
+    );
+    expect(hit).not.toBeNull();
+    expect(hit).toBeLessThan(0.5);
+  });
+
+  it("fails safely for malformed segment endpoints", () => {
+    expect(firstColliderSegmentHitFraction(
+      { ...origin, x: Number.NaN },
+      target,
+      [],
+    )).toBe(0);
+    expect(firstTerrainSegmentHitFraction(
+      origin,
+      { ...target, y: Number.NaN },
+      () => 0,
+    )).toBe(0);
+    expect(firstOverheadSegmentHitFraction(
+      origin,
+      { ...target, y: Number.NaN },
+      () => null,
+    )).toBe(0);
   });
 });

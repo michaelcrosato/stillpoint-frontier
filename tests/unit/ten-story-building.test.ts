@@ -552,6 +552,11 @@ describe("authored ten-story building", () => {
       expect(world.sampleGroundHeight(definition.x, definition.z, floorY))
         .toBeCloseTo(floorY);
     });
+    expect(world.sampleOverheadHeight(
+      definition.x,
+      definition.z,
+      definition.floorY + PLAYER_HEIGHT,
+    )).toBeCloseTo(definition.floorYs[1]);
 
     expect(world.toggleDoor(
       definition.doorId,

@@ -1,4 +1,5 @@
 "use client";
+import { trapDialogTab } from "../lib/game/ui/dialogFocus";
 
 import {
   useEffect,
@@ -55,22 +56,7 @@ export default function FeatureDialog({
   }, []);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    if (event.key !== "Tab") return;
-    const focusable = Array.from(
-      panelRef.current?.querySelectorAll<HTMLElement>(
-        "button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex='0']",
-      ) ?? [],
-    );
-    if (focusable.length === 0) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
+    trapDialogTab(event, panelRef.current);
   };
 
   return (

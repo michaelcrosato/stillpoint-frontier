@@ -25,6 +25,8 @@ describe("local preferences", () => {
       masterVolume: 0.44,
       quality: "ultra" as const,
       worldDetail: 4 as const,
+      cameraDistance: 41.5,
+      isometricAngle: 63,
       keyBindings: { ...DEFAULT_GAME_SETTINGS.keyBindings, flashlight: "KeyP" },
     };
     expect(store.save(settings)).toBe(true);
@@ -41,6 +43,8 @@ describe("local preferences", () => {
     expect(settings.fov).toBe(79);
     expect(settings.worldDetail).toBe(DEFAULT_GAME_SETTINGS.worldDetail);
     expect(settings.interfaceScale).toBe(DEFAULT_GAME_SETTINGS.interfaceScale);
+    expect(settings.cameraDistance).toBe(0);
+    expect(settings.isometricAngle).toBe(56);
   });
 
   it("recovers from invalid versions and storage failures", () => {

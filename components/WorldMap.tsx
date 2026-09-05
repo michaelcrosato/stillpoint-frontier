@@ -15,6 +15,8 @@ import {
   type WheelEvent,
 } from "react";
 import { BEACONS, WORLD_SEED } from "../lib/game/config";
+import { keyLabel } from "../lib/game/settings";
+import { trapDialogTab } from "../lib/game/ui/dialogFocus";
 import {
   clamp,
   formatHeading,
@@ -125,6 +127,7 @@ export default function WorldMap({
   onFastTravel,
 }: WorldMapProps) {
   const plotRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
   const dragRef = useRef<MapDragState | null>(null);
   const suppressClickRef = useRef(false);
   const [localViewport, setLocalViewport] = useState(() => viewport);
@@ -170,10 +173,14 @@ export default function WorldMap({
       });
     };
     measure();
+    const previous = document.activeElement as HTMLElement | null;
     plot.focus({ preventScroll: true });
     const observer = new ResizeObserver(measure);
     observer.observe(plot);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      previous?.focus?.();
+    };
   }, [changeViewport]);
 
   const safeViewport = clampMapViewport(localViewport, metrics, WORLD_HALF_EXTENT);
@@ -245,6 +252,7 @@ export default function WorldMap({
   };
 
   const handleMapKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.ctrlKey || event.metaKey || event.defaultPrevented) return;
     if (event.target !== event.currentTarget) return;
     if ((event.key === "Delete" || event.key === "Backspace") && canClear) {
       event.preventDefault();
@@ -338,6 +346,7 @@ export default function WorldMap({
   };
 
   const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
+    if (event.ctrlKey || event.metaKey || event.defaultPrevented) return;
     event.preventDefault();
     const rect = event.currentTarget.getBoundingClientRect();
     const factor = Math.exp(-event.deltaY * 0.0015);
@@ -403,6 +412,16 @@ export default function WorldMap({
 
   return (
     <section
+      ref={panelRef}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          onClose();
+          return;
+        }
+        trapDialogTab(event, panelRef.current);
+      }}
       className="map-panel"
       data-testid="map-panel"
       data-map-detail={detailLevel}
@@ -424,7 +443,7 @@ export default function WorldMap({
             </button>
           )}
           <button type="button" onClick={onClose}>
-            CLOSE <kbd>M</kbd>
+            CLOSE <kbd>{keyLabel(snapshot.settings.keyBindings.map)}</kbd>
           </button>
         </div>
       </header>

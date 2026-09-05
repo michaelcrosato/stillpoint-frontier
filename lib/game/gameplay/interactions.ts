@@ -1,5 +1,5 @@
 import type { ItemId, InventoryState } from "./items";
-import { addItem } from "./items";
+import { applyInventoryDelta } from "./items";
 
 export interface EntityDiff {
   hits: number;
@@ -21,7 +21,7 @@ export interface GatherTarget {
 
 export interface GatherOutcome {
   state: InteractionState;
-  result: "hit" | "collected" | "depleted" | "unchanged";
+  result: "hit" | "collected" | "depleted" | "unchanged" | "full";
   remainingHits: number;
   loot: { item: ItemId; quantity: number } | null;
 }
@@ -36,7 +36,9 @@ export function applyGather(
     return { state: { ...state }, result: "unchanged", remainingHits: 0, loot: null };
   }
 
-  const required = Math.max(1, Math.floor(target.hitsRequired));
+  const required = Number.isFinite(target.hitsRequired)
+    ? Math.max(1, Math.floor(target.hitsRequired))
+    : 1;
   const nextHits = target.action === "collect" ? required : Math.min(required, current.hits + 1);
   const removed = nextHits >= required;
   const nextDiff = { hits: nextHits, removed };
@@ -50,10 +52,23 @@ export function applyGather(
     };
   }
 
-  const quantity = Math.max(0, Math.floor(target.yieldAmount));
+  const quantity = Number.isFinite(target.yieldAmount)
+    ? Math.max(0, Math.floor(target.yieldAmount))
+    : 0;
+  const inventory = applyInventoryDelta(state.inventory, { [target.item]: quantity });
+  // Do not destroy a resource, or award contract credit, for loot that cannot fit.
+  // Keep the prior work so gathering can finish after space is made.
+  if (!inventory) {
+    return {
+      state: { ...state },
+      result: "full",
+      remainingHits: Math.max(0, required - current.hits),
+      loot: null,
+    };
+  }
   return {
     state: {
-      inventory: addItem(state.inventory, target.item, quantity),
+      inventory,
       worldDiffs: nextWorldDiffs,
     },
     result: target.action === "collect" ? "collected" : "depleted",

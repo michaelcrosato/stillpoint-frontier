@@ -16,6 +16,11 @@ import {
 const CONTAINER_ID = "container:test:field-supplies-a";
 
 describe("deterministic loot containers", () => {
+  it("rejects inherited item names from malformed saves", () => {
+    const states = normalizeContainerStates(JSON.parse('{"container:test:field-supplies-a":{"opened":true,"remaining":{"constructor":2,"toString":3,"__proto__":4,"wood":1}}}'));
+    expect(states[CONTAINER_ID].remaining).toEqual({ wood: 1 });
+    expect(containerItemCount(states[CONTAINER_ID])).toBe(1);
+  });
   it("rolls stable legal contents from table and container IDs", () => {
     const first = createContainerContents(CONTAINER_ID, "field_supplies");
     const second = createContainerContents(CONTAINER_ID, "field_supplies");

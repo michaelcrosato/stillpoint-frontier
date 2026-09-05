@@ -5,7 +5,7 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://stillpoint-frontier.michaelcrosato.chatgpt.site"),
   title: "Stillpoint Frontier",
   description:
-    "A low-motion first-person open-world survey game across a streamed 96 km territory of biomes, settlements, movement, navigation, and gathering.",
+    "A low-motion open-world survey game with continuous first-person, third-person, and isometric views across a streamed 96 km territory.",
   openGraph: {
     title: "Stillpoint Frontier",
     description: "Cross the Greywater. Read the land. Shape the frontier.",

@@ -211,6 +211,16 @@ export class EnvironmentalAudio implements AudioPort<AudioCue> {
     );
   }
 
+  silenceAmbient() {
+    if (!this.context) return;
+    const now = this.context.currentTime;
+    for (const node of [this.windGain, this.weatherGain, this.wildlifeGain, this.settlementGain]) {
+      if (!node) continue;
+      node.gain.cancelScheduledValues(now);
+      node.gain.setValueAtTime(0, now);
+    }
+  }
+
   playFootstep(
     surface: FootstepSurface,
     intensity = 1,

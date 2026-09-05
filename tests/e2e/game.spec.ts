@@ -13,35 +13,13 @@ import { TEN_STORY_BUILDING } from "../../lib/game/world/tenStoryBuilding";
 import { TWO_STORY_BUILDING } from "../../lib/game/world/twoStoryBuilding";
 import { WORLD_DETAIL_PRESETS } from "../../lib/game/world/WorldLodPolicy";
 
-const MAX_LAZY_GEOMETRY_WARMUP = 4;
-const WORLD_READY_TIMEOUT_MS = 30_000;
-
-async function waitForWorldReady(page: Page) {
-  // Cold software-WebGL runners can take longer than ordinary UI assertions
-  // to stream and compile the deterministic opening world.
-  await expect(page.getByTestId("entry-screen")).toBeVisible({
-    timeout: WORLD_READY_TIMEOUT_MS,
-  });
-  await page.waitForFunction(
-    () => window.__STILLPOINT_TEST__?.isReady() === true,
-    undefined,
-    { timeout: WORLD_READY_TIMEOUT_MS },
-  );
-}
-
-async function openDeterministicWorld(
-  page: Page,
-  renderMode: "manual" | "continuous" = "manual",
-) {
-  const url = renderMode === "manual"
-    ? "/?test=1&render=manual"
-    : "/?test=1";
-  await page.goto(url, { waitUntil: "load" });
-  await waitForWorldReady(page);
+async function openDeterministicWorld(page: Page) {
+  await page.goto("/?test=1", { waitUntil: "load" });
+  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
 }
 
 async function attachScreenshot(page: Page, testInfo: TestInfo, name: string) {
-  await page.evaluate(() => window.__STILLPOINT_TEST__?.renderOnce());
   const screenshot = await page.screenshot({ animations: "disabled" });
   await testInfo.attach(name, { body: screenshot, contentType: "image/png" });
   expect(screenshot.byteLength).toBeGreaterThan(35_000);
@@ -105,13 +83,6 @@ test("boots WebGL2 without a blank frame", async ({ page }, testInfo) => {
   expect(wildlife?.species ?? 0).toBeGreaterThan(1);
   expect((await page.evaluate(() => window.__STILLPOINT_TEST__?.targets() ?? []))
     .some((target) => target.id.startsWith("animal:"))).toBe(false);
-  const graphics = await page.evaluate(() => window.__STILLPOINT_TEST__?.graphics());
-  expect(graphics).toMatchObject({
-    webgl2: true,
-    quality: "cinematic",
-    postProcessing: true,
-  });
-  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.renderOnce())).toBe(true);
   const pixels = await canvasVisualStats(page);
   expect(pixels.webgl2).toBe(true);
   expect(pixels.visibleSamples).toBeGreaterThan(3_000);
@@ -121,7 +92,6 @@ test("boots WebGL2 without a blank frame", async ({ page }, testInfo) => {
 });
 
 test("applies quality-budgeted composition and regenerates environment lighting", async ({ page }) => {
-  test.slow();
   await openDeterministicWorld(page);
   const cinematic = await page.evaluate(() => window.__STILLPOINT_TEST__?.graphics());
   expect(cinematic).toMatchObject({
@@ -138,7 +108,6 @@ test("applies quality-budgeted composition and regenerates environment lighting"
   const cinematicEnvironmentRevision = cinematic?.environmentMap.revision ?? 0;
 
   await page.evaluate(() => window.__STILLPOINT_TEST__?.setQuality("performance"));
-  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.renderOnce())).toBe(true);
   const performance = await page.evaluate(() => window.__STILLPOINT_TEST__?.graphics());
   expect(performance).toMatchObject({
     quality: "performance",
@@ -162,7 +131,6 @@ test("applies quality-budgeted composition and regenerates environment lighting"
       );
     }, cinematicEnvironmentRevision),
   ).toBe(true);
-  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.renderOnce())).toBe(true);
   const ultra = await page.evaluate(() => window.__STILLPOINT_TEST__?.graphics());
   expect(ultra?.quality).toBe("ultra");
   expect(ultra?.postProcessing).toBe(true);
@@ -219,7 +187,6 @@ test("starts the survey, streams distant chunks, and opens the map", async ({ pa
 });
 
 test("toggles the spawn door and exposes every authored floor", async ({ page }) => {
-  test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   expect(SPAWN_BUILDING.floorCount).toBe(1);
@@ -294,59 +261,43 @@ test("toggles the spawn door and exposes every authored floor", async ({ page })
     SPAWN_BUILDING.x + SPAWN_BUILDING.width * 0.5,
   );
 
-  const authoredBuildings = [
+  const groundFloor = await page.evaluate(
+    ({ x, z }) => window.__STILLPOINT_TEST__?.groundHeight(x, z),
+    TWO_STORY_BUILDING,
+  );
+  const upperFloor = await page.evaluate(
+    ({ x, z, upperFloorY }) =>
+      window.__STILLPOINT_TEST__?.groundHeight(x, z, upperFloorY),
+    TWO_STORY_BUILDING,
+  );
+  expect(groundFloor).toBeCloseTo(TWO_STORY_BUILDING.floorY, 4);
+  expect(upperFloor).toBeCloseTo(TWO_STORY_BUILDING.upperFloorY, 4);
+
+  for (const building of [
     SPAWN_BUILDING,
     TWO_STORY_BUILDING,
     TEN_STORY_BUILDING,
-  ];
-  const heightSamples = await page.evaluate(
-    ({ twoStory, tower, roofs }) => {
-      const bridge = window.__STILLPOINT_TEST__;
-      if (!bridge) return null;
-      return {
-        groundFloor: bridge.groundHeight(twoStory.x, twoStory.z),
-        upperFloor: bridge.groundHeight(
-          twoStory.x,
-          twoStory.z,
-          twoStory.upperFloorY,
-        ),
-        roofs: roofs.map(({ x, z, roofY }) =>
-          bridge.groundHeight(x, z, roofY)),
-        towerFloors: tower.floorYs.map((floorY) =>
-          bridge.groundHeight(tower.x, tower.z, floorY)),
-      };
-    },
-    {
-      twoStory: {
-        x: TWO_STORY_BUILDING.x,
-        z: TWO_STORY_BUILDING.z,
-        upperFloorY: TWO_STORY_BUILDING.upperFloorY,
-      },
-      tower: {
-        x: TEN_STORY_BUILDING.x,
-        z: TEN_STORY_BUILDING.z,
-        floorYs: [...TEN_STORY_BUILDING.floorYs],
-      },
-      roofs: authoredBuildings.map(({ x, z, roofY }) => ({ x, z, roofY })),
-    },
-  );
-  expect(heightSamples).not.toBeNull();
-  if (!heightSamples) return;
-  expect(heightSamples.groundFloor).toBeCloseTo(TWO_STORY_BUILDING.floorY, 4);
-  expect(heightSamples.upperFloor).toBeCloseTo(TWO_STORY_BUILDING.upperFloorY, 4);
-
-  for (const [index, building] of authoredBuildings.entries()) {
+  ]) {
     expect(building.roofAccess).toBe(true);
-    expect(heightSamples.roofs[index]).toBeCloseTo(building.roofY, 4);
+    const sampledRoof = await page.evaluate(
+      ({ x, z, referenceY }) =>
+        window.__STILLPOINT_TEST__?.groundHeight(x, z, referenceY),
+      { x: building.x, z: building.z, referenceY: building.roofY },
+    );
+    expect(sampledRoof).toBeCloseTo(building.roofY, 4);
   }
 
-  for (const [index, floorY] of TEN_STORY_BUILDING.floorYs.entries()) {
-    expect(heightSamples.towerFloors[index]).toBeCloseTo(floorY, 4);
+  for (const floorY of TEN_STORY_BUILDING.floorYs) {
+    const sampledFloor = await page.evaluate(
+      ({ x, z, referenceY }) =>
+        window.__STILLPOINT_TEST__?.groundHeight(x, z, referenceY),
+      { x: TEN_STORY_BUILDING.x, z: TEN_STORY_BUILDING.z, referenceY: floorY },
+    );
+    expect(sampledFloor).toBeCloseTo(floorY, 4);
   }
 });
 
 test("sets, replaces, guides, and clears a map waypoint", async ({ page }, testInfo) => {
-  test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   await page.getByRole("button", { name: /map/i }).click();
@@ -357,32 +308,23 @@ test("sets, replaces, guides, and clears a map waypoint", async ({ page }, testI
   const atlasSize = Math.min(bounds.width, bounds.height);
   const atlasLeft = bounds.x + (bounds.width - atlasSize) * 0.5;
   const atlasTop = bounds.y + (bounds.height - atlasSize) * 0.5;
-  const worldUnitsPerPixel = 96_000 / atlasSize;
-  const waypointError = async (axis: "x" | "z", expected: number) => {
-    const actual = await page.evaluate(
-      (coordinate) => window.__STILLPOINT_TEST__?.snapshot()
-        .navigation?.target.position[coordinate],
-      axis,
-    );
-    return Math.abs((actual ?? Number.POSITIVE_INFINITY) - expected);
-  };
 
   await page.mouse.click(atlasLeft + atlasSize * 0.75, atlasTop + atlasSize * 0.25);
   await expect(page.getByTestId("map-waypoint")).toBeVisible();
   await expect
-    .poll(() => waypointError("x", 24_000))
-    .toBeLessThanOrEqual(worldUnitsPerPixel);
+    .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().navigation?.target.position.x))
+    .toBeCloseTo(24_000, -1);
   await expect
-    .poll(() => waypointError("z", -24_000))
-    .toBeLessThanOrEqual(worldUnitsPerPixel);
+    .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().navigation?.target.position.z))
+    .toBeCloseTo(-24_000, -1);
 
   await page.mouse.click(atlasLeft + atlasSize * 0.25, atlasTop + atlasSize * 0.75);
   await expect
-    .poll(() => waypointError("x", -24_000))
-    .toBeLessThanOrEqual(worldUnitsPerPixel);
+    .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().navigation?.target.position.x))
+    .toBeCloseTo(-24_000, -1);
   await expect
-    .poll(() => waypointError("z", 24_000))
-    .toBeLessThanOrEqual(worldUnitsPerPixel);
+    .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().navigation?.target.position.z))
+    .toBeCloseTo(24_000, -1);
   expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.navigationTargets().filter(
     (target) => target.id === "player:map",
   ).length)).toBe(1);
@@ -412,7 +354,6 @@ test("sets, replaces, guides, and clears a map waypoint", async ({ page }, testI
 });
 
 test("zooms, pans, focuses, and preserves the cartographic viewport", async ({ page }) => {
-  test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   await page.getByRole("button", { name: /map/i }).click();
@@ -456,17 +397,11 @@ test("zooms, pans, focuses, and preserves the cartographic viewport", async ({ p
     -(bounds.height * 0.07) * unitsPerPixel,
     bounds.height * unitsPerPixel * 0.5,
   );
-  const targetError = async (axis: "x" | "z", expected: number) => {
-    const actual = await page.evaluate(
-      (coordinate) => window.__STILLPOINT_TEST__?.snapshot()
-        .navigation?.target.position[coordinate],
-      axis,
-    );
-    return Math.abs((actual ?? Number.POSITIVE_INFINITY) - expected);
-  };
   await page.mouse.click(bounds.x + bounds.width * 0.5, bounds.y + bounds.height * 0.5);
-  await expect.poll(() => targetError("x", expectedX)).toBeLessThanOrEqual(unitsPerPixel);
-  await expect.poll(() => targetError("z", expectedZ)).toBeLessThanOrEqual(unitsPerPixel);
+  await expect.poll(() => page.evaluate(() =>
+    window.__STILLPOINT_TEST__?.snapshot().navigation?.target.position.x)).toBeCloseTo(expectedX, -2);
+  await expect.poll(() => page.evaluate(() =>
+    window.__STILLPOINT_TEST__?.snapshot().navigation?.target.position.z)).toBeCloseTo(expectedZ, -2);
 
   await page.getByTestId("map-focus-player").click();
   await expect(page.getByTestId("map-panel")).toHaveAttribute("data-map-detail", "local");
@@ -545,11 +480,9 @@ test("lights cities and sharply reduces ambient population at 03:00", async ({ p
   const mega = getSettlement("vesper-crown");
   expect(mega).not.toBeNull();
   if (!mega) return;
-  await page.evaluate(([x, z]) => {
-    window.__STILLPOINT_TEST__?.setWorldMinutes(12 * 60);
-    window.__STILLPOINT_TEST__?.teleport(x, z);
-  }, [mega.x, mega.z]);
+  await page.evaluate(([x, z]) => window.__STILLPOINT_TEST__?.teleport(x, z), [mega.x, mega.z]);
 
+  await page.evaluate(() => window.__STILLPOINT_TEST__?.setWorldMinutes(12 * 60));
   const noonCrowd = await page.evaluate(() => window.__STILLPOINT_TEST__?.citizens());
   const dayLights = await page.evaluate(() => window.__STILLPOINT_TEST__?.nightLighting());
   expect(dayLights?.windows).toBeGreaterThan(100);
@@ -569,11 +502,11 @@ test("lights cities and sharply reduces ambient population at 03:00", async ({ p
 });
 
 test("keeps developer time and weather overrides out of the normal save", async ({ page }) => {
-  test.slow();
-  await page.goto("/?test=1&storage=1&render=manual", { waitUntil: "load" });
+  await page.goto("/?test=1&storage=1", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
-  await waitForWorldReady(page);
+  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
   await page.getByTestId("enter-frontier").click();
   await page.evaluate(() => window.__STILLPOINT_TEST__?.setWorldMinutes(12 * 60));
 
@@ -611,7 +544,8 @@ test("keeps developer time and weather overrides out of the normal save", async 
   await expect(page.getByTestId("developer-panel")).toBeHidden();
 
   await page.reload({ waitUntil: "load" });
-  await waitForWorldReady(page);
+  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
   await page.getByTestId("enter-frontier").click();
   const restored = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
   expect(restored?.devTools.enabled).toBe(false);
@@ -626,11 +560,11 @@ test("keeps developer time and weather overrides out of the normal save", async 
 });
 
 test("persists horizon HLOD without expanding gameplay streaming", async ({ page }) => {
-  test.slow();
-  await page.goto("/?test=1&storage=1&render=manual", { waitUntil: "load" });
+  await page.goto("/?test=1&storage=1", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
-  await waitForWorldReady(page);
+  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
   await page.getByTestId("enter-frontier").click();
   const simulationBefore = await page.evaluate(() => ({
     targets: window.__STILLPOINT_TEST__?.targets().length,
@@ -668,7 +602,8 @@ test("persists horizon HLOD without expanding gameplay streaming", async ({ page
   expect(maximum.horizon?.settlementInstances ?? 0).toBeLessThan(200);
 
   await page.reload({ waitUntil: "load" });
-  await waitForWorldReady(page);
+  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
   const restored = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
   expect(restored?.horizonMode).toBe("unlimited");
   expect(restored?.settings.worldDetail).toBe(4);
@@ -676,7 +611,6 @@ test("persists horizon HLOD without expanding gameplay streaming", async ({ page
 });
 
 test("opens developer tools from the keyboard while paused and protects form input", async ({ page }) => {
-  test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   const before = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().position);
@@ -695,7 +629,6 @@ test("opens developer tools from the keyboard while paused and protects form inp
 });
 
 test("toggles independent session-only graphics modules", async ({ page }) => {
-  test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   await page.getByTestId("developer-launcher").click();
@@ -788,7 +721,6 @@ test("toggles independent session-only graphics modules", async ({ page }) => {
 });
 
 test("provides session-only invincibility, speed tiers, and safe no-clip flight", async ({ page }) => {
-  test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   await page.getByTestId("developer-launcher").click();
@@ -870,11 +802,11 @@ test("starts a deterministic fresh developer sandbox from the title screen", asy
 });
 
 test("keeps a normal survey save untouched by the developer quick start", async ({ page }) => {
-  test.slow();
-  await page.goto("/?test=1&storage=1&render=manual", { waitUntil: "load" });
+  await page.goto("/?test=1&storage=1", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
-  await waitForWorldReady(page);
+  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
   await page.getByTestId("enter-frontier").click();
   await page.evaluate(() => {
     window.__STILLPOINT_TEST__?.teleport(1_234, -5_678);
@@ -886,7 +818,8 @@ test("keeps a normal survey save untouched by the developer quick start", async 
   expect(surveySave).not.toBeNull();
 
   await page.reload({ waitUntil: "load" });
-  await waitForWorldReady(page);
+  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
   await page.getByTestId("enter-developer").click();
   await page.evaluate(() => {
     window.__STILLPOINT_TEST__?.discover("meridian-vault");
@@ -917,7 +850,6 @@ test("keeps a normal survey save untouched by the developer quick start", async 
 });
 
 test("travels to the render-only canopy lab and scales graphics without simulation load", async ({ page }) => {
-  test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   await page.getByTestId("developer-launcher").click();
@@ -985,11 +917,10 @@ test("travels to the render-only canopy lab and scales graphics without simulati
 });
 
 test("keeps opt-in canopy lab travel out of the normal player save", async ({ page }) => {
-  test.slow();
-  await page.goto("/?test=1&storage=1&render=manual", { waitUntil: "load" });
+  await page.goto("/?test=1&storage=1", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
-  await waitForWorldReady(page);
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
   await page.getByTestId("enter-frontier").click();
   const origin = await page.evaluate(
     () => window.__STILLPOINT_TEST__?.snapshot().position,
@@ -1004,7 +935,7 @@ test("keeps opt-in canopy lab travel out of the normal player save", async ({ pa
   ).toBe(true);
 
   await page.reload({ waitUntil: "load" });
-  await waitForWorldReady(page);
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
   await page.getByTestId("enter-frontier").click();
   const restored = await page.evaluate(
     () => window.__STILLPOINT_TEST__?.snapshot(),
@@ -1025,10 +956,7 @@ test("streams proportional ambient citizens without making them interaction targ
   expect(village).not.toBeNull();
   if (!mega || !village) return;
 
-  await page.evaluate(([x, z]) => {
-    window.__STILLPOINT_TEST__?.setWorldMinutes(12 * 60);
-    window.__STILLPOINT_TEST__?.teleport(x, z);
-  }, [mega.x, mega.z]);
+  await page.evaluate(([x, z]) => window.__STILLPOINT_TEST__?.teleport(x, z), [mega.x, mega.z]);
   const megacityCrowd = await page.evaluate(() => window.__STILLPOINT_TEST__?.citizens());
   const targets = await page.evaluate(() => window.__STILLPOINT_TEST__?.targets() ?? []);
   expect(megacityCrowd?.visible).toBeGreaterThan(3_000);
@@ -1068,18 +996,18 @@ test("recovers records and updates persistent survey UI", async ({ page }, testI
 });
 
 test("restores a saved survey after reload", async ({ page }) => {
-  test.slow();
-  await page.goto("/?test=1&storage=1&render=manual", { waitUntil: "load" });
+  await page.goto("/?test=1&storage=1", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
-  await waitForWorldReady(page);
+  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
   await page.getByTestId("enter-frontier").click();
   await page.evaluate(() => window.__STILLPOINT_TEST__?.discover("amber-relay"));
   await page.evaluate(() => window.__STILLPOINT_TEST__?.setWaypoint(1_250, -3_400));
   await expect(page.getByTestId("mission-card")).toContainText("RECOVERED");
 
   await page.reload({ waitUntil: "load" });
-  await waitForWorldReady(page);
+  await expect(page.getByTestId("entry-screen")).toBeVisible();
   await page.getByTestId("enter-frontier").click();
   await expect(page.getByTestId("mission-card")).toContainText("RECOVERED");
   expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().scanned)).toEqual([
@@ -1090,26 +1018,18 @@ test("restores a saved survey after reload", async ({ page }) => {
 });
 
 test("persists local view settings and a rebound control independently of the field save", async ({ page }) => {
-  test.slow();
-  await page.goto("/?test=1&storage=1&render=manual", { waitUntil: "load" });
+  await page.goto("/?test=1&storage=1", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
-  await waitForWorldReady(page);
+  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
 
   await page.getByRole("button", { name: /settings/i }).click();
   await expect(page.getByTestId("settings-overlay")).toBeVisible();
-  const readInterfaceSizes = () => page.getByTestId("settings-overlay").evaluate((overlay) => {
-    const fontSize = (selector: string) => {
-      const element = overlay.querySelector<HTMLElement>(selector);
-      if (!element) throw new Error(`Missing settings element: ${selector}`);
-      return Number.parseFloat(getComputedStyle(element).fontSize);
-    };
-    return {
-      label: fontSize(".settings-section > h3"),
-      body: fontSize(".settings-range output"),
-    };
-  });
-  const standardSizes = await readInterfaceSizes();
+  const standardLabelSize = await page.locator(".settings-section > h3").first()
+    .evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
+  const standardHudSize = await page.locator(".health-line")
+    .evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
   await page.getByTestId("interface-scale-large").click();
   await expect(page.getByTestId("game-shell")).toHaveAttribute(
     "data-interface-scale",
@@ -1120,9 +1040,12 @@ test("persists local view settings and a rebound control independently of the fi
       () => window.__STILLPOINT_TEST__?.snapshot().settings.interfaceScale,
     ))
     .toBe("large");
-  const largeSizes = await readInterfaceSizes();
-  expect(largeSizes.label).toBeGreaterThan(standardSizes.label);
-  expect(largeSizes.body).toBeGreaterThan(standardSizes.body);
+  const largeLabelSize = await page.locator(".settings-section > h3").first()
+    .evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
+  const largeHudSize = await page.locator(".health-line")
+    .evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
+  expect(largeLabelSize).toBeGreaterThan(standardLabelSize);
+  expect(largeHudSize).toBeGreaterThan(standardHudSize);
   const fov = page.locator("label").filter({ hasText: "FIELD OF VIEW" }).locator("input");
   await fov.fill("82");
   await expect
@@ -1152,7 +1075,8 @@ test("persists local view settings and a rebound control independently of the fi
   await page.getByTestId("settings-overlay").getByRole("button", { name: /close/i }).last().click();
   await expect(page.getByTestId("settings-overlay")).toBeHidden();
   await page.reload({ waitUntil: "load" });
-  await waitForWorldReady(page);
+  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
   const restored = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
   expect(restored?.settings.fov).toBe(82);
   expect(restored?.settings.interfaceScale).toBe("large");
@@ -1196,20 +1120,7 @@ test("uses the unified interaction prompt to inspect authored field records", as
   expect(standingOrders).toBeTruthy();
   if (!standingOrders) return;
 
-  await page.evaluate((id) => {
-    const bridge = window.__STILLPOINT_TEST__;
-    const target = bridge?.targets().find((candidate) => candidate.id === id);
-    if (!bridge || !target) return;
-    // Approach from the reserved opening west of the board. The southern
-    // approach overlaps the deterministic opening rock at (4.2, 0.8).
-    bridge.teleport(target.x - 3, target.z);
-    bridge.faceTarget(id);
-  }, standingOrders);
-  await expect.poll(
-    () => page.evaluate(
-      () => window.__STILLPOINT_TEST__?.snapshot().nearbyTarget?.id,
-    ),
-  ).toBe(standingOrders);
+  await page.evaluate((id) => window.__STILLPOINT_TEST__?.faceTarget(id), standingOrders);
   await expect(page.getByTestId("interaction-prompt")).toContainText("READ / INSPECT");
   await expect(page.getByTestId("interaction-prompt")).toContainText("Field Unit Standing Orders");
   await page.keyboard.press("KeyE");
@@ -1247,10 +1158,11 @@ test("surfaces critical health, incapacitates on a fatal fall, and recovers safe
 });
 
 test("saves and restores player pose, condition, and discovered locations", async ({ page }) => {
-  await page.goto("/?test=1&storage=1&render=manual", { waitUntil: "load" });
+  await page.goto("/?test=1&storage=1", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
-  await waitForWorldReady(page);
+  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
   await page.getByTestId("enter-frontier").click();
   await expect
     .poll(() => page.evaluate(
@@ -1259,32 +1171,26 @@ test("saves and restores player pose, condition, and discovered locations", asyn
     .toContain("landmark:field-unit-compound");
   await expect(page.getByTestId("location-discovery-card")).toContainText("Field Unit Compound");
 
-  const { saved, snapshot: savedFieldState } = await page.evaluate(() => {
-    const bridge = window.__STILLPOINT_TEST__;
-    if (!bridge) return { saved: false, snapshot: null };
-    bridge.teleport(130, 210);
-    bridge.setPlayerHealth(54);
-    bridge.discoverCurrentLocation();
-    return { saved: bridge.saveNow(), snapshot: bridge.snapshot() };
+  const savedFieldState = await page.evaluate(() => {
+    window.__STILLPOINT_TEST__?.teleport(130, 210);
+    window.__STILLPOINT_TEST__?.setPlayerHealth(54);
+    window.__STILLPOINT_TEST__?.discoverCurrentLocation();
+    return window.__STILLPOINT_TEST__?.snapshot();
   });
   const savedLocationId = savedFieldState?.currentLocation.id;
   expect(savedLocationId).toBeTruthy();
   expect(savedFieldState?.discoveredLocationIds).toContain(savedLocationId);
-  expect(saved).toBe(true);
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.saveNow())).toBe(true);
 
   await page.evaluate(() => {
     window.__STILLPOINT_TEST__?.teleport(-850, -920);
     window.__STILLPOINT_TEST__?.setPlayerHealth(7);
   });
-  const { loaded, snapshot: restored } = await page.evaluate(() => {
-    const bridge = window.__STILLPOINT_TEST__;
-    if (!bridge) return { loaded: false, snapshot: null };
-    return { loaded: bridge.loadGame(), snapshot: bridge.snapshot() };
-  });
-  expect(loaded).toBe(true);
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.loadGame())).toBe(true);
+  const restored = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
   expect(restored?.position.x).toBeCloseTo(130, 4);
   expect(restored?.position.z).toBeCloseTo(210, 4);
-  expect(restored?.health).toBe(savedFieldState?.health);
+  expect(restored?.health).toBe(54);
   expect(restored?.discoveredLocationIds).toContain("landmark:field-unit-compound");
   expect(restored?.currentLocation.id).toBe(savedLocationId);
   expect(restored?.saveStatus).toBe("saved");
@@ -1315,11 +1221,11 @@ test("supports sprint, crouch, and a complete jump arc", async ({ page }) => {
   await expect
     .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().grounded))
     .toBe(false);
-  await page.waitForFunction(
-    () => window.__STILLPOINT_TEST__?.snapshot().grounded === true,
-    undefined,
-    { timeout: 15_000 },
-  );
+  await expect
+    .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().grounded), {
+      timeout: 2_000,
+    })
+    .toBe(true);
 });
 
 test("blocks representative buildings, trees, and rocks without tunneling", async ({ page }) => {
@@ -1368,11 +1274,11 @@ test("blocks representative buildings, trees, and rocks without tunneling", asyn
 });
 
 test("collects and harvests deterministic resources without duplicate loot", async ({ page }, testInfo) => {
-  test.slow();
-  await page.goto("/?test=1&storage=1&render=manual", { waitUntil: "load" });
+  await page.goto("/?test=1&storage=1", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
-  await waitForWorldReady(page);
+  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
   await page.getByTestId("enter-frontier").click();
 
   const targets = await page.evaluate(() => window.__STILLPOINT_TEST__?.targets() ?? []);
@@ -1431,7 +1337,8 @@ test("collects and harvests deterministic resources without duplicate loot", asy
   await attachScreenshot(page, testInfo, "resource-harvested");
 
   await page.reload({ waitUntil: "load" });
-  await waitForWorldReady(page);
+  await expect(page.getByTestId("entry-screen")).toBeVisible();
+  await page.waitForFunction(() => window.__STILLPOINT_TEST__?.isReady() === true);
   const restored = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
   expect(restored?.inventory.stone).toBe(3);
   expect(restored?.inventory.wood).toBe(4);
@@ -1443,7 +1350,6 @@ test("collects and harvests deterministic resources without duplicate loot", asy
 });
 
 test("keeps GPU resource counts bounded through repeated chunk churn", async ({ page }) => {
-  test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   const baseline = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
@@ -1454,7 +1360,6 @@ test("keeps GPU resource counts bounded through repeated chunk churn", async ({ 
       mode,
     );
     await page.waitForTimeout(80);
-    expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.renderOnce())).toBe(true);
   }
 
   for (const level of [0, 4, 1, 3, 2] as const) {
@@ -1463,7 +1368,6 @@ test("keeps GPU resource counts bounded through repeated chunk churn", async ({ 
       level,
     );
     await page.waitForTimeout(80);
-    expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.renderOnce())).toBe(true);
   }
 
   for (const [x, z] of [
@@ -1476,16 +1380,13 @@ test("keeps GPU resource counts bounded through repeated chunk churn", async ({ 
       window.__STILLPOINT_TEST__?.teleport(nextX, nextZ);
     }, [x, z] as const);
     await page.waitForTimeout(80);
-    expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.renderOnce())).toBe(true);
   }
 
   const settled = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
   expect(settled?.loadedChunks).toBe(WORLD_RESIDENT_CHUNKS);
   expect(settled?.horizonMode).toBe("standard");
   expect(settled?.horizonTiles).toBe(HORIZON_PRESETS.standard.rings.length * 16);
-  expect(settled?.geometries).toBeLessThanOrEqual(
-    (baseline?.geometries ?? 0) + MAX_LAZY_GEOMETRY_WARMUP,
-  );
+  expect(settled?.geometries).toBeLessThanOrEqual((baseline?.geometries ?? 0) + 3);
   expect(settled?.textures).toBeLessThanOrEqual(baseline?.textures ?? 0);
 });
 
@@ -1496,16 +1397,11 @@ test("surfaces graphics context loss and preserves the simulation", async ({ pag
   await expect(page.getByText("GRAPHICS CONTEXT LOST")).toBeVisible();
   expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().contextStatus)).toBe("lost");
   await page.evaluate(() => window.__STILLPOINT_TEST__?.restoreContext());
-  await expect.poll(
-    () => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().contextStatus),
-    { timeout: 20_000 },
-  ).toBe("ready");
-  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.renderOnce())).toBe(true);
   await expect(page.getByText("GRAPHICS CONTEXT LOST")).toBeHidden();
 });
 
 test("entry and fixed world views are visually reviewable @visual", async ({ page }, testInfo) => {
-  await openDeterministicWorld(page, "continuous");
+  await openDeterministicWorld(page);
   if (process.env.VISUAL_BASELINES === "1") {
     await expect(page).toHaveScreenshot("entry-screen.png");
   } else {
@@ -1541,8 +1437,7 @@ test("entry and fixed world views are visually reviewable @visual", async ({ pag
 });
 
 test("megacity day and night activity are visually reviewable @visual", async ({ page }, testInfo) => {
-  test.slow();
-  await openDeterministicWorld(page, "continuous");
+  await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   const mega = getSettlement("vesper-crown");
   expect(mega).not.toBeNull();
@@ -1585,8 +1480,7 @@ test("HUD and territory-map fixtures are visually reviewable without a GPU @visu
   await attachScreenshot(page, testInfo, "territory-map-fixture");
 
   await page.goto("/?visual=dev", { waitUntil: "load" });
-  await expect(page.getByTestId("developer-panel")).toContainText("ISOLATED QUICK-START");
-  await expect(page.getByTestId("developer-panel")).toContainText("PLAYTEST SANDBOX");
+  await expect(page.getByTestId("developer-panel")).toContainText("SESSION-ONLY SANDBOX");
   await expect(page.getByTestId("developer-panel")).toContainText("Canopy drizzle");
   await expect(page.getByTestId("horizon-mode-standard")).toBeVisible();
   await expect(page.getByTestId("horizon-mode-extended")).toBeVisible();

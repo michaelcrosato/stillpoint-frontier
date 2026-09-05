@@ -1,4 +1,5 @@
 "use client";
+import { trapDialogTab } from "../lib/game/ui/dialogFocus";
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
@@ -22,11 +23,22 @@ import {
   type WorldDetailLevel,
 } from "../lib/game/world/WorldLodPolicy";
 import type { GameSnapshot } from "../lib/game/state";
+import {
+  CAMERA_ISOMETRIC_ANGLE_MAX,
+  CAMERA_ISOMETRIC_ANGLE_MIN,
+  CAMERA_MAX_DISTANCE,
+  CAMERA_VIEW_MODES,
+  CAMERA_VIEW_PRESETS,
+  type CameraViewMode,
+} from "../lib/game/camera/CameraRig";
 
 interface SettingsPanelProps {
   snapshot: GameSnapshot;
   onClose(): void;
   onSetFov(value: number): void;
+  onSetCameraDistance(value: number): void;
+  onSetCameraView(mode: CameraViewMode): void;
+  onSetIsometricAngle(value: number): void;
   onSetSensitivity(value: number): void;
   onSetInvertY(value: boolean): void;
   onSetVolume(channel: "masterVolume" | "ambientVolume" | "effectsVolume", value: number): void;
@@ -42,6 +54,9 @@ export default function SettingsPanel({
   snapshot,
   onClose,
   onSetFov,
+  onSetCameraDistance,
+  onSetCameraView,
+  onSetIsometricAngle,
   onSetSensitivity,
   onSetInvertY,
   onSetVolume,
@@ -85,22 +100,7 @@ export default function SettingsPanel({
       onClose();
       return;
     }
-    if (event.key !== "Tab") return;
-    const focusable = Array.from(
-      panelRef.current?.querySelectorAll<HTMLElement>(
-        "button:not([disabled]), input:not([disabled]), [tabindex='0']",
-      ) ?? [],
-    );
-    if (focusable.length === 0) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
+    trapDialogTab(event, panelRef.current);
   };
 
   const volumeControls = [
@@ -156,8 +156,76 @@ export default function SettingsPanel({
             </div>
 
             <h3>VIEW / CONTROL</h3>
+            <div
+              className="settings-button-grid camera-view-grid"
+              role="group"
+              aria-label="Camera view preset"
+            >
+              {CAMERA_VIEW_MODES.map((mode) => {
+                const preset = CAMERA_VIEW_PRESETS[mode];
+                const active = snapshot.camera.mode === mode;
+                return (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={active ? "is-active" : ""}
+                    aria-pressed={active}
+                    data-testid={`camera-view-${mode}`}
+                    onClick={() => onSetCameraView(mode)}
+                  >
+                    <span>{preset.label}</span>
+                    <small>{preset.description}</small>
+                  </button>
+                );
+              })}
+            </div>
+            <label className="settings-range" htmlFor="camera-distance-slider">
+              <span>
+                CAMERA ZOOM
+                <output htmlFor="camera-distance-slider">
+                  {snapshot.camera.targetDistance <= 0.0001
+                    ? "FIRST PERSON"
+                    : `${snapshot.camera.targetDistance.toFixed(1)} M`}
+                </output>
+              </span>
+              <input
+                id="camera-distance-slider"
+                data-testid="camera-distance-slider"
+                type="range"
+                min="0"
+                max={CAMERA_MAX_DISTANCE}
+                step="0.5"
+                value={snapshot.settings.cameraDistance}
+                aria-valuetext={`${CAMERA_VIEW_PRESETS[snapshot.camera.mode].label}, ${snapshot.camera.targetDistance.toFixed(1)} metres requested`}
+                onChange={(event) => onSetCameraDistance(Number(event.currentTarget.value))}
+              />
+            </label>
+            <label className="settings-range" htmlFor="isometric-angle-slider">
+              <span>
+                ISOMETRIC ANGLE
+                <output htmlFor="isometric-angle-slider">
+                  {Math.round(snapshot.settings.isometricAngle)}°
+                </output>
+              </span>
+              <input
+                id="isometric-angle-slider"
+                data-testid="isometric-angle-slider"
+                type="range"
+                min={CAMERA_ISOMETRIC_ANGLE_MIN}
+                max={CAMERA_ISOMETRIC_ANGLE_MAX}
+                step="1"
+                value={snapshot.settings.isometricAngle}
+                onChange={(event) => onSetIsometricAngle(Number(event.currentTarget.value))}
+              />
+            </label>
+            <p className="settings-audio-state">
+              WHEEL: CONTINUOUS ZOOM · {keyLabel(snapshot.settings.keyBindings.cameraView)}: CYCLE PRESETS · COLLISION-AWARE BOOM
+              {snapshot.camera.collisionLimited
+                ? ` · RETRACTED TO ${snapshot.camera.distance.toFixed(1)} M`
+                : ""}
+            </p>
             <label className="settings-range">
-              <span>FIELD OF VIEW <output>{Math.round(snapshot.settings.fov)}°</output></span>
+              <span>BASE FIELD OF VIEW <output>{Math.round(snapshot.settings.fov)}°</output></span>
               <input type="range" min="55" max="95" step="1" value={snapshot.settings.fov} onChange={(event) => onSetFov(Number(event.currentTarget.value))} />
             </label>
             <label className="settings-range">

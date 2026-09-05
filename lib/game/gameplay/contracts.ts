@@ -360,7 +360,8 @@ export function normalizeContractJournal(value: unknown): ContractJournalState {
     };
   }
   const requestedActive = source.activeContractId;
-  const requestedProgress = typeof requestedActive === "string"
+  const requestedProgress = typeof requestedActive === "string" &&
+    Object.hasOwn(contracts, requestedActive)
     ? contracts[requestedActive as ContractId]
     : null;
   const activeContractId = requestedProgress && requestedProgress.status !== "completed"

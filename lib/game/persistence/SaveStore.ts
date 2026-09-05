@@ -23,6 +23,7 @@ import {
   WORLD_START_MINUTES,
 } from "../environment/model";
 import { WORLD_HALF_EXTENT } from "../world/macroWorld";
+import { isSupportedWorldHeight } from "../world/heightBounds";
 import { isKnownLocationId } from "../world/locationDiscovery";
 
 // Keep the legacy key so version-one saves migrate in place.
@@ -172,17 +173,14 @@ function normalizePlayerState(value: unknown): SavedPlayerState | null {
   const source = value as Partial<Record<keyof SavedPlayerState, unknown>>;
   if (
     typeof source.x !== "number" ||
-    typeof source.y !== "number" ||
+    !isSupportedWorldHeight(source.y) ||
     typeof source.z !== "number" ||
     typeof source.yaw !== "number" ||
     !Number.isFinite(source.x) ||
-    !Number.isFinite(source.y) ||
     !Number.isFinite(source.z) ||
     !Number.isFinite(source.yaw) ||
     Math.abs(source.x) > WORLD_HALF_EXTENT ||
-    Math.abs(source.z) > WORLD_HALF_EXTENT ||
-    source.y < -100 ||
-    source.y > 5_000
+    Math.abs(source.z) > WORLD_HALF_EXTENT
   ) {
     return null;
   }

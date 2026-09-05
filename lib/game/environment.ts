@@ -74,7 +74,11 @@ export interface EnvironmentRuntime {
   sun: THREE.DirectionalLight;
   sunTarget: THREE.Object3D;
   tick(position: THREE.Vector3, deltaSeconds: number, running: boolean): void;
-  present(position: THREE.Vector3, deltaSeconds: number): void;
+  present(
+    position: THREE.Vector3,
+    deltaSeconds: number,
+    viewPosition?: Readonly<THREE.Vector3>,
+  ): void;
   sync(position: THREE.Vector3, snap?: boolean): void;
   setWorldMinutes(minutes: number): void;
   getPersistentWorldMinutes(): number;
@@ -542,7 +546,10 @@ export function createEnvironment(
   const effectiveFogDensity = (sample: EnvironmentSample) =>
     sample.fogDensity * effectiveFogMultiplier(sample) * (1 + sample.night * 0.08);
 
-  const applyAtmosphere = (position: THREE.Vector3) => {
+  const applyAtmosphere = (
+    position: THREE.Vector3,
+    viewPosition: Readonly<THREE.Vector3> = position,
+  ) => {
     const lightningFlash = stormLightningFlash(
       effectSeconds,
       displaySample.weatherId,
@@ -629,10 +636,17 @@ export function createEnvironment(
     renderer.toneMappingExposure =
       displaySample.exposure * (1 + lightningFlash * 0.26);
 
-    sky.position.copy(position);
-    stars.points.position.copy(position);
+    sky.position.copy(viewPosition);
+    stars.points.position.copy(viewPosition);
     stars.material.opacity = Math.max(0, displaySample.night - displaySample.cloudCover * 0.66);
-    precipitation.points.position.set(position.x, position.y + 18, position.z);
+    const precipitationPlayerCenterY = position.y + 18;
+    precipitation.points.position.set(
+      (position.x + viewPosition.x) * 0.5,
+      (precipitationPlayerCenterY + viewPosition.y) * 0.5,
+      (position.z + viewPosition.z) * 0.5,
+    );
+    precipitation.uniforms.uHeight.value =
+      40 + Math.abs(viewPosition.y - precipitationPlayerCenterY);
     precipitation.uniforms.uTime.value = effectSeconds;
 
     const isDust = displaySample.dust > displaySample.precipitationRate;
@@ -718,7 +732,7 @@ export function createEnvironment(
       }
       runtime.sync(position);
     },
-    present(position, deltaSeconds) {
+    present(position, deltaSeconds, viewPosition = position) {
       const safeDelta = Number.isFinite(deltaSeconds) ? Math.max(0, deltaSeconds) : 0;
       const alpha = 1 - Math.exp(-safeDelta * 2.25);
       for (const field of BLENDED_SAMPLE_FIELDS) {
@@ -728,7 +742,7 @@ export function createEnvironment(
       displaySample.weatherId = targetSample.weatherId;
       displaySample.weatherLabel = targetSample.weatherLabel;
       displaySample.precipitation = targetSample.precipitation;
-      applyAtmosphere(position);
+      applyAtmosphere(position, viewPosition);
     },
     sync(position, snap = false) {
       climate = sampleClimate(position.x, position.z);

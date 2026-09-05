@@ -27,6 +27,8 @@ import {
   type GpuFrameTimerStatus,
 } from "./GpuFrameTimer";
 import type { GraphicsFeatureState } from "./GraphicsFeatures";
+import { GraphicsCapabilities } from "./GraphicsCapabilities";
+import { ShortRangeGtaoPass } from "./ShortRangeGtaoPass";
 
 export {
   composerSampleCount,
@@ -88,39 +90,6 @@ export interface RenderFrameMetrics {
   gpuSamples: GpuFrameTimingSample[];
 }
 
-class ShortRangeGtaoPass extends GTAOPass {
-  constructor(
-    scene: THREE.Scene,
-    private readonly perspectiveCamera: THREE.PerspectiveCamera,
-    private readonly maximumDistance: number,
-  ) {
-    super(scene, perspectiveCamera, 1, 1);
-  }
-
-  override render(
-    renderer: THREE.WebGLRenderer,
-    writeBuffer: THREE.WebGLRenderTarget,
-    readBuffer: THREE.WebGLRenderTarget,
-    deltaTime: number,
-    maskActive: boolean,
-  ) {
-    const previousFar = this.perspectiveCamera.far;
-    const previousShadowAutoUpdate = renderer.shadowMap.autoUpdate;
-    this.perspectiveCamera.far = Math.min(previousFar, this.maximumDistance);
-    this.perspectiveCamera.updateProjectionMatrix();
-    // The main beauty pass has already refreshed shadows. GTAO only needs its
-    // own normal/depth buffer and must not pay for another full shadow render.
-    renderer.shadowMap.autoUpdate = false;
-    try {
-      super.render(renderer, writeBuffer, readBuffer, deltaTime, maskActive);
-    } finally {
-      renderer.shadowMap.autoUpdate = previousShadowAutoUpdate;
-      this.perspectiveCamera.far = previousFar;
-      this.perspectiveCamera.updateProjectionMatrix();
-    }
-  }
-}
-
 /**
  * Single owner for renderer and frame-composition lifecycle. World systems do
  * not need to know whether the current quality profile renders directly or
@@ -140,8 +109,10 @@ export class RenderPipeline {
   private readonly outputPass: OutputPass;
   private readonly environmentMap: EnvironmentMapRuntime;
   private readonly gpuFrameTimer: GpuFrameTimer;
+  private readonly graphicsCapabilities: GraphicsCapabilities;
   private readonly drawingBufferSize = new THREE.Vector2();
   private readonly bloomBackground = new THREE.Color(0x000000);
+  private readonly fallbackClearColor = new THREE.Color();
   private readonly bloomLayer = new THREE.Layers();
   private readonly bloomOccluderMaterial = new THREE.MeshBasicMaterial({
     color: 0x000000,
@@ -203,6 +174,7 @@ export class RenderPipeline {
     // One presented frame can contain bloom, world, GTAO and fullscreen draws.
     // Keep Three from resetting counters for each internal renderer.render call.
     this.renderer.info.autoReset = false;
+    this.graphicsCapabilities = new GraphicsCapabilities(this.renderer.getContext());
     this.gpuFrameTimer = new GpuFrameTimer(
       this.renderer.getContext() as WebGL2RenderingContext,
     );
@@ -267,8 +239,9 @@ export class RenderPipeline {
       this.renderer.setRenderTarget(this.composer.readBuffer);
     }
     try {
-      await this.renderer.compileAsync(this.options.scene, this.options.camera);
-    } catch {
+      // Three's asynchronous polling has no cancellation and can outlive
+      // material disposal/context restoration. Keep boot warm-up synchronous;
+      // Engine still awaits this boundary before its two warm-up renders.
       this.renderer.compile(this.options.scene, this.options.camera);
     } finally {
       this.renderer.setRenderTarget(previousTarget);
@@ -294,6 +267,10 @@ export class RenderPipeline {
     this.renderer.info.reset();
     try {
       if (this.usesPostProcessing()) {
+        const previousAutoClear = this.renderer.autoClear;
+        const previousClearAlpha = this.renderer.getClearAlpha();
+        const previousOverride = this.options.scene.overrideMaterial;
+        this.renderer.getClearColor(this.fallbackClearColor);
         try {
           if (this.bloomPass.enabled) this.renderSelectiveBloom(deltaSeconds);
           this.composer.render(deltaSeconds);
@@ -306,6 +283,9 @@ export class RenderPipeline {
           this.postProcessingFailureCount += 1;
           this.renderer.setRenderTarget(null);
           this.renderer.resetState();
+          this.options.scene.overrideMaterial = previousOverride;
+          this.renderer.autoClear = previousAutoClear;
+          this.renderer.setClearColor(this.fallbackClearColor, previousClearAlpha);
           this.renderer.render(this.options.scene, this.options.camera);
         }
       } else {
@@ -400,6 +380,7 @@ export class RenderPipeline {
   handleContextRestored() {
     if (this.disposed) return;
     this.renderer.resetState();
+    this.graphicsCapabilities.refresh(this.renderer.getContext());
     this.gpuFrameTimer.handleContextRestored(
       this.renderer.getContext() as WebGL2RenderingContext,
     );
@@ -412,7 +393,6 @@ export class RenderPipeline {
   }
 
   get diagnostics(): GraphicsDiagnostics {
-    const context = this.renderer.getContext();
     const timer = this.gpuFrameTimer.diagnostics;
     const postProcessing = this.usesPostProcessing();
     this.renderer.getDrawingBufferSize(this.drawingBufferSize);
@@ -420,7 +400,7 @@ export class RenderPipeline {
       webgl2: this.renderer.capabilities.isWebGL2,
       reversedDepth: this.renderer.capabilities.reversedDepthBuffer,
       logarithmicDepth: this.renderer.capabilities.logarithmicDepthBuffer,
-      defaultFramebufferSamples: Number(context.getParameter(context.SAMPLES)) || 0,
+      ...this.graphicsCapabilities.snapshot,
       compositorSamples: this.composer.renderTarget1.samples,
       maxSamples: this.renderer.capabilities.maxSamples,
       quality: this.quality,
@@ -442,8 +422,6 @@ export class RenderPipeline {
       gpuTimerSupported: timer.supported,
       gpuTimerStatus: timer.status,
       gpuQueriesPending: timer.pendingQueries,
-      gpuVendor: gpuIdentityString(context, "vendor"),
-      gpuRenderer: gpuIdentityString(context, "renderer"),
       environmentMap: this.environmentMap.diagnostics,
     };
   }
@@ -590,41 +568,4 @@ export class RenderPipeline {
     }
     if (this.bloomHidden.delete(object)) object.visible = true;
   };
-}
-
-function safeContextString(
-  context: WebGLRenderingContext | WebGL2RenderingContext,
-  key: number,
-) {
-  try {
-    return String(context.getParameter(key) ?? "UNKNOWN");
-  } catch {
-    return "UNAVAILABLE";
-  }
-}
-
-function gpuIdentityString(
-  context: WebGLRenderingContext | WebGL2RenderingContext,
-  kind: "vendor" | "renderer",
-) {
-  try {
-    const extension = context.getExtension("WEBGL_debug_renderer_info") as {
-      UNMASKED_VENDOR_WEBGL: number;
-      UNMASKED_RENDERER_WEBGL: number;
-    } | null;
-    if (extension) {
-      return safeContextString(
-        context,
-        kind === "vendor"
-          ? extension.UNMASKED_VENDOR_WEBGL
-          : extension.UNMASKED_RENDERER_WEBGL,
-      );
-    }
-  } catch {
-    // Privacy-restricted contexts intentionally fall through to masked data.
-  }
-  return safeContextString(
-    context,
-    kind === "vendor" ? context.VENDOR : context.RENDERER,
-  );
 }

@@ -28,7 +28,7 @@ test("renders the game metadata and entry shell", async () => {
   );
   const html = await response.text();
   assert.match(html, /<title>Stillpoint Frontier<\/title>/i);
-  assert.match(html, /low-motion first-person open-world survey game/i);
+  assert.match(html, /continuous first-person, third-person, and isometric views/i);
   assert.match(html, /data-testid=["']game-shell["']/i);
   assert.doesNotMatch(html, /codex-preview/i);
 });

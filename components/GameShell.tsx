@@ -13,6 +13,7 @@ import RestPanel from "./RestPanel";
 import SettingsPanel from "./SettingsPanel";
 import WorldClock from "./WorldClock";
 import WorldMap from "./WorldMap";
+import CameraReticle from "./CameraReticle";
 import {
   BEACONS,
   GAME_TITLE,
@@ -179,6 +180,7 @@ export default function GameShell() {
           unwrappedHeading: 42,
           navigation,
           waypointScreen: { visible: true, xPercent: 64, yPercent: 41 },
+          aimScreen: null,
         });
       });
       return () => {
@@ -188,8 +190,6 @@ export default function GameShell() {
     const testMode = parameters.get("test") === "1";
     const storageEnabled =
       !testMode || parameters.get("storage") === "1";
-    const continuousRendering =
-      !testMode || parameters.get("render") !== "manual";
     const reportRendererError = (error: unknown) => {
       console.error("Stillpoint renderer failure", error);
       if (!active) return;
@@ -205,7 +205,6 @@ export default function GameShell() {
         canvas,
         testMode,
         storageEnabled,
-        continuousRendering,
         onSnapshot: (nextSnapshot) => {
           if (active) setSnapshot(nextSnapshot);
         },
@@ -277,7 +276,6 @@ export default function GameShell() {
         ref={canvasRef}
         className="game-canvas"
         data-testid="game-canvas"
-        tabIndex={-1}
         aria-label="Stillpoint Frontier three-dimensional game world"
         onClick={() => {
           if (
@@ -358,7 +356,7 @@ export default function GameShell() {
                 data-testid="enter-frontier"
                 onClick={() => engineRef.current?.beginSession()}
               >
-                <span>{snapshot.saveStatus === "saved" ? "RESUME SURVEY" : "ENTER FRONTIER"}</span>
+                <span>{snapshot.hasSurveySave ? "RESUME SURVEY" : "ENTER FRONTIER"}</span>
                 <span aria-hidden="true">↗</span>
               </button>
               <button
@@ -451,6 +449,16 @@ export default function GameShell() {
                       : "MAX"}
                 </strong>
               </div>
+              <div className="camera-readout" data-testid="camera-readout">
+                <span>VIEW</span>
+                <strong>
+                  {snapshot.camera.mode === "firstPerson"
+                    ? "FPV"
+                    : snapshot.camera.mode === "thirdPerson"
+                      ? "TPV"
+                      : "ISO"}
+                </strong>
+              </div>
               <button
                 type="button"
                 className={`dev-launcher ${snapshot.devTools.enabled ? "is-active" : ""}`}
@@ -463,6 +471,14 @@ export default function GameShell() {
               </button>
             </div>
           </header>
+
+          {snapshot.camera.mode === "firstPerson" && (
+            <div className="camera-mobile-hint" aria-hidden="true">
+              <kbd>{keyLabel(snapshot.settings.keyBindings.cameraView)}</kbd> VIEW
+              <span>·</span>
+              <kbd>WHEEL</kbd> ZOOM
+            </div>
+          )}
 
           <aside className="mission-card" data-testid="mission-card">
             <p className="eyebrow">ACTIVE DIRECTIVE</p>
@@ -537,10 +553,11 @@ export default function GameShell() {
             </div>
           </aside>
 
-          <div className="crosshair" aria-hidden="true">
-            <span />
-            <i />
-          </div>
+          <CameraReticle
+            store={presentationStore}
+            mode={snapshot.camera.mode}
+            viewKey={keyLabel(snapshot.settings.keyBindings.cameraView)}
+          />
 
           <BenchmarkHud snapshot={snapshot} />
 
@@ -650,6 +667,8 @@ export default function GameShell() {
               <span><kbd>{keyLabel(snapshot.settings.keyBindings.sprint)}</kbd> SPRINT</span>
               <span><kbd>{keyLabel(snapshot.settings.keyBindings.jump)}</kbd> JUMP</span>
               <span><kbd>{keyLabel(snapshot.settings.keyBindings.crouch)}</kbd> CROUCH</span>
+              <span><kbd>{keyLabel(snapshot.settings.keyBindings.cameraView)}</kbd> VIEW</span>
+              <span><kbd>WHEEL</kbd> ZOOM</span>
               <span><kbd>{keyLabel(snapshot.settings.keyBindings.interact)}</kbd> USE</span>
               <span><kbd>{keyLabel(snapshot.settings.keyBindings.harvest)}/CLICK</kbd> HARVEST</span>
               <span><kbd>{keyLabel(snapshot.settings.keyBindings.scanner)}</kbd> SCAN</span>
@@ -679,7 +698,7 @@ export default function GameShell() {
               <button type="button" onClick={() => engineRef.current?.setDeveloperPanelOpen(true)}>
                 <kbd>`</kbd> DEV
               </button>
-              <span><kbd>Q</kbd> QUALITY</span>
+              <span><kbd>{keyLabel(snapshot.settings.keyBindings.quality)}</kbd> QUALITY</span>
             </div>
             <div className="coordinates" data-testid="coordinates">
               <span>X {snapshot.position.x.toFixed(1)}</span>
@@ -708,7 +727,7 @@ export default function GameShell() {
               {snapshot.sessionMode === "developer" ? "SURVEY SAVE PROTECTED" : "SAVE NOW"}
               <span>{snapshot.sessionMode === "developer" ? "DEV SESSION" : snapshot.saveStatus.toUpperCase()}</span>
             </button>
-            <button type="button" data-testid="load-save" disabled={snapshot.saveStatus !== "saved"} onClick={() => engineRef.current?.loadGame()}>
+            <button type="button" data-testid="load-save" disabled={!snapshot.hasSurveySave} onClick={() => engineRef.current?.loadGame()}>
               LOAD SURVEY SAVE <span>RESTORE</span>
             </button>
             <button type="button" onClick={() => engineRef.current?.setInventoryOpen(true)}>
@@ -764,6 +783,7 @@ export default function GameShell() {
           onSetInvincible={(enabled) => engineRef.current?.setDeveloperInvincible(enabled)}
           onSetSpeedMode={(mode) => engineRef.current?.setDeveloperSpeedMode(mode)}
           onSetFly={(enabled) => engineRef.current?.setDeveloperFly(enabled)}
+          onSetCameraView={(mode) => engineRef.current?.setCameraView(mode)}
           onTravelToForestStressTest={() => engineRef.current?.travelToForestStressTest()}
           onSetForestStressLevel={(level) => engineRef.current?.setForestStressLevel(level)}
           onSetGraphicsBenchmarkTarget={(target) => engineRef.current?.setGraphicsBenchmarkTarget(target)}
@@ -844,6 +864,9 @@ export default function GameShell() {
             ? engineRef.current?.resume()
             : engineRef.current?.setSettingsOpen(false)}
           onSetFov={(value) => engineRef.current?.setFov(value)}
+          onSetCameraDistance={(value) => engineRef.current?.setCameraDistance(value)}
+          onSetCameraView={(mode) => engineRef.current?.setCameraView(mode)}
+          onSetIsometricAngle={(value) => engineRef.current?.setIsometricAngle(value)}
           onSetSensitivity={(value) => engineRef.current?.setLookSensitivity(value)}
           onSetInvertY={(value) => engineRef.current?.setInvertY(value)}
           onSetVolume={(channel, value) => engineRef.current?.setAudioVolume(channel, value)}
@@ -868,7 +891,13 @@ export default function GameShell() {
           <p className="eyebrow">FIELD UNIT / VITALS LOST</p>
           <h2>You cannot continue from here.</h2>
           <p>The survey state is intact. Recover at the Field Unit Compound to resume with full health.</p>
-          <button type="button" autoFocus onClick={() => engineRef.current?.recoverPlayer()}>
+          <button type="button" autoFocus onClick={() => engineRef.current?.recoverPlayer()}
+            onKeyDown={(event) => {
+              if (event.ctrlKey || event.metaKey || event.altKey || event.defaultPrevented) return;
+              if (event.code !== snapshot.settings.keyBindings.recover || event.repeat) return;
+              event.preventDefault();
+              engineRef.current?.recoverPlayer();
+            }}>
             RECOVER AT FIELD UNIT <span>↗</span>
           </button>
           <small>{keyLabel(snapshot.settings.keyBindings.recover)} · QUICK RECOVERY</small>

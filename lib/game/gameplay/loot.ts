@@ -145,7 +145,7 @@ export function normalizeContainerStates(value: unknown): ContainerStates {
     if (source.opened !== true || !source.remaining || typeof source.remaining !== "object") continue;
     const remaining: Partial<Record<ItemId, number>> = {};
     for (const [item, amount] of Object.entries(source.remaining)) {
-      if (!(item in ITEM_DEFINITIONS) || !Number.isSafeInteger(amount) || (amount as number) <= 0) continue;
+      if (!Object.hasOwn(ITEM_DEFINITIONS, item) || !Number.isSafeInteger(amount) || (amount as number) <= 0) continue;
       remaining[item as ItemId] = Math.min(
         ITEM_DEFINITIONS[item as ItemId].stackLimit,
         amount as number,
