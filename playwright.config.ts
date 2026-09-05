@@ -1,10 +1,19 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const functionalViewport = process.env.CI
+  ? { width: 1024, height: 768 }
+  : { width: 1440, height: 900 };
+
 export default defineConfig({
   testDir: "tests/e2e",
   outputDir: "test-results",
-  fullyParallel: false,
-  workers: process.env.CI ? 1 : undefined,
+  // Software WebGL on headless Linux can make GPU-heavy integration flows
+  // substantially slower without changing their deterministic assertions.
+  timeout: 90_000,
+  // Full parallel metadata lets CI shard this single spec across runners. Keep
+  // one worker per runner because concurrent software WebGL contexts contend.
+  fullyParallel: true,
+  workers: 1,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI
@@ -18,14 +27,29 @@ export default defineConfig({
     colorScheme: "dark",
     locale: "en-US",
     timezoneId: "UTC",
-    trace: "retain-on-failure",
+    // Retained trace/video capture continuously reads the WebGL framebuffer,
+    // which can starve browser automation on hosted SwiftShader runners.
+    // CI keeps DOM/network/source traces and explicit failure screenshots.
+    trace: process.env.CI
+      ? {
+          mode: "retain-on-failure",
+          screenshots: false,
+          snapshots: true,
+          sources: true,
+        }
+      : "retain-on-failure",
     screenshot: "only-on-failure",
-    video: "retain-on-failure",
+    video: process.env.CI ? "off" : "retain-on-failure",
   },
   projects: [
     {
       name: "functional-chromium",
       grepInvert: /@(visual|fallback)/,
+      use: {
+        // Hosted runners use software WebGL, so keep functional coverage above
+        // the desktop breakpoints without rendering visual-baseline dimensions.
+        viewport: functionalViewport,
+      },
     },
     {
       name: "visual-chromium",
