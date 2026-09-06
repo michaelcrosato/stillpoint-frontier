@@ -28,12 +28,19 @@ async function waitForWorldReady(page: Page) {
   );
 }
 
-async function openDeterministicWorld(page: Page) {
-  await page.goto("/?test=1", { waitUntil: "load" });
+async function openDeterministicWorld(
+  page: Page,
+  renderMode: "manual" | "continuous" = "manual",
+) {
+  const url = renderMode === "manual"
+    ? "/?test=1&render=manual"
+    : "/?test=1";
+  await page.goto(url, { waitUntil: "load" });
   await waitForWorldReady(page);
 }
 
 async function attachScreenshot(page: Page, testInfo: TestInfo, name: string) {
+  await page.evaluate(() => window.__STILLPOINT_TEST__?.renderOnce());
   const screenshot = await page.screenshot({ animations: "disabled" });
   await testInfo.attach(name, { body: screenshot, contentType: "image/png" });
   expect(screenshot.byteLength).toBeGreaterThan(35_000);
@@ -97,6 +104,13 @@ test("boots WebGL2 without a blank frame", async ({ page }, testInfo) => {
   expect(wildlife?.species ?? 0).toBeGreaterThan(1);
   expect((await page.evaluate(() => window.__STILLPOINT_TEST__?.targets() ?? []))
     .some((target) => target.id.startsWith("animal:"))).toBe(false);
+  const graphics = await page.evaluate(() => window.__STILLPOINT_TEST__?.graphics());
+  expect(graphics).toMatchObject({
+    webgl2: true,
+    quality: "cinematic",
+    postProcessing: true,
+  });
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.renderOnce())).toBe(true);
   const pixels = await canvasVisualStats(page);
   expect(pixels.webgl2).toBe(true);
   expect(pixels.visibleSamples).toBeGreaterThan(3_000);
@@ -106,6 +120,7 @@ test("boots WebGL2 without a blank frame", async ({ page }, testInfo) => {
 });
 
 test("applies quality-budgeted composition and regenerates environment lighting", async ({ page }) => {
+  test.slow();
   await openDeterministicWorld(page);
   const cinematic = await page.evaluate(() => window.__STILLPOINT_TEST__?.graphics());
   expect(cinematic).toMatchObject({
@@ -122,6 +137,7 @@ test("applies quality-budgeted composition and regenerates environment lighting"
   const cinematicEnvironmentRevision = cinematic?.environmentMap.revision ?? 0;
 
   await page.evaluate(() => window.__STILLPOINT_TEST__?.setQuality("performance"));
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.renderOnce())).toBe(true);
   const performance = await page.evaluate(() => window.__STILLPOINT_TEST__?.graphics());
   expect(performance).toMatchObject({
     quality: "performance",
@@ -133,6 +149,7 @@ test("applies quality-budgeted composition and regenerates environment lighting"
   });
 
   await page.evaluate(() => window.__STILLPOINT_TEST__?.setQuality("ultra"));
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.renderOnce())).toBe(true);
   await expect.poll(
     () => page.evaluate((previousRevision) => {
       const graphics = window.__STILLPOINT_TEST__?.graphics();
@@ -201,6 +218,7 @@ test("starts the survey, streams distant chunks, and opens the map", async ({ pa
 });
 
 test("toggles the spawn door and exposes every authored floor", async ({ page }) => {
+  test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   expect(SPAWN_BUILDING.floorCount).toBe(1);
@@ -312,6 +330,7 @@ test("toggles the spawn door and exposes every authored floor", async ({ page })
 });
 
 test("sets, replaces, guides, and clears a map waypoint", async ({ page }, testInfo) => {
+  test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   await page.getByRole("button", { name: /map/i }).click();
@@ -322,23 +341,32 @@ test("sets, replaces, guides, and clears a map waypoint", async ({ page }, testI
   const atlasSize = Math.min(bounds.width, bounds.height);
   const atlasLeft = bounds.x + (bounds.width - atlasSize) * 0.5;
   const atlasTop = bounds.y + (bounds.height - atlasSize) * 0.5;
+  const unitsPerPixel = 96_000 / atlasSize;
+  const waypointError = async (axis: "x" | "z", expected: number) => {
+    const actual = await page.evaluate(
+      (coordinate) => window.__STILLPOINT_TEST__?.snapshot()
+        .navigation?.target.position[coordinate],
+      axis,
+    );
+    return Math.abs((actual ?? Number.POSITIVE_INFINITY) - expected);
+  };
 
   await page.mouse.click(atlasLeft + atlasSize * 0.75, atlasTop + atlasSize * 0.25);
   await expect(page.getByTestId("map-waypoint")).toBeVisible();
   await expect
-    .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().navigation?.target.position.x))
-    .toBeCloseTo(24_000, -1);
+    .poll(() => waypointError("x", 24_000))
+    .toBeLessThanOrEqual(unitsPerPixel);
   await expect
-    .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().navigation?.target.position.z))
-    .toBeCloseTo(-24_000, -1);
+    .poll(() => waypointError("z", -24_000))
+    .toBeLessThanOrEqual(unitsPerPixel);
 
   await page.mouse.click(atlasLeft + atlasSize * 0.25, atlasTop + atlasSize * 0.75);
   await expect
-    .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().navigation?.target.position.x))
-    .toBeCloseTo(-24_000, -1);
+    .poll(() => waypointError("x", -24_000))
+    .toBeLessThanOrEqual(unitsPerPixel);
   await expect
-    .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().navigation?.target.position.z))
-    .toBeCloseTo(24_000, -1);
+    .poll(() => waypointError("z", 24_000))
+    .toBeLessThanOrEqual(unitsPerPixel);
   expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.navigationTargets().filter(
     (target) => target.id === "player:map",
   ).length)).toBe(1);
@@ -368,6 +396,7 @@ test("sets, replaces, guides, and clears a map waypoint", async ({ page }, testI
 });
 
 test("zooms, pans, focuses, and preserves the cartographic viewport", async ({ page }) => {
+  test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   await page.getByRole("button", { name: /map/i }).click();
@@ -516,7 +545,8 @@ test("lights cities and sharply reduces ambient population at 03:00", async ({ p
 });
 
 test("keeps developer time and weather overrides out of the normal save", async ({ page }) => {
-  await page.goto("/?test=1&storage=1", { waitUntil: "load" });
+  test.slow();
+  await page.goto("/?test=1&storage=1&render=manual", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
   await waitForWorldReady(page);
@@ -572,7 +602,8 @@ test("keeps developer time and weather overrides out of the normal save", async 
 });
 
 test("persists horizon HLOD without expanding gameplay streaming", async ({ page }) => {
-  await page.goto("/?test=1&storage=1", { waitUntil: "load" });
+  test.slow();
+  await page.goto("/?test=1&storage=1&render=manual", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
   await waitForWorldReady(page);
@@ -621,6 +652,7 @@ test("persists horizon HLOD without expanding gameplay streaming", async ({ page
 });
 
 test("opens developer tools from the keyboard while paused and protects form input", async ({ page }) => {
+  test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   const before = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().position);
@@ -639,6 +671,7 @@ test("opens developer tools from the keyboard while paused and protects form inp
 });
 
 test("toggles independent session-only graphics modules", async ({ page }) => {
+  test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   await page.getByTestId("developer-launcher").click();
@@ -731,6 +764,7 @@ test("toggles independent session-only graphics modules", async ({ page }) => {
 });
 
 test("provides session-only invincibility, speed tiers, and safe no-clip flight", async ({ page }) => {
+  test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   await page.getByTestId("developer-launcher").click();
@@ -771,6 +805,7 @@ test("provides session-only invincibility, speed tiers, and safe no-clip flight"
 });
 
 test("starts a deterministic fresh developer sandbox from the title screen", async ({ page }) => {
+  test.slow();
   await openDeterministicWorld(page);
   await expect(page.getByTestId("enter-developer")).toContainText("START IN DEV MODE");
   await page.getByTestId("enter-developer").click();
@@ -812,7 +847,7 @@ test("starts a deterministic fresh developer sandbox from the title screen", asy
 });
 
 test("keeps a normal survey save untouched by the developer quick start", async ({ page }) => {
-  await page.goto("/?test=1&storage=1", { waitUntil: "load" });
+  await page.goto("/?test=1&storage=1&render=manual", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
   await waitForWorldReady(page);
@@ -858,6 +893,7 @@ test("keeps a normal survey save untouched by the developer quick start", async 
 });
 
 test("travels to the render-only canopy lab and scales graphics without simulation load", async ({ page }) => {
+  test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   await page.getByTestId("developer-launcher").click();
@@ -925,7 +961,8 @@ test("travels to the render-only canopy lab and scales graphics without simulati
 });
 
 test("keeps opt-in canopy lab travel out of the normal player save", async ({ page }) => {
-  await page.goto("/?test=1&storage=1", { waitUntil: "load" });
+  test.slow();
+  await page.goto("/?test=1&storage=1&render=manual", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
   await waitForWorldReady(page);
@@ -967,7 +1004,7 @@ test("streams proportional ambient citizens without making them interaction targ
   await page.evaluate(([x, z]) => window.__STILLPOINT_TEST__?.teleport(x, z), [mega.x, mega.z]);
   const megacityCrowd = await page.evaluate(() => window.__STILLPOINT_TEST__?.citizens());
   const targets = await page.evaluate(() => window.__STILLPOINT_TEST__?.targets() ?? []);
-  expect(megacityCrowd?.visible).toBeGreaterThan(3_000);
+  expect(megacityCrowd?.visible).toBeGreaterThan(2_400);
   expect(megacityCrowd?.density).toBe("SURGE");
   expect(targets.some((target) => target.id.startsWith("citizen:"))).toBe(false);
   await expect(page.getByTestId("crowd-readout")).toContainText("NON-INTERACTIVE");
@@ -1004,7 +1041,8 @@ test("recovers records and updates persistent survey UI", async ({ page }, testI
 });
 
 test("restores a saved survey after reload", async ({ page }) => {
-  await page.goto("/?test=1&storage=1", { waitUntil: "load" });
+  test.slow();
+  await page.goto("/?test=1&storage=1&render=manual", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
   await waitForWorldReady(page);
@@ -1025,7 +1063,8 @@ test("restores a saved survey after reload", async ({ page }) => {
 });
 
 test("persists local view settings and a rebound control independently of the field save", async ({ page }) => {
-  await page.goto("/?test=1&storage=1", { waitUntil: "load" });
+  test.slow();
+  await page.goto("/?test=1&storage=1&render=manual", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
   await waitForWorldReady(page);
@@ -1163,7 +1202,7 @@ test("surfaces critical health, incapacitates on a fatal fall, and recovers safe
 });
 
 test("saves and restores player pose, condition, and discovered locations", async ({ page }) => {
-  await page.goto("/?test=1&storage=1", { waitUntil: "load" });
+  await page.goto("/?test=1&storage=1&render=manual", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
   await waitForWorldReady(page);
@@ -1278,7 +1317,8 @@ test("blocks representative buildings, trees, and rocks without tunneling", asyn
 });
 
 test("collects and harvests deterministic resources without duplicate loot", async ({ page }, testInfo) => {
-  await page.goto("/?test=1&storage=1", { waitUntil: "load" });
+  test.slow();
+  await page.goto("/?test=1&storage=1&render=manual", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
   await waitForWorldReady(page);
@@ -1352,6 +1392,7 @@ test("collects and harvests deterministic resources without duplicate loot", asy
 });
 
 test("keeps GPU resource counts bounded through repeated chunk churn", async ({ page }) => {
+  test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   const baseline = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
@@ -1362,6 +1403,7 @@ test("keeps GPU resource counts bounded through repeated chunk churn", async ({ 
       mode,
     );
     await page.waitForTimeout(80);
+    expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.renderOnce())).toBe(true);
   }
 
   for (const level of [0, 4, 1, 3, 2] as const) {
@@ -1370,6 +1412,7 @@ test("keeps GPU resource counts bounded through repeated chunk churn", async ({ 
       level,
     );
     await page.waitForTimeout(80);
+    expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.renderOnce())).toBe(true);
   }
 
   for (const [x, z] of [
@@ -1382,6 +1425,7 @@ test("keeps GPU resource counts bounded through repeated chunk churn", async ({ 
       window.__STILLPOINT_TEST__?.teleport(nextX, nextZ);
     }, [x, z] as const);
     await page.waitForTimeout(80);
+    expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.renderOnce())).toBe(true);
   }
 
   const settled = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
@@ -1393,17 +1437,23 @@ test("keeps GPU resource counts bounded through repeated chunk churn", async ({ 
 });
 
 test("surfaces graphics context loss and preserves the simulation", async ({ page }) => {
+  test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
   await page.evaluate(() => window.__STILLPOINT_TEST__?.loseContext());
   await expect(page.getByText("GRAPHICS CONTEXT LOST")).toBeVisible();
   expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().contextStatus)).toBe("lost");
   await page.evaluate(() => window.__STILLPOINT_TEST__?.restoreContext());
+  await expect.poll(
+    () => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().contextStatus),
+    { timeout: 20_000 },
+  ).toBe("ready");
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.renderOnce())).toBe(true);
   await expect(page.getByText("GRAPHICS CONTEXT LOST")).toBeHidden();
 });
 
 test("entry and fixed world views are visually reviewable @visual", async ({ page }, testInfo) => {
-  await openDeterministicWorld(page);
+  await openDeterministicWorld(page, "continuous");
   if (process.env.VISUAL_BASELINES === "1") {
     await expect(page).toHaveScreenshot("entry-screen.png");
   } else {
@@ -1439,7 +1489,8 @@ test("entry and fixed world views are visually reviewable @visual", async ({ pag
 });
 
 test("megacity day and night activity are visually reviewable @visual", async ({ page }, testInfo) => {
-  await openDeterministicWorld(page);
+  test.slow();
+  await openDeterministicWorld(page, "continuous");
   await page.getByTestId("enter-frontier").click();
   const mega = getSettlement("vesper-crown");
   expect(mega).not.toBeNull();

@@ -205,6 +205,7 @@ export default function GameShell() {
         canvas,
         testMode,
         storageEnabled,
+        continuousRendering: !testMode || parameters.get("render") !== "manual",
         onSnapshot: (nextSnapshot) => {
           if (active) setSnapshot(nextSnapshot);
         },

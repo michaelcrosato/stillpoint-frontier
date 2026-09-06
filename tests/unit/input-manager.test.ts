@@ -4,7 +4,7 @@ import { DEFAULT_KEY_BINDINGS, rebindAction } from "../../lib/game/settings";
 
 afterEach(() => vi.unstubAllGlobals());
 
-function harness() {
+function harness(allowUncapturedGameKeys = false) {
   const windowTarget = new EventTarget();
   class Element extends EventTarget {
     constructor(private readonly tag = "canvas", readonly isContentEditable = false) { super(); }
@@ -15,7 +15,12 @@ function harness() {
   vi.stubGlobal("window", windowTarget);
   vi.stubGlobal("document", documentTarget);
   vi.stubGlobal("HTMLElement", Element);
-  const input = new InputManager(canvas as unknown as HTMLCanvasElement);
+  const input = new InputManager(
+    canvas as unknown as HTMLCanvasElement,
+    undefined,
+    DEFAULT_KEY_BINDINGS,
+    allowUncapturedGameKeys,
+  );
   const key = (type: string, code: string, extra = {}, target?: EventTarget) => {
     const event = Object.assign(new Event(type, { cancelable: true }), { code, repeat: false, ...extra });
     if (target) Object.defineProperty(event, "target", { value: target });
@@ -26,6 +31,14 @@ function harness() {
 }
 
 describe("input ownership and lifecycle", () => {
+  it("allows test-mode gameplay keys after HUD button focus", () => {
+    const { input, key, Element } = harness(true);
+    const button = new Element("button");
+    expect(key("keydown", "KeyW", {}, button).defaultPrevented).toBe(true);
+    expect(input.isActionDown("moveForward")).toBe(true);
+    input.dispose();
+  });
+
   it("accepts gameplay keys with restored button focus only after capture resumes", () => {
     const { input, key, canvas, documentTarget, Element } = harness();
     const button = new Element("button");

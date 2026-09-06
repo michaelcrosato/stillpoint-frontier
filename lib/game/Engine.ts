@@ -236,6 +236,7 @@ function audioLevelsFromSettings(
 export interface GameTestBridge {
   isReady(): boolean;
   snapshot(): GameSnapshot;
+  renderOnce(): boolean;
   teleport(x: number, z: number, y?: number): void;
   faceBeacon(beaconId: BeaconId): void;
   discover(beaconId: BeaconId): void;
@@ -354,6 +355,7 @@ interface EngineOptions {
   canvas: HTMLCanvasElement;
   testMode?: boolean;
   storageEnabled?: boolean;
+  continuousRendering?: boolean;
   onSnapshot: (snapshot: GameSnapshot) => void;
   onPresentation?: (presentation: GamePresentation) => void;
   onRendererError?: (error: unknown) => void;
@@ -391,6 +393,7 @@ export class Engine {
   private readonly onPresentation: (presentation: GamePresentation) => void;
   private readonly onRendererError: (error: unknown) => void;
   private readonly testMode: boolean;
+  private readonly continuousRendering: boolean;
   private readonly reducedCameraMotion: boolean;
   private readonly saveStore: SaveStore;
   private readonly preferencesStore: PreferencesStore;
@@ -483,6 +486,7 @@ export class Engine {
   constructor(options: EngineOptions) {
     this.canvas = options.canvas;
     this.testMode = options.testMode ?? false;
+    this.continuousRendering = options.continuousRendering ?? true;
     this.onSnapshot = options.onSnapshot;
     this.onPresentation = options.onPresentation ?? (() => undefined);
     this.onRendererError = options.onRendererError ?? (() => undefined);
@@ -568,6 +572,9 @@ export class Engine {
       this.canvas,
       this.handlePointerLockChange,
       this.settings.keyBindings,
+      // Deterministic browser sessions do not acquire pointer lock, so their
+      // keyboard checks need the same gameplay routing as captured play.
+      this.testMode,
     );
     this.world = new ChunkManager(
       this.scene,
@@ -2579,7 +2586,39 @@ export class Engine {
     return this.preferencesStore.save(this.settings);
   }
 
-  private presentCamera(deltaSeconds: number, snap = false) {
+  private presentRenderState(deltaSeconds: number, snap = false) {
+    this.presentCamera(deltaSeconds, snap);
+    this.environment.present(this.player.position, deltaSeconds, this.camera.position);
+    this.forestStress.update(
+      this.player.position.x,
+      this.player.position.z,
+      this.environment.getDeveloperState().enabled,
+    );
+    const visualState = this.environment.getVisualState();
+    this.world.presentEnvironment(visualState);
+    this.horizon.presentEnvironment(visualState);
+    this.renderPipeline.presentEnvironment(visualState);
+    const interpolation =
+      this.started &&
+      !this.paused &&
+      !this.mapOpen &&
+      !this.inventoryOpen &&
+      !this.settingsOpen &&
+      !this.activeInspection &&
+      !this.featureOverlay &&
+      !this.developerPanelOpen
+        ? this.accumulator
+        : 0;
+    this.citizens.present(interpolation);
+    this.animals.present(interpolation);
+    this.flashlight.present(this.playerCamera);
+  }
+
+  private presentCamera(
+    deltaSeconds: number,
+    snap = false,
+    presentAvatar = true,
+  ) {
     this.playerCamera.updateMatrixWorld(true);
     const diagnostics = this.cameraRig.present({
       playerCamera: this.playerCamera,
@@ -2594,12 +2633,14 @@ export class Engine {
       deltaSeconds,
       snap: snap || this.reducedCameraMotion,
     });
-    this.playerAvatar.present(
-      this.player.position,
-      this.player.yaw,
-      this.player.eyeHeight,
-      diagnostics,
-    );
+    if (presentAvatar) {
+      this.playerAvatar.present(
+        this.player.position,
+        this.player.yaw,
+        this.player.eyeHeight,
+        diagnostics,
+      );
+    }
     return diagnostics;
   }
 
@@ -2647,99 +2688,50 @@ export class Engine {
 
     try {
       if (this.contextStatus === "ready") {
-      this.accumulator += delta;
-      let steps = 0;
-      while (this.accumulator >= FIXED_STEP && steps < 5) {
-        this.runtime.started = this.started;
-        this.runtime.paused =
-          this.paused ||
-          this.mapOpen ||
-          this.inventoryOpen ||
-          this.settingsOpen ||
-          this.activeInspection !== null ||
-          this.featureOverlay !== null ||
-          this.developerPanelOpen ||
-          this.player.condition.health <= 0;
-        this.runtime.developerPanelOpen = this.developerPanelOpen;
-        this.pipeline.update(this.runtime, FIXED_STEP);
-        this.updateSafePosition(FIXED_STEP);
-        this.accumulator -= FIXED_STEP;
-        steps += 1;
-      }
-      if (steps === 5) this.accumulator = 0;
+        this.accumulator += delta;
+        let steps = 0;
+        while (this.accumulator >= FIXED_STEP && steps < 5) {
+          this.runtime.started = this.started;
+          this.runtime.paused =
+            this.paused ||
+            this.mapOpen ||
+            this.inventoryOpen ||
+            this.settingsOpen ||
+            this.activeInspection !== null ||
+            this.featureOverlay !== null ||
+            this.developerPanelOpen ||
+            this.player.condition.health <= 0;
+          this.runtime.developerPanelOpen = this.developerPanelOpen;
+          this.pipeline.update(this.runtime, FIXED_STEP);
+          this.updateSafePosition(FIXED_STEP);
+          this.accumulator -= FIXED_STEP;
+          steps += 1;
+        }
+        if (steps === 5) this.accumulator = 0;
 
-      this.presentCamera(delta);
-      this.environment.present(this.player.position, delta, this.camera.position);
-      this.forestStress.update(
-        this.player.position.x,
-        this.player.position.z,
-        this.environment.getDeveloperState().enabled,
-      );
-      if (
-        this.benchmarkTravelOrigin &&
-        Math.hypot(
-          this.player.position.x - CANOPY_BENCHMARK_ZONE.center.x,
-          this.player.position.z - CANOPY_BENCHMARK_ZONE.center.z,
-        ) > CANOPY_BENCHMARK_ZONE.unloadRadius
-      ) {
-        this.benchmarkTravelOrigin = null;
-      }
-      const visualState = this.environment.getVisualState();
-      this.world.presentEnvironment(visualState);
-      this.horizon.presentEnvironment(visualState);
-      this.renderPipeline.presentEnvironment(visualState);
-      this.citizens.present(
-        this.started &&
-          !this.paused &&
-          !this.mapOpen &&
-          !this.inventoryOpen &&
-          !this.settingsOpen &&
-          !this.activeInspection &&
-          !this.featureOverlay &&
-          !this.developerPanelOpen
-          ? this.accumulator
-          : 0,
-      );
-      this.animals.present(
-        this.started &&
-          !this.paused &&
-          !this.mapOpen &&
-          !this.inventoryOpen &&
-          !this.settingsOpen &&
-          !this.activeInspection &&
-          !this.featureOverlay &&
-          !this.developerPanelOpen
-          ? this.accumulator
-          : 0,
-      );
-      this.flashlight.present(this.playerCamera);
-      this.emitPresentation();
-      const renderMetrics = this.renderPipeline.render(
-        delta,
-        this.graphicsBenchmark.isMeasuringGpu,
-      );
-      this.graphicsBenchmark.resolveGpuSamples(renderMetrics.gpuSamples);
-      this.trackPerformance(timestamp);
-      if (
-        this.started &&
-        !this.testMode &&
-        timestamp - this.lastClockPersistTime >= 30_000
-      ) {
-        this.persist();
-        this.lastClockPersistTime = timestamp;
-      }
-      const renderCounts = this.renderPipeline.renderer.info.render;
-      this.graphicsBenchmark.recordFrame({
-        frameToken: renderMetrics.frameToken,
-        timestampMs: timestamp,
-        frameIntervalMs: frameIntervalMilliseconds,
-        cpuWorkMs: performance.now() - cpuFrameStartedAt,
-        cpuRenderMs: renderMetrics.cpuRenderMilliseconds,
-        drawCalls: renderCounts.calls,
-        triangles: renderCounts.triangles,
-        gpuQuerySubmitted: renderMetrics.gpuQuerySubmitted,
-        hidden: document.hidden,
-      });
+        if (
+          this.benchmarkTravelOrigin &&
+          Math.hypot(
+            this.player.position.x - CANOPY_BENCHMARK_ZONE.center.x,
+            this.player.position.z - CANOPY_BENCHMARK_ZONE.center.z,
+          ) > CANOPY_BENCHMARK_ZONE.unloadRadius
+        ) {
+          this.benchmarkTravelOrigin = null;
+        }
+        if (this.continuousRendering) {
+          this.presentRenderState(delta);
+        } else {
+          this.presentCamera(delta, false, false);
+        }
+        this.emitPresentation();
+        if (this.continuousRendering) {
+          this.renderCurrentFrame(
+            delta,
+            timestamp,
+            frameIntervalMilliseconds,
+            cpuFrameStartedAt,
+          );
+        }
         this.emitSnapshot(timestamp - this.lastSnapshotTime > 140);
       }
     } catch (error) {
@@ -2749,6 +2741,53 @@ export class Engine {
     }
     this.animationFrame = requestAnimationFrame(this.frame);
   };
+
+  private renderCurrentFrame(
+    deltaSeconds: number,
+    timestamp: number,
+    frameIntervalMilliseconds: number,
+    cpuFrameStartedAt: number,
+  ) {
+    const renderMetrics = this.renderPipeline.render(
+      deltaSeconds,
+      this.graphicsBenchmark.isMeasuringGpu,
+    );
+    this.graphicsBenchmark.resolveGpuSamples(renderMetrics.gpuSamples);
+    this.trackPerformance(timestamp);
+    if (
+      this.started &&
+      !this.testMode &&
+      timestamp - this.lastClockPersistTime >= 30_000
+    ) {
+      this.persist();
+      this.lastClockPersistTime = timestamp;
+    }
+    const renderCounts = this.renderPipeline.renderer.info.render;
+    this.graphicsBenchmark.recordFrame({
+      frameToken: renderMetrics.frameToken,
+      timestampMs: timestamp,
+      frameIntervalMs: frameIntervalMilliseconds,
+      cpuWorkMs: performance.now() - cpuFrameStartedAt,
+      cpuRenderMs: renderMetrics.cpuRenderMilliseconds,
+      drawCalls: renderCounts.calls,
+      triangles: renderCounts.triangles,
+      gpuQuerySubmitted: renderMetrics.gpuQuerySubmitted,
+      hidden: document.hidden,
+    });
+  }
+
+  private renderOnce() {
+    if (this.disposed || !this.ready || this.contextStatus !== "ready") {
+      return false;
+    }
+    const cpuFrameStartedAt = performance.now();
+    const timestamp = performance.now();
+    this.presentRenderState(0, true);
+    this.emitPresentation();
+    this.renderCurrentFrame(0, timestamp, 0, cpuFrameStartedAt);
+    this.emitSnapshot(true);
+    return true;
+  }
 
   private trackPerformance(timestamp: number) {
     this.framesSinceSample += 1;
@@ -3166,6 +3205,7 @@ export class Engine {
     window.__STILLPOINT_TEST__ = {
       isReady: () => this.ready,
       snapshot: () => structuredClone(this.snapshot),
+      renderOnce: () => this.renderOnce(),
       teleport: (x, z, y) => {
         this.relocatePlayer(x, z, y);
         this.emitSnapshot(true);

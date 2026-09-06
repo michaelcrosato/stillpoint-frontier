@@ -23,12 +23,19 @@ export function resolveActionKeys(bindings: Readonly<KeyBindings>) {
   return resolved;
 }
 
-function isEditableTarget(target: EventTarget | null, pointerLocked: boolean) {
+function isEditableTarget(
+  target: EventTarget | null,
+  pointerLocked: boolean,
+  allowUncapturedGameKeys: boolean,
+) {
   if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable || target.matches("input, select, textarea")) {
+    return true;
+  }
   return (
-    target.isContentEditable ||
-    target.matches("input, select, textarea") ||
-    (!pointerLocked && target.matches("button, [role='button']"))
+    !pointerLocked &&
+    !allowUncapturedGameKeys &&
+    target.matches("button, [role='button']")
   );
 }
 
@@ -61,6 +68,7 @@ export class InputManager {
     private readonly canvas: HTMLCanvasElement,
     onPointerLockChange?: (locked: boolean) => void,
     bindings: Readonly<KeyBindings> = DEFAULT_KEY_BINDINGS,
+    private readonly allowUncapturedGameKeys = false,
   ) {
     this.onPointerLockChange = onPointerLockChange;
     this.actionKeys = resolveActionKeys(bindings);
@@ -154,7 +162,10 @@ export class InputManager {
   private handleKeyDown = (event: KeyboardEvent) => {
     if (event.defaultPrevented) return;
     if (!this.isLocked() && (event.ctrlKey || event.metaKey || event.altKey)) return;
-    if (isEditableTarget(event.target, this.isLocked()) && event.code !== "Escape") return;
+    if (
+      isEditableTarget(event.target, this.isLocked(), this.allowUncapturedGameKeys) &&
+      event.code !== "Escape"
+    ) return;
     if (this.capturedKeys.has(event.code)) {
       event.preventDefault();
     }
