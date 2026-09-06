@@ -187,7 +187,6 @@ export class WorldMaterialLibrary {
 
     for (const material of materials) this.retainMaterial(material);
     this.roots.set(root, { materials });
-    this.apply();
   }
 
   untrack(root: THREE.Object3D) {
@@ -298,7 +297,7 @@ export class WorldMaterialLibrary {
     const vegetationWind = this.features.vegetationWind && descriptor.windAmplitude > 0
       ? installVegetationWind(material, descriptor.windAmplitude)
       : null;
-    this.tracked.set(material, {
+    const tracked: TrackedMaterial = {
       material,
       descriptor,
       dryRoughness: material.roughness,
@@ -306,7 +305,10 @@ export class WorldMaterialLibrary {
       references: 1,
       surfaceDetail,
       vegetationWind,
-    });
+    };
+    this.tracked.set(material, tracked);
+    // Streamed roots only need to initialize newly registered materials.
+    this.apply([tracked]);
   }
 
   private releaseMaterial(material: THREE.Material) {
@@ -360,11 +362,11 @@ export class WorldMaterialLibrary {
     );
   }
 
-  private apply() {
+  private apply(materials: Iterable<TrackedMaterial> = this.tracked.values()) {
     const worldEffects = QUALITY_PRESETS[this.quality].worldEffects;
     const windRadians = (this.windDirection * Math.PI) / 180;
     const windStrength = vegetationWindStrength(this.windKph);
-    for (const tracked of this.tracked.values()) {
+    for (const tracked of materials) {
       const exposure = this.features.wetSurfaces
         ? tracked.descriptor.weatherExposure * this.wetness
         : 0;

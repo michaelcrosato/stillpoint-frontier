@@ -1,4 +1,5 @@
 "use client";
+import { trapDialogTab } from "../lib/game/ui/dialogFocus";
 
 import { useEffect, useRef, type KeyboardEvent } from "react";
 import {
@@ -41,20 +42,7 @@ export default function InventoryPanel({ snapshot, onClose, onUseItem }: Invento
       onClose();
       return;
     }
-    if (event.key !== "Tab") return;
-    const focusable = Array.from(
-      panelRef.current?.querySelectorAll<HTMLElement>("button:not([disabled]), [tabindex='0']") ?? [],
-    );
-    if (focusable.length === 0) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
+    trapDialogTab(event, panelRef.current);
   };
 
   return (

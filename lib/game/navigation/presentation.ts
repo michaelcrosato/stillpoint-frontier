@@ -1,5 +1,6 @@
 import type { NavigationGuidance } from "./NavigationService";
 import type { NavigationTargetSource } from "./NavigationService";
+import type { CameraAimProjection } from "../camera/CameraRig";
 
 export interface WaypointScreenProjection {
   visible: boolean;
@@ -12,6 +13,7 @@ export interface GamePresentation {
   unwrappedHeading: number;
   navigation: NavigationGuidance | null;
   waypointScreen: WaypointScreenProjection | null;
+  aimScreen: CameraAimProjection | null;
 }
 
 export const INITIAL_PRESENTATION: GamePresentation = {
@@ -19,6 +21,7 @@ export const INITIAL_PRESENTATION: GamePresentation = {
   unwrappedHeading: 0,
   navigation: null,
   waypointScreen: null,
+  aimScreen: null,
 };
 
 type Listener = () => void;
@@ -72,7 +75,7 @@ function navigationEqual(left: NavigationGuidance | null, right: NavigationGuida
   );
 }
 
-/** A tiny external store so only navigation UI repaints at the render frame rate. */
+/** A tiny external store so only navigation and aim UI repaint at render-frame rate. */
 export class GamePresentationStore {
   private current: GamePresentation = INITIAL_PRESENTATION;
   private readonly listeners = new Set<Listener>();
@@ -82,7 +85,8 @@ export class GamePresentationStore {
       this.current.heading === next.heading &&
       this.current.unwrappedHeading === next.unwrappedHeading &&
       navigationEqual(this.current.navigation, next.navigation) &&
-      projectionEqual(this.current.waypointScreen, next.waypointScreen)
+      projectionEqual(this.current.waypointScreen, next.waypointScreen) &&
+      projectionEqual(this.current.aimScreen, next.aimScreen)
     ) {
       return;
     }

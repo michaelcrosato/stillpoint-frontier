@@ -20,6 +20,18 @@ import { EnvironmentalAudio } from "./audio/EnvironmentalAudio";
 import type { AudioLevels, AudioPoint } from "./audio/port";
 import { PlayerFlashlight } from "./equipment/PlayerFlashlight";
 import {
+  CameraRig,
+  CAMERA_VIEW_MODES,
+  cameraDistanceForPreset,
+  cycleCameraDistance,
+  normalizeCameraDistance,
+  normalizeIsometricAngle,
+  zoomCameraDistance,
+  type CameraRigDiagnostics,
+  type CameraViewMode,
+} from "./camera/CameraRig";
+import { PlayerAvatar } from "./camera/PlayerAvatar";
+import {
   RenderPipeline,
   type GraphicsDiagnostics,
 } from "./rendering/RenderPipeline";
@@ -111,6 +123,7 @@ import { ScannerSystem } from "./systems/ScannerSystem";
 import { CitizenCrowdSystem } from "./systems/CitizenCrowdSystem";
 import { AmbientAnimalSystem } from "./systems/AmbientAnimalSystem";
 import { PlayerEquipmentSystem } from "./systems/PlayerEquipmentSystem";
+import { CameraControlSystem } from "./systems/CameraControlSystem";
 import { EnvironmentSystem } from "./systems/EnvironmentSystem";
 import { PlayerControllerSystem } from "./systems/PlayerControllerSystem";
 import { PlayerConditionSystem } from "./systems/PlayerConditionSystem";
@@ -282,6 +295,10 @@ export interface GameTestBridge {
   beginSession(): boolean;
   beginDeveloperSession(): boolean;
   setFov(fov: number): boolean;
+  setCameraDistance(distance: number, snap?: boolean): boolean;
+  setCameraView(mode: CameraViewMode, snap?: boolean): boolean;
+  setIsometricAngle(angleDegrees: number): boolean;
+  camera(): CameraRigDiagnostics;
   setLookSensitivity(value: number): boolean;
   setInvertY(enabled: boolean): boolean;
   setKeyBinding(action: GameAction, code: string): boolean;
@@ -348,6 +365,9 @@ export class Engine {
   private readonly canvas: HTMLCanvasElement;
   private readonly scene = new THREE.Scene();
   private readonly camera: THREE.PerspectiveCamera;
+  private readonly playerCamera: THREE.PerspectiveCamera;
+  private readonly cameraRig: CameraRig;
+  private readonly playerAvatar: PlayerAvatar;
   private readonly renderPipeline: RenderPipeline;
   private readonly renderer: THREE.WebGLRenderer;
   private readonly materialLibrary: WorldMaterialLibrary;
@@ -374,6 +394,7 @@ export class Engine {
   private readonly onRendererError: (error: unknown) => void;
   private readonly testMode: boolean;
   private readonly continuousRendering: boolean;
+  private readonly reducedCameraMotion: boolean;
   private readonly saveStore: SaveStore;
   private readonly preferencesStore: PreferencesStore;
   private readonly projectionPoint = new THREE.Vector3();
@@ -454,11 +475,13 @@ export class Engine {
   );
   private lastLocationDiscovery: DiscoverableLocation | null = null;
   private saveStatus: GameSnapshot["saveStatus"] = "unavailable";
+  private hasSurveySave = false;
   private lastSavedAt: number | null = null;
   private lastClockPersistTime = 0;
   private benchmarkTravelOrigin: BenchmarkTravelOrigin | null = null;
   private snapshot = { ...INITIAL_SNAPSHOT };
   private disposed = false;
+  private cameraPreferenceTimer: number | null = null;
 
   constructor(options: EngineOptions) {
     this.canvas = options.canvas;
@@ -467,6 +490,9 @@ export class Engine {
     this.onSnapshot = options.onSnapshot;
     this.onPresentation = options.onPresentation ?? (() => undefined);
     this.onRendererError = options.onRendererError ?? (() => undefined);
+    this.reducedCameraMotion = window.matchMedia?.(
+      "(prefers-reduced-motion: reduce)",
+    ).matches ?? false;
     let browserStorage: Storage | null = null;
     const storageEnabled = options.storageEnabled ?? !this.testMode;
     if (storageEnabled) {
@@ -494,7 +520,8 @@ export class Engine {
     this.discoveredLocations = saved.discoveredLocations;
     this.horizonMode = this.settings.horizonMode;
     this.quality = this.settings.quality;
-    this.saveStatus = browserStorage ? (this.saveStore.hasSave() ? "saved" : "unsaved") : "unavailable";
+    this.hasSurveySave = this.saveStore.hasSave();
+    this.saveStatus = browserStorage ? (this.hasSurveySave ? "saved" : "unsaved") : "unavailable";
     if (saved.manualWaypoint) this.navigation.setManualWaypoint(saved.manualWaypoint);
     if (saved.player) {
       this.player.position.set(saved.player.x, saved.player.y, saved.player.z);
@@ -518,6 +545,16 @@ export class Engine {
       0.08,
       HORIZON_PRESETS[this.horizonMode].drawDistanceMeters,
     );
+    this.playerCamera = new THREE.PerspectiveCamera(
+      this.settings.fov,
+      1,
+      0.08,
+      HORIZON_PRESETS[this.horizonMode].drawDistanceMeters,
+    );
+    this.cameraRig = new CameraRig(
+      this.settings.cameraDistance,
+      this.settings.isometricAngle,
+    );
 
     this.renderPipeline = new RenderPipeline({
       canvas: this.canvas,
@@ -535,6 +572,9 @@ export class Engine {
       this.canvas,
       this.handlePointerLockChange,
       this.settings.keyBindings,
+      // Deterministic browser sessions do not acquire pointer lock, so their
+      // keyboard checks need the same gameplay routing as captured play.
+      this.testMode,
     );
     this.world = new ChunkManager(
       this.scene,
@@ -561,6 +601,7 @@ export class Engine {
       queryColliders: (current, desired, radius, minY, maxY) =>
         this.world.queryColliders(current, desired, radius, minY, maxY),
     });
+    this.playerAvatar = new PlayerAvatar(this.scene, this.quality);
     this.flashlight = new PlayerFlashlight(this.scene, this.quality);
     this.audio = new EnvironmentalAudio(
       audioLevelsFromSettings(this.settings),
@@ -587,10 +628,12 @@ export class Engine {
       this.player.position.z,
     );
     this.camera.rotation.set(this.player.pitch, this.player.yaw, 0, "YXZ");
+    this.playerCamera.position.copy(this.camera.position);
+    this.playerCamera.rotation.copy(this.camera.rotation);
 
     this.runtime = {
       input: this.input,
-      camera: this.camera,
+      camera: this.playerCamera,
       world: this.world,
       horizon: this.horizon,
       citizens: this.citizens,
@@ -613,6 +656,8 @@ export class Engine {
       toggleInventory: () => this.toggleInventory(),
       toggleQuality: () => this.toggleQuality(),
       toggleFlashlight: () => this.toggleFlashlight(),
+      adjustCameraZoom: (deltaY) => this.adjustCameraZoom(deltaY),
+      cycleCameraView: () => this.cycleCameraView(),
       toggleDeveloperPanel: () => this.toggleDeveloperPanel(),
       toggleOperations: () => this.toggleOperations(),
       scanCandidates: () => [
@@ -645,7 +690,9 @@ export class Engine {
       .use({
         id: "field-equipment",
         install: (registry) => {
-          registry.system(new PlayerEquipmentSystem());
+          registry
+            .system(new CameraControlSystem())
+            .system(new PlayerEquipmentSystem());
         },
       })
       .use({
@@ -708,8 +755,13 @@ export class Engine {
     );
     this.player.position.set(resolved.x, supportY, resolved.z);
     this.player.safePosition.copy(this.player.position);
-    this.camera.position.set(resolved.x, supportY + this.player.eyeHeight, resolved.z);
-    this.camera.rotation.set(this.player.pitch, this.player.yaw, 0, "YXZ");
+    this.playerCamera.position.set(
+      resolved.x,
+      supportY + this.player.eyeHeight,
+      resolved.z,
+    );
+    this.playerCamera.rotation.set(this.player.pitch, this.player.yaw, 0, "YXZ");
+    this.presentCamera(0, true);
     this.currentLocation = currentDiscoverableLocation(resolved.x, resolved.z);
     this.horizon.update(
       this.player.position.x,
@@ -718,9 +770,9 @@ export class Engine {
     );
     this.citizens.updateStreaming(this.player.position.x, this.player.position.z);
     this.animals.updateStreaming(this.player.position.x, this.player.position.z);
-    this.flashlight.present(this.camera);
+    this.flashlight.present(this.playerCamera);
     this.environment.sync(this.player.position, true);
-    this.environment.present(this.player.position, 0);
+    this.environment.present(this.player.position, 0, this.camera.position);
     const visualState = this.environment.getVisualState();
     this.world.presentEnvironment(visualState);
     this.horizon.presentEnvironment(visualState);
@@ -777,7 +829,6 @@ export class Engine {
     this.developerPanelOpen = false;
     this.paused = !this.testMode;
     this.lastClockPersistTime = performance.now();
-    this.canvas.focus({ preventScroll: true });
     void this.audio.unlock();
     if (!this.testMode) this.input.requestPointerLock();
     this.emitSnapshot(true);
@@ -852,7 +903,7 @@ export class Engine {
 
     this.environment.setDeveloperWeather(DEVELOPER_QUICK_START.weatherId);
     this.environment.sync(this.player.position, true);
-    this.environment.present(this.player.position, 0);
+    this.environment.present(this.player.position, 0, this.camera.position);
     const visualState = this.environment.getVisualState();
     this.world.presentEnvironment(visualState);
     this.horizon.presentEnvironment(visualState);
@@ -868,7 +919,6 @@ export class Engine {
     this.activeInspection = null;
     this.featureOverlay = null;
     this.developerPanelOpen = false;
-    this.canvas.focus({ preventScroll: true });
     void this.audio.unlock();
     if (this.testMode) this.paused = false;
     else if (this.input.isLocked()) this.paused = false;
@@ -983,6 +1033,15 @@ export class Engine {
       },
     );
     if (outcome.result === "unchanged") return;
+    if (outcome.result === "full") {
+      this.lastFeatureNotice = {
+        type: "item",
+        title: "Not enough stack space",
+        detail: "Use or craft with this material, then try again. The resource is still available.",
+      };
+      this.emitSnapshot(true);
+      return;
+    }
     this.inventory = outcome.state.inventory;
     this.worldDiffs = outcome.state.worldDiffs;
     const diff = this.worldDiffs[target.id];
@@ -1123,7 +1182,9 @@ export class Engine {
             ? "This recipe requires the Field Unit fabrication bench."
             : outcome.result === "locked"
               ? "The recipe has not been unlocked."
-              : "Required materials or inventory capacity are unavailable.",
+              : outcome.result === "inventory_full"
+                ? "The output stack is full. Use or deploy an item, then try again."
+                : "Required materials are unavailable.",
       };
       this.emitSnapshot(true);
       return false;
@@ -1208,16 +1269,15 @@ export class Engine {
       containerStates: outcome.states,
     };
     this.world.setContainerStates(outcome.states);
-    this.applyGameplayEvent({
+    this.applyGameplayEvents([{
       type: "container.looted",
       containerId,
       quantity: outcome.quantity,
-    });
-    this.applyGameplayEvent({
+    }, {
       type: "item.collected",
       item,
       quantity: outcome.quantity,
-    });
+    }]);
     this.lastFeatureNotice = {
       type: "loot",
       title: `${ITEM_DEFINITIONS[item].name} recovered`,
@@ -1243,17 +1303,18 @@ export class Engine {
       containerStates: outcome.states,
     };
     this.world.setContainerStates(outcome.states);
-    this.applyGameplayEvent({
+    const events: GameplayEvent[] = [{
       type: "container.looted",
       containerId,
       quantity: outcome.quantity,
-    });
+    }];
     for (const item of Object.keys(ITEM_DEFINITIONS) as ItemId[]) {
       const quantity = outcome.inventory[item] - previousInventory[item];
       if (quantity > 0) {
-        this.applyGameplayEvent({ type: "item.collected", item, quantity });
+        events.push({ type: "item.collected", item, quantity });
       }
     }
+    this.applyGameplayEvents(events);
     this.lastFeatureNotice = {
       type: "loot",
       title: "Container transfer complete",
@@ -1280,7 +1341,7 @@ export class Engine {
       this.environment.getPersistentWorldMinutes() + outcome.minutes,
     );
     this.environment.sync(this.player.position, true);
-    this.environment.present(this.player.position, 0);
+    this.environment.present(this.player.position, 0, this.camera.position);
     this.synchronizeTimeDependentWorld();
     this.featureProgress = {
       ...this.featureProgress,
@@ -1294,7 +1355,9 @@ export class Engine {
     this.lastFeatureNotice = {
       type: "rest",
       title: "Rest cycle complete",
-      detail: `${Math.round(outcome.minutes / 60)} game hour${outcome.minutes === 60 ? "" : "s"} elapsed.`,
+      detail: outcome.minutes < 1
+        ? "Less than one game minute elapsed."
+        : `${Math.round(outcome.minutes)} game minute${Math.round(outcome.minutes) === 1 ? "" : "s"} elapsed.`,
     };
     this.persist();
     this.audio.playCue("recover");
@@ -1446,9 +1509,17 @@ export class Engine {
   }
 
   private applyGameplayEvent(event: GameplayEvent) {
+    return this.applyGameplayEvents([event]);
+  }
+
+  /** Reconcile inventory evidence once, after all events in one transaction. */
+  private applyGameplayEvents(events: readonly GameplayEvent[]) {
     const previous = JSON.stringify(this.featureProgress.contractJournal);
     const contractJournal = this.reconcilePersistentContractEvidence(
-      progressContracts(this.featureProgress.contractJournal, event),
+      events.reduce(
+        (journal, event) => progressContracts(journal, event),
+        this.featureProgress.contractJournal,
+      ),
     );
     if (JSON.stringify(contractJournal) === previous) return false;
     this.featureProgress = { ...this.featureProgress, contractJournal };
@@ -1825,6 +1896,12 @@ export class Engine {
         heading: headingFromYaw(this.player.yaw),
         fov: this.camera.fov,
       },
+      camera: {
+        ...this.cameraRig.diagnostics,
+        x: this.camera.position.x,
+        y: this.camera.position.y,
+        z: this.camera.position.z,
+      },
       environment: {
         worldMinutes: atmosphere.totalMinutes,
         weatherId: atmosphere.weatherId,
@@ -1943,7 +2020,7 @@ export class Engine {
     this.graphicsBenchmark.invalidate("World time changed");
     this.environment.setWorldMinutes(minutes);
     this.environment.sync(this.player.position, true);
-    this.environment.present(this.player.position, 0);
+    this.environment.present(this.player.position, 0, this.camera.position);
     this.synchronizeTimeDependentWorld();
     this.persist();
     this.emitSnapshot(true);
@@ -1957,12 +2034,13 @@ export class Engine {
     this.runtime.settings = this.settings;
     this.camera.far = HORIZON_PRESETS[mode].drawDistanceMeters;
     this.camera.updateProjectionMatrix();
+    this.playerCamera.far = HORIZON_PRESETS[mode].drawDistanceMeters;
+    this.playerCamera.updateProjectionMatrix();
     this.horizon.setMode(mode);
     this.environment.setHorizonMode(mode);
     this.environment.sync(this.player.position);
-    this.environment.present(this.player.position, 0);
+    this.environment.present(this.player.position, 0, this.camera.position);
     this.persistPreferences();
-    this.persist();
     this.emitSnapshot(true);
     return true;
   }
@@ -2003,9 +2081,70 @@ export class Engine {
     this.runtime.settings = this.settings;
     this.camera.fov = next.fov;
     this.camera.updateProjectionMatrix();
+    this.playerCamera.fov = next.fov;
+    this.playerCamera.updateProjectionMatrix();
     this.persistPreferences();
     this.emitSnapshot(true);
     return true;
+  }
+
+  setCameraDistance(distance: number, snap = false) {
+    return this.applyCameraDistance(distance, snap, true, true);
+  }
+
+  setCameraView(mode: CameraViewMode, snap = false) {
+    if (!CAMERA_VIEW_MODES.includes(mode)) return false;
+    return this.setCameraDistance(cameraDistanceForPreset(mode), snap);
+  }
+
+  setIsometricAngle(angleDegrees: number) {
+    const normalized = normalizeIsometricAngle(angleDegrees);
+    if (normalized === this.settings.isometricAngle) return false;
+    this.graphicsBenchmark.invalidate("Isometric camera angle changed");
+    this.settings = { ...this.settings, isometricAngle: normalized };
+    this.runtime.settings = this.settings;
+    this.cameraRig.setIsometricAngle(normalized);
+    this.persistPreferences();
+    this.emitSnapshot(true);
+    return true;
+  }
+
+  private applyCameraDistance(
+    distance: number,
+    snap: boolean,
+    persistImmediately: boolean,
+    emitImmediately: boolean,
+  ) {
+    const normalized = normalizeCameraDistance(distance);
+    if (normalized === this.settings.cameraDistance) return false;
+    this.graphicsBenchmark.invalidate("Camera view changed");
+    this.settings = { ...this.settings, cameraDistance: normalized };
+    this.runtime.settings = this.settings;
+    this.cameraRig.setDistance(normalized, snap);
+    if (snap) this.presentCamera(0, true);
+    if (persistImmediately) this.persistPreferences();
+    if (emitImmediately) this.emitSnapshot(true);
+    return true;
+  }
+
+  private adjustCameraZoom(deltaY: number) {
+    const next = zoomCameraDistance(this.settings.cameraDistance, deltaY);
+    const changed = this.applyCameraDistance(next, false, false, false);
+    if (changed) this.queueCameraPreferencePersistence();
+  }
+
+  private cycleCameraView() {
+    this.setCameraDistance(cycleCameraDistance(this.settings.cameraDistance));
+  }
+
+  private queueCameraPreferencePersistence() {
+    if (this.cameraPreferenceTimer !== null) {
+      window.clearTimeout(this.cameraPreferenceTimer);
+    }
+    this.cameraPreferenceTimer = window.setTimeout(() => {
+      this.cameraPreferenceTimer = null;
+      this.persistPreferences();
+    }, 180);
   }
 
   setLookSensitivity(lookSensitivity: number) {
@@ -2063,17 +2202,22 @@ export class Engine {
     this.audio.setLevels(audioLevelsFromSettings(this.settings));
     this.camera.fov = this.settings.fov;
     this.camera.updateProjectionMatrix();
+    this.playerCamera.fov = this.settings.fov;
+    this.playerCamera.updateProjectionMatrix();
+    this.cameraRig.setDistance(this.settings.cameraDistance, true);
+    this.cameraRig.setIsometricAngle(this.settings.isometricAngle);
     if (this.quality !== this.settings.quality) this.applyQuality(this.settings.quality);
     if (this.horizonMode !== this.settings.horizonMode) {
       this.horizonMode = this.settings.horizonMode;
       this.camera.far = HORIZON_PRESETS[this.horizonMode].drawDistanceMeters;
       this.camera.updateProjectionMatrix();
+      this.playerCamera.far = HORIZON_PRESETS[this.horizonMode].drawDistanceMeters;
+      this.playerCamera.updateProjectionMatrix();
       this.horizon.setMode(this.horizonMode);
       this.environment.setHorizonMode(this.horizonMode);
     }
     this.horizon.setDetailLevel(this.settings.worldDetail);
     this.persistPreferences();
-    this.persist();
     this.emitSnapshot(true);
   }
 
@@ -2148,6 +2292,7 @@ export class Engine {
     this.lastLocationDiscovery = null;
     this.lastFeatureNotice = null;
     this.saveStatus = "saved";
+    this.hasSurveySave = true;
     this.inventoryOpen = false;
     this.settingsOpen = false;
     this.activeInspection = null;
@@ -2350,11 +2495,12 @@ export class Engine {
       this.player.yaw = Math.atan2(-(faceX - x), -(faceZ - z));
       this.player.pitch = -0.035;
     }
-    this.camera.position.set(x, y + PLAYER_HEIGHT, z);
-    this.camera.rotation.set(this.player.pitch, this.player.yaw, 0, "YXZ");
+    this.playerCamera.position.set(x, y + PLAYER_HEIGHT, z);
+    this.playerCamera.rotation.set(this.player.pitch, this.player.yaw, 0, "YXZ");
     this.runtime.nearbyTarget = null;
     this.runtime.nearbyDistance = null;
     this.world.update(x, z);
+    this.presentCamera(0, true);
     if (
       this.benchmarkTravelOrigin &&
       Math.hypot(
@@ -2374,8 +2520,8 @@ export class Engine {
     this.animals.update(x, z, 0, true);
     this.navigation.update(this.player.position);
     this.environment.sync(this.player.position, true);
-    this.environment.present(this.player.position, 0);
-    this.flashlight.present(this.camera);
+    this.environment.present(this.player.position, 0, this.camera.position);
+    this.flashlight.present(this.playerCamera);
     this.synchronizeTimeDependentWorld();
     this.currentLocation = currentDiscoverableLocation(x, z);
     this.emitPresentation();
@@ -2431,6 +2577,7 @@ export class Engine {
       featureProgress: this.featureProgress,
     });
     this.saveStatus = saved ? "saved" : "unavailable";
+    this.hasSurveySave = saved || this.saveStore.hasSave();
     if (saved) this.lastSavedAt = Date.now();
     return saved;
   }
@@ -2439,10 +2586,73 @@ export class Engine {
     return this.preferencesStore.save(this.settings);
   }
 
+  private presentRenderState(deltaSeconds: number, snap = false) {
+    this.presentCamera(deltaSeconds, snap);
+    this.environment.present(this.player.position, deltaSeconds, this.camera.position);
+    this.forestStress.update(
+      this.player.position.x,
+      this.player.position.z,
+      this.environment.getDeveloperState().enabled,
+    );
+    const visualState = this.environment.getVisualState();
+    this.world.presentEnvironment(visualState);
+    this.horizon.presentEnvironment(visualState);
+    this.renderPipeline.presentEnvironment(visualState);
+    const interpolation =
+      this.started &&
+      !this.paused &&
+      !this.mapOpen &&
+      !this.inventoryOpen &&
+      !this.settingsOpen &&
+      !this.activeInspection &&
+      !this.featureOverlay &&
+      !this.developerPanelOpen
+        ? this.accumulator
+        : 0;
+    this.citizens.present(interpolation);
+    this.animals.present(interpolation);
+    this.flashlight.present(this.playerCamera);
+  }
+
+  private presentCamera(
+    deltaSeconds: number,
+    snap = false,
+    presentAvatar = true,
+  ) {
+    this.playerCamera.updateMatrixWorld(true);
+    const diagnostics = this.cameraRig.present({
+      playerCamera: this.playerCamera,
+      renderCamera: this.camera,
+      world: this.world,
+      playerPosition: this.player.position,
+      eyeHeight: this.player.eyeHeight,
+      yaw: this.player.yaw,
+      pitch: this.player.pitch,
+      baseFov: this.settings.fov,
+      baseFar: HORIZON_PRESETS[this.horizonMode].drawDistanceMeters,
+      deltaSeconds,
+      snap: snap || this.reducedCameraMotion,
+    });
+    if (presentAvatar) {
+      this.playerAvatar.present(
+        this.player.position,
+        this.player.yaw,
+        this.player.eyeHeight,
+        diagnostics,
+      );
+    }
+    return diagnostics;
+  }
+
   dispose() {
     if (this.disposed) return;
     if (this.started) this.persist();
     this.disposed = true;
+    if (this.cameraPreferenceTimer !== null) {
+      window.clearTimeout(this.cameraPreferenceTimer);
+      this.cameraPreferenceTimer = null;
+      this.persistPreferences();
+    }
     cancelAnimationFrame(this.animationFrame);
     window.removeEventListener("resize", this.resize);
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
@@ -2453,6 +2663,7 @@ export class Engine {
     this.navigation.dispose();
     this.citizens.dispose();
     this.animals.dispose();
+    this.playerAvatar.dispose();
     this.flashlight.dispose();
     this.audio.dispose();
     this.forestStress.dispose();
@@ -2477,89 +2688,50 @@ export class Engine {
 
     try {
       if (this.contextStatus === "ready") {
-      this.accumulator += delta;
-      let steps = 0;
-      while (this.accumulator >= FIXED_STEP && steps < 5) {
-        this.runtime.started = this.started;
-        this.runtime.paused =
-          this.paused ||
-          this.mapOpen ||
-          this.inventoryOpen ||
-          this.settingsOpen ||
-          this.activeInspection !== null ||
-          this.featureOverlay !== null ||
-          this.developerPanelOpen ||
-          this.player.condition.health <= 0;
-        this.runtime.developerPanelOpen = this.developerPanelOpen;
-        this.pipeline.update(this.runtime, FIXED_STEP);
-        this.updateSafePosition(FIXED_STEP);
-        this.accumulator -= FIXED_STEP;
-        steps += 1;
-      }
-      if (steps === 5) this.accumulator = 0;
+        this.accumulator += delta;
+        let steps = 0;
+        while (this.accumulator >= FIXED_STEP && steps < 5) {
+          this.runtime.started = this.started;
+          this.runtime.paused =
+            this.paused ||
+            this.mapOpen ||
+            this.inventoryOpen ||
+            this.settingsOpen ||
+            this.activeInspection !== null ||
+            this.featureOverlay !== null ||
+            this.developerPanelOpen ||
+            this.player.condition.health <= 0;
+          this.runtime.developerPanelOpen = this.developerPanelOpen;
+          this.pipeline.update(this.runtime, FIXED_STEP);
+          this.updateSafePosition(FIXED_STEP);
+          this.accumulator -= FIXED_STEP;
+          steps += 1;
+        }
+        if (steps === 5) this.accumulator = 0;
 
-      this.environment.present(this.player.position, delta);
-      this.forestStress.update(
-        this.player.position.x,
-        this.player.position.z,
-        this.environment.getDeveloperState().enabled,
-      );
-      if (
-        this.benchmarkTravelOrigin &&
-        Math.hypot(
-          this.player.position.x - CANOPY_BENCHMARK_ZONE.center.x,
-          this.player.position.z - CANOPY_BENCHMARK_ZONE.center.z,
-        ) > CANOPY_BENCHMARK_ZONE.unloadRadius
-      ) {
-        this.benchmarkTravelOrigin = null;
-      }
-      const visualState = this.environment.getVisualState();
-      this.world.presentEnvironment(visualState);
-      this.horizon.presentEnvironment(visualState);
-      this.renderPipeline.presentEnvironment(visualState);
-      this.citizens.present(
-        this.started &&
-          !this.paused &&
-          !this.mapOpen &&
-          !this.inventoryOpen &&
-          !this.settingsOpen &&
-          !this.activeInspection &&
-          !this.featureOverlay &&
-          !this.developerPanelOpen
-          ? this.accumulator
-          : 0,
-      );
-      this.animals.present(
-        this.started &&
-          !this.paused &&
-          !this.mapOpen &&
-          !this.inventoryOpen &&
-          !this.settingsOpen &&
-          !this.activeInspection &&
-          !this.featureOverlay &&
-          !this.developerPanelOpen
-          ? this.accumulator
-          : 0,
-      );
-      this.flashlight.present(this.camera);
-      this.emitPresentation();
-      if (this.continuousRendering) {
-        this.renderCurrentFrame(
-          delta,
-          timestamp,
-          frameIntervalMilliseconds,
-          cpuFrameStartedAt,
-        );
-      }
-      this.trackPerformance(timestamp);
-      if (
-        this.started &&
-        !this.testMode &&
-        timestamp - this.lastClockPersistTime >= 30_000
-      ) {
-        this.persist();
-        this.lastClockPersistTime = timestamp;
-      }
+        if (
+          this.benchmarkTravelOrigin &&
+          Math.hypot(
+            this.player.position.x - CANOPY_BENCHMARK_ZONE.center.x,
+            this.player.position.z - CANOPY_BENCHMARK_ZONE.center.z,
+          ) > CANOPY_BENCHMARK_ZONE.unloadRadius
+        ) {
+          this.benchmarkTravelOrigin = null;
+        }
+        if (this.continuousRendering) {
+          this.presentRenderState(delta);
+        } else {
+          this.presentCamera(delta, false, false);
+        }
+        this.emitPresentation();
+        if (this.continuousRendering) {
+          this.renderCurrentFrame(
+            delta,
+            timestamp,
+            frameIntervalMilliseconds,
+            cpuFrameStartedAt,
+          );
+        }
         this.emitSnapshot(timestamp - this.lastSnapshotTime > 140);
       }
     } catch (error) {
@@ -2581,15 +2753,24 @@ export class Engine {
       this.graphicsBenchmark.isMeasuringGpu,
     );
     this.graphicsBenchmark.resolveGpuSamples(renderMetrics.gpuSamples);
-    const graphics = this.renderPipeline.diagnostics;
+    this.trackPerformance(timestamp);
+    if (
+      this.started &&
+      !this.testMode &&
+      timestamp - this.lastClockPersistTime >= 30_000
+    ) {
+      this.persist();
+      this.lastClockPersistTime = timestamp;
+    }
+    const renderCounts = this.renderPipeline.renderer.info.render;
     this.graphicsBenchmark.recordFrame({
       frameToken: renderMetrics.frameToken,
       timestampMs: timestamp,
       frameIntervalMs: frameIntervalMilliseconds,
       cpuWorkMs: performance.now() - cpuFrameStartedAt,
       cpuRenderMs: renderMetrics.cpuRenderMilliseconds,
-      drawCalls: graphics.drawCalls,
-      triangles: graphics.triangles,
+      drawCalls: renderCounts.calls,
+      triangles: renderCounts.triangles,
       gpuQuerySubmitted: renderMetrics.gpuQuerySubmitted,
       hidden: document.hidden,
     });
@@ -2599,8 +2780,11 @@ export class Engine {
     if (this.disposed || !this.ready || this.contextStatus !== "ready") {
       return false;
     }
+    const cpuFrameStartedAt = performance.now();
     const timestamp = performance.now();
-    this.renderCurrentFrame(0, timestamp, 0, timestamp);
+    this.presentRenderState(0, true);
+    this.emitPresentation();
+    this.renderCurrentFrame(0, timestamp, 0, cpuFrameStartedAt);
     this.emitSnapshot(true);
     return true;
   }
@@ -2669,6 +2853,7 @@ export class Engine {
         player: { ...this.developerPlayer },
       },
       contextStatus: this.contextStatus,
+      camera: this.cameraRig.diagnostics,
       position: {
         x: this.player.position.x,
         y: this.player.position.y,
@@ -2746,6 +2931,7 @@ export class Engine {
         keyBindings: { ...this.settings.keyBindings },
       },
       saveStatus: this.saveStatus,
+      hasSurveySave: this.hasSurveySave,
       lastSavedAt: this.lastSavedAt,
       audio: this.audio.diagnostics,
       scanner: { ...this.scanner },
@@ -2873,6 +3059,13 @@ export class Engine {
       unwrappedHeading,
       navigation: this.navigation.getGuidance(this.player.position, heading),
       waypointScreen: this.projectWaypoint(),
+      aimScreen: this.cameraRig.diagnostics.distance <= 0.0001
+        ? null
+        : this.cameraRig.projectGameplayAim(
+            this.playerCamera,
+            this.camera,
+            this.runtime.nearbyDistance ?? 8,
+          ),
     });
   }
 
@@ -2903,7 +3096,7 @@ export class Engine {
 
   private refreshEnvironment(snap = true) {
     this.environment.sync(this.player.position, snap);
-    this.environment.present(this.player.position, 0);
+    this.environment.present(this.player.position, 0, this.camera.position);
     const visualState = this.environment.getVisualState();
     this.world.presentEnvironment(visualState);
     this.horizon.presentEnvironment(visualState);
@@ -2941,6 +3134,7 @@ export class Engine {
     this.forestStress.setQuality(this.quality);
     this.citizens.setQuality(this.quality);
     this.animals.setQuality(this.quality);
+    this.playerAvatar.setQuality(this.quality);
     this.flashlight.setQuality(this.quality);
     this.resize();
   }
@@ -2957,6 +3151,8 @@ export class Engine {
     this.renderPipeline.resize(width, height, window.devicePixelRatio);
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
+    this.playerCamera.aspect = width / height;
+    this.playerCamera.updateProjectionMatrix();
   };
 
   private handlePointerLockChange = (locked: boolean) => {
@@ -2973,6 +3169,7 @@ export class Engine {
       this.featureOverlay !== null ||
       this.player.condition.health <= 0 ||
       !locked;
+    if (this.paused) this.audio.silenceAmbient();
     this.emitSnapshot(true);
   };
 
@@ -2980,6 +3177,7 @@ export class Engine {
     if (document.hidden && this.started) {
       this.graphicsBenchmark.cancel("Capture cancelled when the tab was hidden");
       this.paused = true;
+      this.audio.silenceAmbient();
       if (this.input.isLocked()) document.exitPointerLock?.();
       this.persist();
       this.emitSnapshot(true);
@@ -2991,6 +3189,7 @@ export class Engine {
     this.contextStatus = "lost";
     this.graphicsBenchmark.cancel("WebGL context lost during capture");
     this.paused = true;
+    this.audio.silenceAmbient();
     if (this.input.isLocked()) document.exitPointerLock?.();
     this.emitSnapshot(true);
   };
@@ -3018,13 +3217,18 @@ export class Engine {
         const deltaZ = beacon.z - this.player.position.z;
         this.player.yaw = Math.atan2(-deltaX, -deltaZ);
         this.player.pitch = -0.08;
-        this.camera.rotation.set(this.player.pitch, this.player.yaw, 0, "YXZ");
+        this.playerCamera.rotation.set(this.player.pitch, this.player.yaw, 0, "YXZ");
+        this.presentCamera(0, true);
         this.emitPresentation();
         this.emitSnapshot(true);
       },
       discover: (beaconId) => this.discover(beaconId),
-      loseContext: () => this.renderer.forceContextLoss(),
-      restoreContext: () => this.renderer.forceContextRestore(),
+      loseContext: () => {
+        this.renderer.forceContextLoss();
+      },
+      restoreContext: () => {
+        this.renderer.forceContextRestore();
+      },
       targets: () =>
         this.world.targets.map((target) => ({
           id: target.id,
@@ -3060,6 +3264,10 @@ export class Engine {
       beginSession: () => this.beginSession(),
       beginDeveloperSession: () => this.beginDeveloperSession(),
       setFov: (fov) => this.setFov(fov),
+      setCameraDistance: (distance, snap) => this.setCameraDistance(distance, snap),
+      setCameraView: (mode, snap) => this.setCameraView(mode, snap),
+      setIsometricAngle: (angleDegrees) => this.setIsometricAngle(angleDegrees),
+      camera: () => this.cameraRig.diagnostics,
       setLookSensitivity: (value) => this.setLookSensitivity(value),
       setInvertY: (enabled) => this.setInvertY(enabled),
       setKeyBinding: (action, code) => this.setKeyBinding(action, code),
@@ -3080,7 +3288,8 @@ export class Engine {
         const deltaZ = target.position.z - this.player.position.z;
         this.player.yaw = Math.atan2(-deltaX, -deltaZ);
         this.player.pitch = -0.04;
-        this.camera.rotation.set(this.player.pitch, this.player.yaw, 0, "YXZ");
+        this.playerCamera.rotation.set(this.player.pitch, this.player.yaw, 0, "YXZ");
+        this.presentCamera(0, true);
         this.emitPresentation();
         this.emitSnapshot(true);
       },
@@ -3130,7 +3339,8 @@ export class Engine {
       horizon: () => this.horizon.diagnostics,
       setHeading: (heading) => {
         this.player.yaw = (-heading * Math.PI) / 180;
-        this.camera.rotation.set(this.player.pitch, this.player.yaw, 0, "YXZ");
+        this.playerCamera.rotation.set(this.player.pitch, this.player.yaw, 0, "YXZ");
+        this.presentCamera(0, true);
         this.emitPresentation();
         this.emitSnapshot(true);
       },

@@ -55,6 +55,17 @@ export interface GraphicsBenchmarkContext {
     heading: number;
     fov: number;
   };
+  camera: {
+    mode: "firstPerson" | "thirdPerson" | "isometric";
+    targetDistance: number;
+    distance: number;
+    collisionLimited: boolean;
+    isometricAngleDegrees: number;
+    x: number;
+    y: number;
+    z: number;
+    effectiveFov: number;
+  };
   environment: {
     worldMinutes: number;
     weatherId: string;

@@ -4,6 +4,11 @@ import {
   normalizeWorldDetailLevel,
   type WorldDetailLevel,
 } from "./world/WorldLodPolicy";
+import {
+  DEFAULT_ISOMETRIC_ANGLE,
+  normalizeCameraDistance,
+  normalizeIsometricAngle,
+} from "./camera/CameraRig";
 
 export const INTERFACE_SCALES = [
   "compact",
@@ -39,6 +44,7 @@ export const GAME_ACTIONS = [
   "scanner",
   "fieldGuide",
   "quality",
+  "cameraView",
   "recover",
 ] as const;
 
@@ -56,6 +62,8 @@ export interface GameSettings {
   quality: QualityLevel;
   horizonMode: HorizonMode;
   worldDetail: WorldDetailLevel;
+  cameraDistance: number;
+  isometricAngle: number;
   keyBindings: KeyBindings;
 }
 
@@ -75,6 +83,7 @@ export const DEFAULT_KEY_BINDINGS: KeyBindings = Object.freeze({
   scanner: "KeyG",
   fieldGuide: "KeyJ",
   quality: "KeyQ",
+  cameraView: "KeyV",
   recover: "KeyR",
 });
 
@@ -89,6 +98,8 @@ export const DEFAULT_GAME_SETTINGS: GameSettings = Object.freeze({
   quality: "cinematic",
   horizonMode: "standard",
   worldDetail: DEFAULT_WORLD_DETAIL_LEVEL,
+  cameraDistance: 0,
+  isometricAngle: DEFAULT_ISOMETRIC_ANGLE,
   keyBindings: DEFAULT_KEY_BINDINGS,
 });
 
@@ -108,6 +119,7 @@ const ACTION_LABELS: Record<GameAction, string> = {
   scanner: "Field scanner",
   fieldGuide: "Field operations",
   quality: "Quality profile",
+  cameraView: "Camera view",
   recover: "Recover",
 };
 
@@ -172,6 +184,8 @@ export function normalizeGameSettings(
         ? source.horizonMode
         : horizonFallback,
     worldDetail: normalizeWorldDetailLevel(source.worldDetail),
+    cameraDistance: normalizeCameraDistance(source.cameraDistance),
+    isometricAngle: normalizeIsometricAngle(source.isometricAngle),
     keyBindings: normalizeKeyBindings(source.keyBindings),
   };
 }

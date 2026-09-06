@@ -132,6 +132,17 @@ describe("biome vegetation catalog", () => {
       mesh.count === mesh.userData.performanceCount,
     )).toBe(true);
     world.setQuality("ultra");
+    const instanceMatrix = new THREE.Matrix4();
+    const instanceSphere = new THREE.Sphere();
+    for (const mesh of decorativeMeshes) {
+      mesh.geometry.computeBoundingSphere();
+      for (let index = 0; index < mesh.count; index += 1) {
+        mesh.getMatrixAt(index, instanceMatrix);
+        instanceSphere.copy(mesh.geometry.boundingSphere!).applyMatrix4(instanceMatrix);
+        expect(instanceSphere.center.distanceTo(mesh.boundingSphere!.center) + instanceSphere.radius)
+          .toBeLessThanOrEqual(mesh.boundingSphere!.radius + 0.0001);
+      }
+    }
     expect(decorativeMeshes.every((mesh) =>
       mesh.count === mesh.userData.highDetailCount && mesh.castShadow === false,
     )).toBe(true);

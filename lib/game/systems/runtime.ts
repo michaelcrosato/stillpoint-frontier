@@ -68,6 +68,8 @@ export interface GameRuntimeContext {
   toggleInventory(): void;
   toggleQuality(): void;
   toggleFlashlight(): void;
+  adjustCameraZoom(deltaY: number): void;
+  cycleCameraView(): void;
   toggleDeveloperPanel(): void;
   toggleOperations(): void;
   scanCandidates(): readonly ScanCandidate[];

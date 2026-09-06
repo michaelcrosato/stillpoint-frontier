@@ -116,9 +116,9 @@ export function selectScanCandidate(
     if (!Number.isFinite(distance) || distance <= 0 || distance > candidate.maxDistance) continue;
     const alignment = (forward.x * dx + forward.y * dy + forward.z * dz) / distance;
     if (alignment < 0.9) continue;
-    if (!isCandidateVisible(candidate)) continue;
     const score = distance + (1 - alignment) * 32;
     if (best && score >= best.distance + (1 - best.alignment) * 32) continue;
+    if (!isCandidateVisible(candidate)) continue;
     best = { candidate, distance, alignment };
   }
   return best;

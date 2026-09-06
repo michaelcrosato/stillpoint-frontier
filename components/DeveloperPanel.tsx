@@ -1,4 +1,5 @@
 "use client";
+import { trapDialogTab } from "../lib/game/ui/dialogFocus";
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
@@ -21,6 +22,12 @@ import {
   DEVELOPER_SPEED_PROFILES,
   type DeveloperSpeedMode,
 } from "../lib/game/developer/PlayerSandbox";
+import {
+  CAMERA_VIEW_MODES,
+  CAMERA_VIEW_PRESETS,
+  type CameraViewMode,
+} from "../lib/game/camera/CameraRig";
+import { keyLabel } from "../lib/game/settings";
 
 interface DeveloperPanelProps {
   snapshot: GameSnapshot;
@@ -37,6 +44,7 @@ interface DeveloperPanelProps {
   onSetInvincible(enabled: boolean): void;
   onSetSpeedMode(mode: DeveloperSpeedMode): void;
   onSetFly(enabled: boolean): void;
+  onSetCameraView(mode: CameraViewMode): void;
   onTravelToForestStressTest(): void;
   onSetForestStressLevel(level: number): void;
   onSetGraphicsBenchmarkTarget(target: number): void;
@@ -84,6 +92,7 @@ export default function DeveloperPanel({
   onSetInvincible,
   onSetSpeedMode,
   onSetFly,
+  onSetCameraView,
   onTravelToForestStressTest,
   onSetForestStressLevel,
   onSetGraphicsBenchmarkTarget,
@@ -149,18 +158,8 @@ export default function DeveloperPanel({
 
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
-    const panel = panelRef.current;
     headingRef.current?.focus();
-    return () => {
-      const activeElement = document.activeElement;
-      if (
-        !activeElement ||
-        activeElement === document.body ||
-        panel?.contains(activeElement)
-      ) {
-        previouslyFocused?.focus?.();
-      }
-    };
+    return () => previouslyFocused?.focus?.();
   }, []);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
@@ -170,22 +169,7 @@ export default function DeveloperPanel({
       onClose();
       return;
     }
-    if (event.key !== "Tab") return;
-    const focusable = Array.from(
-      panelRef.current?.querySelectorAll<HTMLElement>(
-        "button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex='-1'])",
-      ) ?? [],
-    );
-    if (focusable.length === 0) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
+    trapDialogTab(event, panelRef.current);
   };
 
   return (
@@ -602,8 +586,42 @@ export default function DeveloperPanel({
               );
             })}
           </div>
+          <div className="dev-control-heading">
+            <span id="developer-camera-label">CAMERA PRESET</span>
+            <output>{CAMERA_VIEW_PRESETS[snapshot.camera.mode].label}</output>
+          </div>
+          <div
+            className="dev-speed-grid dev-camera-grid"
+            role="group"
+            aria-labelledby="developer-camera-label"
+          >
+            {CAMERA_VIEW_MODES.map((mode) => {
+              const preset = CAMERA_VIEW_PRESETS[mode];
+              const active = snapshot.camera.mode === mode;
+              return (
+                <button
+                  type="button"
+                  key={mode}
+                  className={active ? "is-active" : ""}
+                  aria-pressed={active}
+                  data-testid={`developer-camera-${mode}`}
+                  onClick={() => onSetCameraView(mode)}
+                >
+                  <span>{preset.label}</span>
+                  <strong>{preset.distance === 0 ? "0 M" : `${preset.distance} M`}</strong>
+                </button>
+              );
+            })}
+          </div>
+          <p className="dev-horizon-status" data-testid="developer-camera-status">
+            <span>REQUESTED {snapshot.camera.targetDistance.toFixed(1)} M</span>
+            <span>ACTUAL {snapshot.camera.distance.toFixed(1)} M</span>
+            <span>ANGLE {Math.round(snapshot.camera.isometricAngleDegrees)}°</span>
+            <span>FOV {Math.round(snapshot.camera.effectiveFov)}°</span>
+            <strong>{snapshot.camera.collisionLimited ? "BOOM RETRACTED" : "CLEAR"}</strong>
+          </p>
           <p className="dev-horizon-note dev-player-note">
-            FLY: WASD MOVE · SPACE ASCEND · CTRL/C DESCEND · SHIFT BOOST.
+            VIEW: WHEEL ZOOM · {keyLabel(snapshot.settings.keyBindings.cameraView)} CYCLE. FLY: WASD MOVE · SPACE ASCEND · CTRL/C DESCEND · SHIFT BOOST.
             Disabling flight returns you to the last safe grounded position.
           </p>
         </fieldset>

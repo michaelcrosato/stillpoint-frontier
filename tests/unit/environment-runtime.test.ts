@@ -66,6 +66,14 @@ describe("environment visual runtime", () => {
     expect(environment.getVisualState().cloudOffset.equals(cloudAfterTick)).toBe(true);
     expect(renderer.toneMappingExposure).toBeGreaterThan(0);
 
+    const elevatedView = new THREE.Vector3(42, 68, 26);
+    environment.present(position, 0, elevatedView);
+    expect(sky.position.toArray()).toEqual(elevatedView.toArray());
+    expect(precipitation.position.toArray()).toEqual([26, 45, 9]);
+    expect(
+      (precipitation.material as THREE.ShaderMaterial).uniforms.uHeight.value,
+    ).toBe(86);
+
     environment.setDeveloperMode(true);
     expect(environment.setDeveloperWeather("rain")).toBe(true);
     environment.sync(position, true);

@@ -52,6 +52,10 @@ import {
   type DeveloperPlayerSandboxState,
 } from "./developer/PlayerSandbox";
 import type { SessionMode } from "./session/sessionPresets";
+import {
+  DEFAULT_ISOMETRIC_ANGLE,
+  type CameraRigDiagnostics,
+} from "./camera/CameraRig";
 
 export interface NearbyTargetSnapshot {
   id: string;
@@ -166,6 +170,7 @@ export interface GameSnapshot {
   featureOverlay: FeatureOverlayState;
   devTools: DeveloperToolsSnapshot;
   contextStatus: "ready" | "lost";
+  camera: CameraRigDiagnostics;
   position: { x: number; y: number; z: number };
   heading: number;
   navigation: NavigationGuidance | null;
@@ -223,6 +228,7 @@ export interface GameSnapshot {
   flashlightOn: boolean;
   settings: GameSettings;
   saveStatus: "saved" | "unsaved" | "unavailable";
+  hasSurveySave: boolean;
   lastSavedAt: number | null;
   audio: AudioDiagnostics;
   scanner: {
@@ -282,6 +288,14 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
     player: { ...DEFAULT_DEVELOPER_PLAYER_SANDBOX },
   },
   contextStatus: "ready",
+  camera: {
+    mode: "firstPerson",
+    targetDistance: 0,
+    distance: 0,
+    collisionLimited: false,
+    isometricAngleDegrees: DEFAULT_ISOMETRIC_ANGLE,
+    effectiveFov: DEFAULT_GAME_SETTINGS.fov,
+  },
   position: { x: 0, y: 0, z: 0 },
   heading: 0,
   navigation: null,
@@ -374,6 +388,7 @@ export const INITIAL_SNAPSHOT: GameSnapshot = {
     keyBindings: { ...DEFAULT_GAME_SETTINGS.keyBindings },
   },
   saveStatus: "unavailable",
+  hasSurveySave: false,
   lastSavedAt: null,
   audio: {
     available: false,

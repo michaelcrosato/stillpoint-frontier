@@ -15,6 +15,11 @@ const CALIBRATION_ID = "contract:field-calibration:v1";
 const SHELTER_ID = "contract:shelter-protocol:v1";
 
 describe("field contract progression", () => {
+  it.each(["constructor", "toString", "__proto__"])("rejects inherited active contract key %s", (activeContractId) => {
+    expect(normalizeContractJournal({ contracts: {}, activeContractId }).activeContractId).toBeNull();
+    const journal = acceptContract(createContractJournal(), CALIBRATION_ID, 450);
+    expect(normalizeContractJournal({ ...journal, activeContractId }).activeContractId).toBe(CALIBRATION_ID);
+  });
   it("uses stable unique contract and objective identifiers", () => {
     expect(new Set(CONTRACT_DEFINITIONS.map((contract) => contract.id)).size)
       .toBe(CONTRACT_DEFINITIONS.length);

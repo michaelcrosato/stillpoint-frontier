@@ -128,6 +128,13 @@ export class EnvironmentMapRuntime {
     uniforms.uDaylight.value = state.daylight;
     uniforms.uDust.value = state.dust;
 
+    const previousTarget = this.renderer.getRenderTarget();
+    const previousCubeFace = this.renderer.getActiveCubeFace();
+    const previousMipmapLevel = this.renderer.getActiveMipmapLevel();
+    const previousAutoClear = this.renderer.autoClear;
+    const previousToneMapping = this.renderer.toneMapping;
+    const previousXrEnabled = this.renderer.xr.enabled;
+    const previousBackground = this.environmentScene.background;
     try {
       const nextTarget = this.generator.fromScene(
         this.environmentScene,
@@ -143,6 +150,14 @@ export class EnvironmentMapRuntime {
       this.revision += 1;
     } catch {
       // Direct lights remain the supported fallback on constrained devices.
+    } finally {
+      // Three restores these only after a successful PMREM capture. An
+      // optional reflection failure must not redirect or alter the next frame.
+      this.renderer.autoClear = previousAutoClear;
+      this.renderer.toneMapping = previousToneMapping;
+      this.renderer.xr.enabled = previousXrEnabled;
+      this.environmentScene.background = previousBackground;
+      this.renderer.setRenderTarget(previousTarget, previousCubeFace, previousMipmapLevel);
     }
   }
 

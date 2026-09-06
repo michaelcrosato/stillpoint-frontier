@@ -82,6 +82,9 @@ describe("streamed world collider coverage", () => {
         ),
       );
       for (const collider of generatedSolids) {
+        expect(Number.isFinite(collider.minY), `${collider.id} minY`).toBe(true);
+        expect(Number.isFinite(collider.maxY), `${collider.id} maxY`).toBe(true);
+        expect(collider.maxY!, `${collider.id} height`).toBeGreaterThan(collider.minY!);
         const radius = collider.shape === "circle"
           ? collider.radius
           : Math.hypot(collider.halfWidth, collider.halfDepth);

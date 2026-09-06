@@ -81,15 +81,9 @@ export function reconcileContractEvidence(
         )) {
           evidence = { type: "structure.placed", archetypeId: matcher.archetypeId };
         }
-      } else if (matcher.type === "rest") {
-        if (facts.lastRestAt !== null && facts.lastRestAt >= progress.acceptedAt) {
-          evidence = {
-            type: "rest.completed",
-            siteId: "persistent-rest-evidence",
-            minutes: Math.max(0, objective.amount - recorded),
-          };
-        }
       }
+      // A timestamp does not prove rest duration. Repeatable rest objectives
+      // progress only from real rest.completed events; the journal saves minutes.
       if (evidence) break;
     }
     if (!evidence) break;

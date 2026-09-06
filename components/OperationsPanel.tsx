@@ -8,7 +8,7 @@ import {
 } from "../lib/game/gameplay/contracts";
 import {
   RECIPE_DEFINITIONS,
-  canUseStation,
+  craftingStatus,
   recipeMissingItems,
   type CraftingStationKind,
 } from "../lib/game/gameplay/crafting";
@@ -137,10 +137,11 @@ function CraftingView({
   return (
     <div className="operations-card-list crafting-list" data-testid="crafting-list">
       {Object.values(RECIPE_DEFINITIONS).map((recipe) => {
-        const unlocked = snapshot.unlockedRecipeIds.includes(recipe.id);
-        const stationAvailable = canUseStation(recipe.station, station);
-        const missing = recipeMissingItems(snapshot.inventory, recipe.id);
-        const canCraft = unlocked && stationAvailable && missing.length === 0;
+        const status = craftingStatus(snapshot.inventory, recipe.id, station, snapshot.unlockedRecipeIds);
+        const unlocked = status !== "locked";
+        const missing = status === "missing_items"
+          ? recipeMissingItems(snapshot.inventory, recipe.id) : [];
+        const canCraft = status === "ready";
         const output = ITEM_DEFINITIONS[recipe.output.item as ItemId];
         return (
           <article key={recipe.id} className={`operation-card recipe-card ${canCraft ? "is-ready" : ""}`}>
@@ -172,11 +173,13 @@ function CraftingView({
             >
               {!unlocked
                 ? "RECIPE LOCKED"
-                : !stationAvailable
+                : status === "wrong_station"
                   ? "WORKBENCH REQUIRED"
                   : missing.length > 0
                     ? `MISSING ${missing.map((entry) => ITEM_DEFINITIONS[entry.item].shortName).join(" / ")}`
-                    : `FABRICATE ${recipe.output.quantity}× ${output.shortName}`}
+                    : status === "inventory_full"
+                      ? `${output.shortName} STACK FULL`
+                      : `FABRICATE ${recipe.output.quantity}× ${output.shortName}`}
             </button>
           </article>
         );
@@ -259,21 +262,36 @@ export default function OperationsPanel({
         </>
       )}
     >
-      <nav className="operations-tabs" aria-label="Field operations sections">
-        {OPERATION_TABS.map((candidate) => (
+      <div className="operations-tabs" role="tablist" aria-label="Field operations sections">
+        {OPERATION_TABS.map((candidate, index) => (
           <button
             key={candidate.id}
+            id={`operations-tab-${candidate.id}`}
             type="button"
             className={tab === candidate.id ? "is-active" : ""}
             aria-selected={tab === candidate.id}
+            aria-controls="operations-content"
+            tabIndex={tab === candidate.id ? 0 : -1}
             role="tab"
             onClick={() => setTab(candidate.id)}
+            onKeyDown={(event) => {
+              if (event.altKey || event.ctrlKey || event.metaKey) return;
+              const nextIndex = event.key === "ArrowRight" ? (index + 1) % OPERATION_TABS.length
+                : event.key === "ArrowLeft" ? (index + OPERATION_TABS.length - 1) % OPERATION_TABS.length
+                  : event.key === "Home" ? 0
+                    : event.key === "End" ? OPERATION_TABS.length - 1 : null;
+              if (nextIndex === null) return;
+              event.preventDefault();
+              const next = OPERATION_TABS[nextIndex].id;
+              setTab(next);
+              event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`#operations-tab-${next}`)?.focus();
+            }}
           >
             {candidate.label}
           </button>
         ))}
-      </nav>
-      <div className="operations-content" role="tabpanel">
+      </div>
+      <div id="operations-content" className="operations-content" role="tabpanel" aria-labelledby={`operations-tab-${tab}`} tabIndex={0}>
         {tab === "contracts" ? (
           <ContractsView snapshot={snapshot} onAccept={onAcceptContract} onTurnIn={onTurnInContract} />
         ) : tab === "crafting" ? (

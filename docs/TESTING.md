@@ -5,7 +5,17 @@ still produce reviewable evidence.
 
 ## Commands
 
+Unit tests use two workers by default. This limits CPU contention in full chunk
+construction tests without raising timeouts. On constrained machines, append
+`-- --maxWorkers=1` to test:unit or test:coverage.
+
+For a source-only release check, run typecheck, lint, test:coverage, build, then
+test:rendered. The last command tests the built Worker response, not a browser.
+Coverage gates apply to the explicit include list in vitest.config.ts, not the
+entire repository. Browser/GPU lifecycles still need separate acceptance.
+
 - `npm run typecheck` — strict TypeScript across the site, worker, game, and tests.
+- `npm run lint` — ESLint across source and tests.
 - `npm run test:unit` — deterministic unit and property tests.
 - `npm run test:coverage` — coverage report with enforced thresholds.
 - `npm test` — unit tests, production build, and rendered-worker HTML contract.
@@ -17,11 +27,9 @@ still produce reviewable evidence.
   `VISUAL_BASELINES=1` is set in a pinned browser environment.
 - `npm run test:ci` — complete CI gate.
 
-Install Playwright's Linux dependencies and project-scoped browser once in a new
-environment with `npx playwright install-deps chromium` followed by
-`npm run test:browser:install`. The project-scoped command uses the same isolated home
-directory as the test suites. Keep browser version, OS image, viewport, DPR, locale,
-timezone, seed, and quality profile pinned before accepting golden images.
+Install the Playwright browser once in a new environment with
+`npx playwright install --with-deps chromium`. Keep browser version, OS image, viewport,
+DPR, locale, timezone, seed, and quality profile pinned before accepting golden images.
 
 ## Deterministic browser mode
 
@@ -59,9 +67,75 @@ Settings tests clamp corrupt numeric preferences, reject invalid enums and key c
 every gameplay action bound exactly once, swap conflicts, and verify compact HUD labels.
 `PreferencesStore` tests round-trip view, sound, quality, horizon, world detail, and binding preferences;
 they also cover invalid versions, absent storage, and storage permission failures. Save-store
-tests migrate versions one through six into the version-seven envelope, round-trip player
+tests migrate versions one through seven into the version-eight envelope, round-trip player
 pose/condition and location discovery alongside prior world state, sanitize every new field,
 report slot availability, and recover safely from corrupt or blocked storage.
+
+Camera-rig tests lock the exact first-person endpoint, semantic view thresholds, continuous
+wheel zoom, preset cycling, isometric pitch/FOV policy, terrain, wall, and authored-overhead
+retraction, focal alignment after obstruction, and damped release. Avatar tests lock its
+continuous near-view fade. Input tests normalize wheel units, preserve bounded multi-event
+bursts, and reject modified gestures. The camera-control system is also covered independently
+so paused or inactive overlays cannot alter the saved-local view preference.
+
+Audit regressions also cover tiny-zoom pitch continuity, presentation-owned aim
+during preset transitions, key alias ownership, browser modifier handling,
+dialog focus boundaries and hidden controls, full-stack gather atomicity and
+Engine routing, readable saves after rejected writes, inherited loot keys, and
+partial rest progress after reload. Renderer tests inject normal/fullscreen AO
+and compositor failures, verify state restoration, and count capability probes.
+Vegetation tests enclose every high-detail instance after quality changes.
+
+The second audit adds real container transaction regressions (single, mixed-item,
+and full-capacity transfers), invalid active-contract keys, and restored HUD button
+focus during pointer lock. Camera tests raycast actual Field Unit stair/roof meshes
+and preserve the open doorway; pure surface sweeps cover both vertical directions.
+Compiler tests verify same-call completion and target restoration on failure.
+Audio-port tests zero all four ambient beds without a subsequent simulation frame,
+then restore them through normal mixing.
+
+Performance regressions count material writes during 81-root registration and bound
+registered chunk residency throughout successful far travel. Chunk tests also inject
+failure before construction and verify same-center retry and fresh gameplay caches.
+They do not prove exception-safe mid-factory allocation or automatic Engine recovery.
+These are work-count/resource invariants, not hardware FPS assertions.
+The version-42 follow-up adds a dry-canyon save round trip at −640.57 m. It
+preserves both player state and camp placement and rejects invalid heights.
+Engine tests keep horizon changes and Reset Settings out of the survey save
+path, before and after launch. Crafting tests cover all six recipes at the
+output limit and with exactly enough room. Rendered component markup tests
+check disabled full-stack controls and the operations tab roles and labels.
+These markup checks do not test browser focus movement.
+
+Interaction tests count visibility queries for 20 eligible candidates. Once a
+visible target has the best score, worse candidates do not run terrain or
+collider checks. A blocked best candidate still permits the next visible one.
+These tests measure query counts, not FPS.
+
+Scanner tests apply the same query-count check while retaining distance/alignment
+scoring, source-order ties, and the fallback after an occluded subject.
+Wildlife bounds tests inspect real instance matrices at the compound, Crownspire,
+and Sunscar after movement, interpolation, relocation, and quality changes. Every
+instance's geometry sphere must fit inside its species' culling sphere with
+frustum culling enabled. They verify geometry, not rendered pixels.
+
+Reflection tests call the installed Three PMREM generator with a renderer test
+double. They inject draw failures during cube capture and filtering, check full
+renderer-state restoration, and retain a prior successful reflection when its
+replacement fails. They also check that an unchanged signature does not retry.
+These tests do not exercise GPU allocation failure or WebGL driver behavior.
+
+## Dependency security checks
+
+Run `npm audit --json` after a lockfile change and inspect complete dependency
+paths, including development packages used to build the Worker. An audit exit
+code of 1 means findings remain; it is not a passing security gate. Record the
+scan date, severity counts, affected paths, and the reason for deferred changes.
+See [DEPENDENCIES.md](DEPENDENCIES.md) for the current review. Keep dependency
+changes tied to a specific finding, and rerun all source release gates after
+installing the revised lockfile. Browser/GPU checks are still separate.
+
+## Further gameplay and hardware coverage
 
 Player-condition tests lock safe and damaging fall thresholds, monotonic bounded damage,
 health underflow protection, rain wetting, shelter drying, apparent-temperature response,

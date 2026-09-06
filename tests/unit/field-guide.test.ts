@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ANIMAL_SPECIES } from "../../lib/game/animals/animalRecipes";
 import { BEACONS } from "../../lib/game/config";
 import {
@@ -14,6 +14,25 @@ const MAST = "guide:landmark:field-unit-weather-mast:v1";
 const FIBER = "guide:resource:fiber:v1";
 
 describe("field guide and scanner selection", () => {
+  it("only checks visibility for subjects that can beat the best visible score", () => {
+    const candidates = Array.from({ length: 20 }, (_, index) => ({
+      id: `subject-${index}`,
+      entryId: FIBER,
+      name: "Fiber",
+      position: { x: 0, y: 1.6, z: -(index + 1) },
+      maxDistance: 30,
+    }));
+    const visible = vi.fn(() => true);
+    const selected = selectScanCandidate(
+      candidates,
+      { x: 0, y: 1.6, z: 0 },
+      { x: 0, y: 0, z: -1 },
+      visible,
+    );
+    expect(selected?.candidate.id).toBe("subject-0");
+    expect(visible).toHaveBeenCalledOnce();
+  });
+
   it("publishes a unique complete catalog for fauna and authored beacons", () => {
     expect(new Set(FIELD_GUIDE_ENTRIES.map((entry) => entry.id)).size)
       .toBe(FIELD_GUIDE_ENTRIES.length);

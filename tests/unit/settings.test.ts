@@ -26,6 +26,8 @@ describe("game settings", () => {
       quality: "impossible",
       horizonMode: "infinite",
       worldDetail: 99,
+      cameraDistance: 400,
+      isometricAngle: 8,
     }, "extended");
     expect(result.fov).toBe(95);
     expect(result.lookSensitivity).toBe(0.25);
@@ -36,6 +38,8 @@ describe("game settings", () => {
     expect(result.horizonMode).toBe("extended");
     expect(result.worldDetail).toBe(4);
     expect(result.interfaceScale).toBe("standard");
+    expect(result.cameraDistance).toBe(96);
+    expect(result.isometricAngle).toBe(45);
   });
 
   it("normalizes the persisted interface scale", () => {
@@ -54,6 +58,14 @@ describe("game settings", () => {
   it("accepts the opt-in Ultra rendering profile", () => {
     expect(normalizeGameSettings({ quality: "ultra" }).quality).toBe("ultra");
     expect(normalizeGameSettings({ worldDetail: 0 }).worldDetail).toBe(0);
+  });
+
+  it("defaults old settings to first person and accepts finite camera preferences", () => {
+    expect(normalizeGameSettings({ fov: 79 }).cameraDistance).toBe(0);
+    expect(normalizeGameSettings({ fov: 79 }).isometricAngle).toBe(56);
+    const result = normalizeGameSettings({ cameraDistance: 32.5, isometricAngle: 64 });
+    expect(result.cameraDistance).toBe(32.5);
+    expect(result.isometricAngle).toBe(64);
   });
 
   it("swaps conflicting bindings instead of leaving an action unbound", () => {

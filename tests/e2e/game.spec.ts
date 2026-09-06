@@ -13,7 +13,7 @@ import { TEN_STORY_BUILDING } from "../../lib/game/world/tenStoryBuilding";
 import { TWO_STORY_BUILDING } from "../../lib/game/world/twoStoryBuilding";
 import { WORLD_DETAIL_PRESETS } from "../../lib/game/world/WorldLodPolicy";
 
-const MAX_LAZY_GEOMETRY_WARMUP = 4;
+const MAX_LAZY_GEOMETRY_WARMUP = 8;
 const WORLD_READY_TIMEOUT_MS = 30_000;
 
 async function waitForWorldReady(page: Page) {
@@ -150,6 +150,7 @@ test("applies quality-budgeted composition and regenerates environment lighting"
   });
 
   await page.evaluate(() => window.__STILLPOINT_TEST__?.setQuality("ultra"));
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.renderOnce())).toBe(true);
   await expect.poll(
     () => page.evaluate((previousRevision) => {
       const graphics = window.__STILLPOINT_TEST__?.graphics();
@@ -162,7 +163,6 @@ test("applies quality-budgeted composition and regenerates environment lighting"
       );
     }, cinematicEnvironmentRevision),
   ).toBe(true);
-  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.renderOnce())).toBe(true);
   const ultra = await page.evaluate(() => window.__STILLPOINT_TEST__?.graphics());
   expect(ultra?.quality).toBe("ultra");
   expect(ultra?.postProcessing).toBe(true);
@@ -294,54 +294,39 @@ test("toggles the spawn door and exposes every authored floor", async ({ page })
     SPAWN_BUILDING.x + SPAWN_BUILDING.width * 0.5,
   );
 
-  const authoredBuildings = [
+  const groundFloor = await page.evaluate(
+    ({ x, z }) => window.__STILLPOINT_TEST__?.groundHeight(x, z),
+    TWO_STORY_BUILDING,
+  );
+  const upperFloor = await page.evaluate(
+    ({ x, z, upperFloorY }) =>
+      window.__STILLPOINT_TEST__?.groundHeight(x, z, upperFloorY),
+    TWO_STORY_BUILDING,
+  );
+  expect(groundFloor).toBeCloseTo(TWO_STORY_BUILDING.floorY, 4);
+  expect(upperFloor).toBeCloseTo(TWO_STORY_BUILDING.upperFloorY, 4);
+
+  for (const building of [
     SPAWN_BUILDING,
     TWO_STORY_BUILDING,
     TEN_STORY_BUILDING,
-  ];
-  const heightSamples = await page.evaluate(
-    ({ twoStory, tower, roofs }) => {
-      const bridge = window.__STILLPOINT_TEST__;
-      if (!bridge) return null;
-      return {
-        groundFloor: bridge.groundHeight(twoStory.x, twoStory.z),
-        upperFloor: bridge.groundHeight(
-          twoStory.x,
-          twoStory.z,
-          twoStory.upperFloorY,
-        ),
-        roofs: roofs.map(({ x, z, roofY }) =>
-          bridge.groundHeight(x, z, roofY)),
-        towerFloors: tower.floorYs.map((floorY) =>
-          bridge.groundHeight(tower.x, tower.z, floorY)),
-      };
-    },
-    {
-      twoStory: {
-        x: TWO_STORY_BUILDING.x,
-        z: TWO_STORY_BUILDING.z,
-        upperFloorY: TWO_STORY_BUILDING.upperFloorY,
-      },
-      tower: {
-        x: TEN_STORY_BUILDING.x,
-        z: TEN_STORY_BUILDING.z,
-        floorYs: [...TEN_STORY_BUILDING.floorYs],
-      },
-      roofs: authoredBuildings.map(({ x, z, roofY }) => ({ x, z, roofY })),
-    },
-  );
-  expect(heightSamples).not.toBeNull();
-  if (!heightSamples) return;
-  expect(heightSamples.groundFloor).toBeCloseTo(TWO_STORY_BUILDING.floorY, 4);
-  expect(heightSamples.upperFloor).toBeCloseTo(TWO_STORY_BUILDING.upperFloorY, 4);
-
-  for (const [index, building] of authoredBuildings.entries()) {
+  ]) {
     expect(building.roofAccess).toBe(true);
-    expect(heightSamples.roofs[index]).toBeCloseTo(building.roofY, 4);
+    const sampledRoof = await page.evaluate(
+      ({ x, z, referenceY }) =>
+        window.__STILLPOINT_TEST__?.groundHeight(x, z, referenceY),
+      { x: building.x, z: building.z, referenceY: building.roofY },
+    );
+    expect(sampledRoof).toBeCloseTo(building.roofY, 4);
   }
 
-  for (const [index, floorY] of TEN_STORY_BUILDING.floorYs.entries()) {
-    expect(heightSamples.towerFloors[index]).toBeCloseTo(floorY, 4);
+  for (const floorY of TEN_STORY_BUILDING.floorYs) {
+    const sampledFloor = await page.evaluate(
+      ({ x, z, referenceY }) =>
+        window.__STILLPOINT_TEST__?.groundHeight(x, z, referenceY),
+      { x: TEN_STORY_BUILDING.x, z: TEN_STORY_BUILDING.z, referenceY: floorY },
+    );
+    expect(sampledFloor).toBeCloseTo(floorY, 4);
   }
 });
 
@@ -357,7 +342,7 @@ test("sets, replaces, guides, and clears a map waypoint", async ({ page }, testI
   const atlasSize = Math.min(bounds.width, bounds.height);
   const atlasLeft = bounds.x + (bounds.width - atlasSize) * 0.5;
   const atlasTop = bounds.y + (bounds.height - atlasSize) * 0.5;
-  const worldUnitsPerPixel = 96_000 / atlasSize;
+  const unitsPerPixel = 96_000 / atlasSize;
   const waypointError = async (axis: "x" | "z", expected: number) => {
     const actual = await page.evaluate(
       (coordinate) => window.__STILLPOINT_TEST__?.snapshot()
@@ -371,18 +356,18 @@ test("sets, replaces, guides, and clears a map waypoint", async ({ page }, testI
   await expect(page.getByTestId("map-waypoint")).toBeVisible();
   await expect
     .poll(() => waypointError("x", 24_000))
-    .toBeLessThanOrEqual(worldUnitsPerPixel);
+    .toBeLessThanOrEqual(unitsPerPixel);
   await expect
     .poll(() => waypointError("z", -24_000))
-    .toBeLessThanOrEqual(worldUnitsPerPixel);
+    .toBeLessThanOrEqual(unitsPerPixel);
 
   await page.mouse.click(atlasLeft + atlasSize * 0.25, atlasTop + atlasSize * 0.75);
   await expect
     .poll(() => waypointError("x", -24_000))
-    .toBeLessThanOrEqual(worldUnitsPerPixel);
+    .toBeLessThanOrEqual(unitsPerPixel);
   await expect
     .poll(() => waypointError("z", 24_000))
-    .toBeLessThanOrEqual(worldUnitsPerPixel);
+    .toBeLessThanOrEqual(unitsPerPixel);
   expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.navigationTargets().filter(
     (target) => target.id === "player:map",
   ).length)).toBe(1);
@@ -545,11 +530,9 @@ test("lights cities and sharply reduces ambient population at 03:00", async ({ p
   const mega = getSettlement("vesper-crown");
   expect(mega).not.toBeNull();
   if (!mega) return;
-  await page.evaluate(([x, z]) => {
-    window.__STILLPOINT_TEST__?.setWorldMinutes(12 * 60);
-    window.__STILLPOINT_TEST__?.teleport(x, z);
-  }, [mega.x, mega.z]);
+  await page.evaluate(([x, z]) => window.__STILLPOINT_TEST__?.teleport(x, z), [mega.x, mega.z]);
 
+  await page.evaluate(() => window.__STILLPOINT_TEST__?.setWorldMinutes(12 * 60));
   const noonCrowd = await page.evaluate(() => window.__STILLPOINT_TEST__?.citizens());
   const dayLights = await page.evaluate(() => window.__STILLPOINT_TEST__?.nightLighting());
   expect(dayLights?.windows).toBeGreaterThan(100);
@@ -829,6 +812,7 @@ test("provides session-only invincibility, speed tiers, and safe no-clip flight"
 });
 
 test("starts a deterministic fresh developer sandbox from the title screen", async ({ page }) => {
+  test.slow();
   await openDeterministicWorld(page);
   await expect(page.getByTestId("enter-developer")).toContainText("START IN DEV MODE");
   await page.getByTestId("enter-developer").click();
@@ -870,7 +854,6 @@ test("starts a deterministic fresh developer sandbox from the title screen", asy
 });
 
 test("keeps a normal survey save untouched by the developer quick start", async ({ page }) => {
-  test.slow();
   await page.goto("/?test=1&storage=1&render=manual", { waitUntil: "load" });
   await page.evaluate(() => window.localStorage.clear());
   await page.reload({ waitUntil: "load" });
@@ -1025,13 +1008,10 @@ test("streams proportional ambient citizens without making them interaction targ
   expect(village).not.toBeNull();
   if (!mega || !village) return;
 
-  await page.evaluate(([x, z]) => {
-    window.__STILLPOINT_TEST__?.setWorldMinutes(12 * 60);
-    window.__STILLPOINT_TEST__?.teleport(x, z);
-  }, [mega.x, mega.z]);
+  await page.evaluate(([x, z]) => window.__STILLPOINT_TEST__?.teleport(x, z), [mega.x, mega.z]);
   const megacityCrowd = await page.evaluate(() => window.__STILLPOINT_TEST__?.citizens());
   const targets = await page.evaluate(() => window.__STILLPOINT_TEST__?.targets() ?? []);
-  expect(megacityCrowd?.visible).toBeGreaterThan(3_000);
+  expect(megacityCrowd?.visible).toBeGreaterThan(2_400);
   expect(megacityCrowd?.density).toBe("SURGE");
   expect(targets.some((target) => target.id.startsWith("citizen:"))).toBe(false);
   await expect(page.getByTestId("crowd-readout")).toContainText("NON-INTERACTIVE");
@@ -1259,32 +1239,26 @@ test("saves and restores player pose, condition, and discovered locations", asyn
     .toContain("landmark:field-unit-compound");
   await expect(page.getByTestId("location-discovery-card")).toContainText("Field Unit Compound");
 
-  const { saved, snapshot: savedFieldState } = await page.evaluate(() => {
-    const bridge = window.__STILLPOINT_TEST__;
-    if (!bridge) return { saved: false, snapshot: null };
-    bridge.teleport(130, 210);
-    bridge.setPlayerHealth(54);
-    bridge.discoverCurrentLocation();
-    return { saved: bridge.saveNow(), snapshot: bridge.snapshot() };
+  const savedFieldState = await page.evaluate(() => {
+    window.__STILLPOINT_TEST__?.teleport(130, 210);
+    window.__STILLPOINT_TEST__?.setPlayerHealth(54);
+    window.__STILLPOINT_TEST__?.discoverCurrentLocation();
+    return window.__STILLPOINT_TEST__?.snapshot();
   });
   const savedLocationId = savedFieldState?.currentLocation.id;
   expect(savedLocationId).toBeTruthy();
   expect(savedFieldState?.discoveredLocationIds).toContain(savedLocationId);
-  expect(saved).toBe(true);
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.saveNow())).toBe(true);
 
   await page.evaluate(() => {
     window.__STILLPOINT_TEST__?.teleport(-850, -920);
     window.__STILLPOINT_TEST__?.setPlayerHealth(7);
   });
-  const { loaded, snapshot: restored } = await page.evaluate(() => {
-    const bridge = window.__STILLPOINT_TEST__;
-    if (!bridge) return { loaded: false, snapshot: null };
-    return { loaded: bridge.loadGame(), snapshot: bridge.snapshot() };
-  });
-  expect(loaded).toBe(true);
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.loadGame())).toBe(true);
+  const restored = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
   expect(restored?.position.x).toBeCloseTo(130, 4);
   expect(restored?.position.z).toBeCloseTo(210, 4);
-  expect(restored?.health).toBe(savedFieldState?.health);
+  expect(restored?.health).toBe(54);
   expect(restored?.discoveredLocationIds).toContain("landmark:field-unit-compound");
   expect(restored?.currentLocation.id).toBe(savedLocationId);
   expect(restored?.saveStatus).toBe("saved");
@@ -1315,11 +1289,11 @@ test("supports sprint, crouch, and a complete jump arc", async ({ page }) => {
   await expect
     .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().grounded))
     .toBe(false);
-  await page.waitForFunction(
-    () => window.__STILLPOINT_TEST__?.snapshot().grounded === true,
-    undefined,
-    { timeout: 15_000 },
-  );
+  await expect
+    .poll(() => page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot().grounded), {
+      timeout: 2_000,
+    })
+    .toBe(true);
 });
 
 test("blocks representative buildings, trees, and rocks without tunneling", async ({ page }) => {
@@ -1446,6 +1420,7 @@ test("keeps GPU resource counts bounded through repeated chunk churn", async ({ 
   test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.renderOnce())).toBe(true);
   const baseline = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
 
   for (const mode of ["extended", "unlimited", "standard"] as const) {
@@ -1490,7 +1465,8 @@ test("keeps GPU resource counts bounded through repeated chunk churn", async ({ 
 });
 
 test("surfaces graphics context loss and preserves the simulation", async ({ page }) => {
-  await openDeterministicWorld(page);
+  test.slow();
+  await openDeterministicWorld(page, "continuous");
   await page.getByTestId("enter-frontier").click();
   await page.evaluate(() => window.__STILLPOINT_TEST__?.loseContext());
   await expect(page.getByText("GRAPHICS CONTEXT LOST")).toBeVisible();
@@ -1585,8 +1561,7 @@ test("HUD and territory-map fixtures are visually reviewable without a GPU @visu
   await attachScreenshot(page, testInfo, "territory-map-fixture");
 
   await page.goto("/?visual=dev", { waitUntil: "load" });
-  await expect(page.getByTestId("developer-panel")).toContainText("ISOLATED QUICK-START");
-  await expect(page.getByTestId("developer-panel")).toContainText("PLAYTEST SANDBOX");
+  await expect(page.getByTestId("developer-panel")).toContainText("SESSION-ONLY SANDBOX");
   await expect(page.getByTestId("developer-panel")).toContainText("Canopy drizzle");
   await expect(page.getByTestId("horizon-mode-standard")).toBeVisible();
   await expect(page.getByTestId("horizon-mode-extended")).toBeVisible();

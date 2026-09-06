@@ -3,6 +3,9 @@ import { defineConfig, devices } from "@playwright/test";
 const functionalViewport = process.env.CI
   ? { width: 1024, height: 768 }
   : { width: 1440, height: 900 };
+const browserServerCommand = process.env.CI
+  ? "npm run build && npm run start -- --port 4173"
+  : "npm run dev -- --port 4173";
 
 export default defineConfig({
   testDir: "tests/e2e",
@@ -73,7 +76,7 @@ export default defineConfig({
     },
   },
   webServer: {
-    command: "npm run dev -- --port 4173",
+    command: browserServerCommand,
     url: "http://127.0.0.1:4173/?test=1",
     timeout: 120_000,
     reuseExistingServer: !process.env.CI,

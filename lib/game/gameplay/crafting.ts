@@ -76,8 +76,36 @@ export function canUseStation(
   return required === "field" || available === "workbench";
 }
 
+export type CraftingStatus =
+  | "ready"
+  | "unknown_recipe"
+  | "locked"
+  | "wrong_station"
+  | "missing_items"
+  | "inventory_full";
+
+/** Shared by the recipe controls and the atomic inventory transaction. */
+export function craftingStatus(
+  inventory: Readonly<InventoryState>,
+  recipeId: string,
+  station: CraftingStationKind,
+  unlockedRecipeIds: readonly string[],
+): CraftingStatus {
+  const recipe = recipeById(recipeId);
+  if (!recipe) return "unknown_recipe";
+  if (!unlockedRecipeIds.includes(recipe.id)) return "locked";
+  if (!canUseStation(recipe.station, station)) return "wrong_station";
+  if (recipeMissingItems(inventory, recipe.id).length > 0) return "missing_items";
+  const outputItem = recipe.output.item;
+  const consumed = (recipe.ingredients as Partial<Record<ItemId, number>>)[outputItem] ?? 0;
+  if (inventory[outputItem] - consumed + recipe.output.quantity > ITEM_DEFINITIONS[outputItem].stackLimit) {
+    return "inventory_full";
+  }
+  return "ready";
+}
+
 export interface CraftingOutcome {
-  result: "crafted" | "unknown_recipe" | "locked" | "wrong_station" | "missing_items";
+  result: "crafted" | Exclude<CraftingStatus, "ready">;
   inventory: InventoryState;
   item: ItemId | null;
   quantity: number;
@@ -93,11 +121,9 @@ export function craftRecipe(
   if (!recipe) {
     return { result: "unknown_recipe", inventory: { ...inventory }, item: null, quantity: 0 };
   }
-  if (!unlockedRecipeIds.includes(recipe.id)) {
-    return { result: "locked", inventory: { ...inventory }, item: null, quantity: 0 };
-  }
-  if (!canUseStation(recipe.station, station)) {
-    return { result: "wrong_station", inventory: { ...inventory }, item: null, quantity: 0 };
+  const status = craftingStatus(inventory, recipeId, station, unlockedRecipeIds);
+  if (status !== "ready") {
+    return { result: status, inventory: { ...inventory }, item: null, quantity: 0 };
   }
   const delta: Partial<Record<ItemId, number>> = {};
   for (const [item, quantity] of Object.entries(recipe.ingredients)) {
@@ -107,9 +133,6 @@ export function craftRecipe(
   delta[outputItem] = (delta[outputItem] ?? 0) + recipe.output.quantity;
   const next = applyInventoryDelta(inventory, delta);
   if (!next) {
-    return { result: "missing_items", inventory: { ...inventory }, item: null, quantity: 0 };
-  }
-  if (next[outputItem] > ITEM_DEFINITIONS[outputItem].stackLimit) {
     return { result: "missing_items", inventory: { ...inventory }, item: null, quantity: 0 };
   }
   return {

@@ -4,6 +4,7 @@ import {
   RECIPE_DEFINITIONS,
   canUseStation,
   craftRecipe,
+  craftingStatus,
   recipeById,
   recipeMissingItems,
 } from "../../lib/game/gameplay/crafting";
@@ -82,7 +83,7 @@ describe("crafting and expanded inventory", () => {
       "recipe:bedroll:v1",
       "field",
       ALL_RECIPE_IDS,
-    ).result).toBe("missing_items");
+    ).result).toBe("inventory_full");
     expect(canUseStation("field", "workbench")).toBe(true);
     expect(canUseStation("workbench", "field")).toBe(false);
   });
@@ -96,6 +97,18 @@ describe("crafting and expanded inventory", () => {
       { item: "stone", required: 2, available: 0 },
     ]);
     expect(recipeMissingItems(inventory(), "recipe:invented")).toEqual([]);
+  });
+
+  it.each(Object.values(RECIPE_DEFINITIONS))("shares $label capacity rules with the interface", (recipe) => {
+    const source = inventory({ ...recipe.ingredients, [recipe.output.item]: ITEM_DEFINITIONS[recipe.output.item].stackLimit });
+    expect(craftingStatus(source, recipe.id, "workbench", ALL_RECIPE_IDS)).toBe("inventory_full");
+    const blocked = craftRecipe(source, recipe.id, "workbench", ALL_RECIPE_IDS);
+    expect(blocked).toEqual({ result: "inventory_full", inventory: source, item: null, quantity: 0 });
+    const withRoom = { ...source, [recipe.output.item]: source[recipe.output.item] - recipe.output.quantity };
+    expect(craftingStatus(withRoom, recipe.id, "workbench", ALL_RECIPE_IDS)).toBe("ready");
+    expect(craftRecipe(withRoom, recipe.id, "workbench", ALL_RECIPE_IDS).inventory[recipe.output.item])
+      .toBe(ITEM_DEFINITIONS[recipe.output.item].stackLimit);
+    expect(source[recipe.output.item]).toBe(ITEM_DEFINITIONS[recipe.output.item].stackLimit);
   });
 
   it("bounds item arithmetic and rejects partial invalid transactions", () => {
