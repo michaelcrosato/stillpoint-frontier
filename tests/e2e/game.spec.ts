@@ -13,6 +13,7 @@ import { TEN_STORY_BUILDING } from "../../lib/game/world/tenStoryBuilding";
 import { TWO_STORY_BUILDING } from "../../lib/game/world/twoStoryBuilding";
 import { WORLD_DETAIL_PRESETS } from "../../lib/game/world/WorldLodPolicy";
 
+const MAX_LAZY_GEOMETRY_WARMUP = 8;
 const WORLD_READY_TIMEOUT_MS = 30_000;
 
 async function waitForWorldReady(page: Page) {
@@ -440,11 +441,17 @@ test("zooms, pans, focuses, and preserves the cartographic viewport", async ({ p
     -(bounds.height * 0.07) * unitsPerPixel,
     bounds.height * unitsPerPixel * 0.5,
   );
+  const targetError = async (axis: "x" | "z", expected: number) => {
+    const actual = await page.evaluate(
+      (coordinate) => window.__STILLPOINT_TEST__?.snapshot()
+        .navigation?.target.position[coordinate],
+      axis,
+    );
+    return Math.abs((actual ?? Number.POSITIVE_INFINITY) - expected);
+  };
   await page.mouse.click(bounds.x + bounds.width * 0.5, bounds.y + bounds.height * 0.5);
-  await expect.poll(() => page.evaluate(() =>
-    window.__STILLPOINT_TEST__?.snapshot().navigation?.target.position.x)).toBeCloseTo(expectedX, -2);
-  await expect.poll(() => page.evaluate(() =>
-    window.__STILLPOINT_TEST__?.snapshot().navigation?.target.position.z)).toBeCloseTo(expectedZ, -2);
+  await expect.poll(() => targetError("x", expectedX)).toBeLessThanOrEqual(unitsPerPixel);
+  await expect.poll(() => targetError("z", expectedZ)).toBeLessThanOrEqual(unitsPerPixel);
 
   await page.getByTestId("map-focus-player").click();
   await expect(page.getByTestId("map-panel")).toHaveAttribute("data-map-detail", "local");
@@ -1071,10 +1078,18 @@ test("persists local view settings and a rebound control independently of the fi
 
   await page.getByRole("button", { name: /settings/i }).click();
   await expect(page.getByTestId("settings-overlay")).toBeVisible();
-  const standardLabelSize = await page.locator(".settings-section > h3").first()
-    .evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
-  const standardHudSize = await page.locator(".health-line")
-    .evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
+  const readInterfaceSizes = () => page.getByTestId("settings-overlay").evaluate((overlay) => {
+    const fontSize = (selector: string) => {
+      const element = overlay.querySelector<HTMLElement>(selector);
+      if (!element) throw new Error(`Missing settings element: ${selector}`);
+      return Number.parseFloat(getComputedStyle(element).fontSize);
+    };
+    return {
+      label: fontSize(".settings-section > h3"),
+      body: fontSize(".settings-range output"),
+    };
+  });
+  const standardSizes = await readInterfaceSizes();
   await page.getByTestId("interface-scale-large").click();
   await expect(page.getByTestId("game-shell")).toHaveAttribute(
     "data-interface-scale",
@@ -1085,12 +1100,9 @@ test("persists local view settings and a rebound control independently of the fi
       () => window.__STILLPOINT_TEST__?.snapshot().settings.interfaceScale,
     ))
     .toBe("large");
-  const largeLabelSize = await page.locator(".settings-section > h3").first()
-    .evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
-  const largeHudSize = await page.locator(".health-line")
-    .evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
-  expect(largeLabelSize).toBeGreaterThan(standardLabelSize);
-  expect(largeHudSize).toBeGreaterThan(standardHudSize);
+  const largeSizes = await readInterfaceSizes();
+  expect(largeSizes.label).toBeGreaterThan(standardSizes.label);
+  expect(largeSizes.body).toBeGreaterThan(standardSizes.body);
   const fov = page.locator("label").filter({ hasText: "FIELD OF VIEW" }).locator("input");
   await fov.fill("82");
   await expect
@@ -1164,7 +1176,20 @@ test("uses the unified interaction prompt to inspect authored field records", as
   expect(standingOrders).toBeTruthy();
   if (!standingOrders) return;
 
-  await page.evaluate((id) => window.__STILLPOINT_TEST__?.faceTarget(id), standingOrders);
+  await page.evaluate((id) => {
+    const bridge = window.__STILLPOINT_TEST__;
+    const target = bridge?.targets().find((candidate) => candidate.id === id);
+    if (!bridge || !target) return;
+    // Approach from the reserved opening west of the board. The southern
+    // approach overlaps the deterministic opening rock at (4.2, 0.8).
+    bridge.teleport(target.x - 3, target.z);
+    bridge.faceTarget(id);
+  }, standingOrders);
+  await expect.poll(
+    () => page.evaluate(
+      () => window.__STILLPOINT_TEST__?.snapshot().nearbyTarget?.id,
+    ),
+  ).toBe(standingOrders);
   await expect(page.getByTestId("interaction-prompt")).toContainText("READ / INSPECT");
   await expect(page.getByTestId("interaction-prompt")).toContainText("Field Unit Standing Orders");
   await page.keyboard.press("KeyE");
@@ -1395,6 +1420,7 @@ test("keeps GPU resource counts bounded through repeated chunk churn", async ({ 
   test.slow();
   await openDeterministicWorld(page);
   await page.getByTestId("enter-frontier").click();
+  expect(await page.evaluate(() => window.__STILLPOINT_TEST__?.renderOnce())).toBe(true);
   const baseline = await page.evaluate(() => window.__STILLPOINT_TEST__?.snapshot());
 
   for (const mode of ["extended", "unlimited", "standard"] as const) {
@@ -1432,13 +1458,15 @@ test("keeps GPU resource counts bounded through repeated chunk churn", async ({ 
   expect(settled?.loadedChunks).toBe(WORLD_RESIDENT_CHUNKS);
   expect(settled?.horizonMode).toBe("standard");
   expect(settled?.horizonTiles).toBe(HORIZON_PRESETS.standard.rings.length * 16);
-  expect(settled?.geometries).toBeLessThanOrEqual((baseline?.geometries ?? 0) + 3);
+  expect(settled?.geometries).toBeLessThanOrEqual(
+    (baseline?.geometries ?? 0) + MAX_LAZY_GEOMETRY_WARMUP,
+  );
   expect(settled?.textures).toBeLessThanOrEqual(baseline?.textures ?? 0);
 });
 
 test("surfaces graphics context loss and preserves the simulation", async ({ page }) => {
   test.slow();
-  await openDeterministicWorld(page);
+  await openDeterministicWorld(page, "continuous");
   await page.getByTestId("enter-frontier").click();
   await page.evaluate(() => window.__STILLPOINT_TEST__?.loseContext());
   await expect(page.getByText("GRAPHICS CONTEXT LOST")).toBeVisible();

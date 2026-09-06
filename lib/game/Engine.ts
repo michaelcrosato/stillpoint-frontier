@@ -3224,12 +3224,10 @@ export class Engine {
       },
       discover: (beaconId) => this.discover(beaconId),
       loseContext: () => {
-        const extension = this.renderer.getContext().getExtension("WEBGL_lose_context");
-        extension?.loseContext();
+        this.renderer.forceContextLoss();
       },
       restoreContext: () => {
-        const extension = this.renderer.getContext().getExtension("WEBGL_lose_context");
-        extension?.restoreContext();
+        this.renderer.forceContextRestore();
       },
       targets: () =>
         this.world.targets.map((target) => ({
