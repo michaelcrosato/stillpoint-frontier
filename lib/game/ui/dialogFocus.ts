@@ -13,10 +13,23 @@ export function dialogFocusTarget<T>(
 }
 
 export function trapDialogTab(
-  event: { key: string; shiftKey: boolean; preventDefault(): void },
+  event: {
+    key: string;
+    shiftKey: boolean;
+    ctrlKey?: boolean;
+    metaKey?: boolean;
+    altKey?: boolean;
+    preventDefault(): void;
+  },
   panel: HTMLElement | null,
 ) {
-  if (event.key !== "Tab" || !panel) return;
+  if (
+    event.key !== "Tab" ||
+    !panel ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.altKey
+  ) return;
   const candidates = Array.from(panel.querySelectorAll<HTMLElement>(
     "button, a[href], input, select, textarea, [tabindex]",
   )).filter((element) =>

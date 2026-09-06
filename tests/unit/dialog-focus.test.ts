@@ -44,4 +44,24 @@ describe("shared dialog focus boundaries", () => {
     trapDialogTab(event, { querySelectorAll: () => [] } as unknown as HTMLElement);
     expect(event.preventDefault).toHaveBeenCalledTimes(2);
   });
+  it("leaves modified Tab shortcuts to the browser", () => {
+    const preventDefault = vi.fn();
+    const panel = { querySelectorAll: () => controls.map(() => ({
+      tabIndex: 0,
+      matches: () => false,
+      closest: () => null,
+      getClientRects: () => [{}],
+      focus: vi.fn(),
+    })) } as unknown as HTMLElement;
+    vi.stubGlobal("document", { activeElement: null });
+    for (const modifier of ["ctrlKey", "metaKey", "altKey"] as const) {
+      trapDialogTab({
+        key: "Tab",
+        shiftKey: false,
+        [modifier]: true,
+        preventDefault,
+      }, panel);
+    }
+    expect(preventDefault).not.toHaveBeenCalled();
+  });
 });

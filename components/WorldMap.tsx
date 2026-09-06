@@ -346,7 +346,13 @@ export default function WorldMap({
   };
 
   const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
-    if (event.ctrlKey || event.metaKey || event.defaultPrevented) return;
+    if (
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey ||
+      event.altKey ||
+      event.defaultPrevented
+    ) return;
     event.preventDefault();
     const rect = event.currentTarget.getBoundingClientRect();
     const factor = Math.exp(-event.deltaY * 0.0015);
