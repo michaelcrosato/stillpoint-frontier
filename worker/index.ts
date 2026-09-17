@@ -39,9 +39,14 @@ const SECURITY_HEADERS: Readonly<Record<string, string>> = {
 };
 
 /** Responses that must not carry a body when reconstructed. */
-const BODILESS_STATUS = new Set([101, 204, 205, 304]);
+const BODILESS_STATUS = new Set([204, 205, 304]);
 
 function withSecurityHeaders(response: Response): Response {
+  // A WebSocket upgrade carries a socket the Response constructor cannot copy,
+  // and the constructor rejects any status below 200 outright. Pass those
+  // through untouched; they are not documents and need no document headers.
+  if (response.status < 200 || response.webSocket) return response;
+
   const headers = new Headers(response.headers);
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
     headers.set(name, value);
