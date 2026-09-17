@@ -175,7 +175,11 @@ export class RenderPipeline {
       this.renderer.outputColorSpace = THREE.SRGBColorSpace;
       this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
       this.renderer.toneMappingExposure = 1.12;
-      this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      // three 0.185 deprecated PCFSoftShadowMap: WebGLShadowMap warns once per
+      // shadow pass and assigns PCFShadowMap itself, so this is what the game
+      // has actually been rendering with. Setting it directly is identical and
+      // keeps the warning out of every player console.
+      this.renderer.shadowMap.type = THREE.PCFShadowMap;
       // One presented frame can contain bloom, world, GTAO and fullscreen draws.
       // Keep Three from resetting counters for each internal renderer.render call.
       this.renderer.info.autoReset = false;
