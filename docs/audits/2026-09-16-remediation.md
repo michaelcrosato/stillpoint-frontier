@@ -96,9 +96,13 @@ specific advisory or unblocks one that does.
   hosting platform frames the site for previews is undocumented, and breaking a
   live preview is a worse outcome than clickjacking a game that has no
   authenticated or server-authoritative action.
-- **Three e2e tests settle with a bare `waitForTimeout(80)`** after teleports and
-  then assert hard equalities. The same file uses `expect.poll` correctly about a
-  dozen times; these three remain a wall-clock race on a contended runner.
+- **Three `waitForTimeout(80)` calls in the chunk-churn e2e test are unnecessary,
+  not racy.** An initial reading called them a wall-clock race. They are not:
+  `Engine.relocatePlayer` calls `world.update(x, z)` synchronously, so a teleport
+  has fully loaded its 81-chunk neighborhood before `teleport()` returns, and the
+  following `renderOnce()` forces the frame. The delays are conservative padding
+  worth about a second of wall clock; they were left in place because removing
+  them changes a passing browser test for no correctness gain.
 - **Audit baseline commits are dangling.** The commits cited by the 2026-09-05
   reports are absent from history, which was squashed at `1229f61`. This report
   cites a commit that is present.
