@@ -20,6 +20,7 @@
     "audit:ci": "bash scripts/sites-env.sh -- npm audit --audit-level=high --audit=true",
     "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vite",
     "build": "bash scripts/build-verified.sh",
+    "build:vercel": "npm run build && node scripts/prerender-static.mjs",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "test": "npm run test:unit && npm run build && npm run test:rendered",
     "test:unit": "bash scripts/sites-env.sh -- vitest run",
