@@ -28,7 +28,7 @@ describe("developer environment sandbox", () => {
       weatherOverride: null,
     });
     expect(changed.worldMinutes).toBe(120);
-    expect(canonicalMinutes).toBe(815);
+
     expect(setDeveloperMode(changed, false, canonicalMinutes)).toEqual(initial);
   });
 

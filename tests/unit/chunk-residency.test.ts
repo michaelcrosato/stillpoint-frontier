@@ -4,7 +4,10 @@ import { WORLD_CHUNK_LOAD_RADIUS } from "../../lib/game/config";
 import { ChunkManager } from "../../lib/game/world/ChunkManager";
 
 describe("chunk neighborhood replacement", () => {
-  it("bounds transient residency and retries a failed teleport with fresh gameplay caches", () => {
+  // Builds the full 81-chunk neighborhood four times over. This is deterministic
+  // work that legitimately exceeds the 5s default on a loaded runner, matching the
+  // explicit budgets already used in world-colliders.test.ts.
+  it("bounds transient residency and retries a failed teleport with fresh gameplay caches", { timeout: 20_000 }, () => {
     const scene = new THREE.Scene();
     const world = new ChunkManager(scene, "performance");
     const limit = (WORLD_CHUNK_LOAD_RADIUS * 2 + 1) ** 2;

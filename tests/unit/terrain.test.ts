@@ -50,7 +50,12 @@ describe("world coordinates", () => {
   it("uses one analytic terrain function at chunk seams", () => {
     for (let z = -48; z <= 48; z += 3) {
       const seamX = CHUNK_SIZE / 2;
-      expect(sampleTerrainHeight(seamX, z)).toBe(sampleTerrainHeight(seamX, z));
+      // Approach the seam from the chunk on either side. Sampling the same point
+      // twice cannot fail; a step change across the boundary is the actual defect
+      // a per-chunk height function would introduce.
+      const left = sampleTerrainHeight(seamX - 1e-3, z);
+      const right = sampleTerrainHeight(seamX + 1e-3, z);
+      expect(Math.abs(right - left)).toBeLessThan(1e-2);
     }
   });
 
