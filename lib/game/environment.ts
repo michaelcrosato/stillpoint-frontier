@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { BLOOM_LAYER } from "./rendering/Bloom";
 import {
   CAMERA_DRAW_DISTANCE,
   HORIZON_PRESETS,
@@ -469,6 +470,11 @@ export function createEnvironment(
   sky.name = "atmosphere-sky";
   sky.frustumCulled = false;
   sky.renderOrder = -3;
+  // The selective-bloom pass darkens every mesh that is not a bloom source, so
+  // the sun disc - drawn at sunDiscColor * 2.2 inside the sky shader, well over
+  // the bloom threshold - contributed nothing. Marking the sky as a source
+  // costs no extra draw call: it is already drawn in that pass, just black.
+  sky.layers.enable(BLOOM_LAYER);
   scene.add(sky);
 
   const stars = createStars();
