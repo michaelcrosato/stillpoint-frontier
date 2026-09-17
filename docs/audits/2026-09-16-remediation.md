@@ -103,13 +103,16 @@ specific advisory or unblocks one that does.
   following `renderOnce()` forces the frame. The delays are conservative padding
   worth about a second of wall clock; they were left in place because removing
   them changes a passing browser test for no correctness gain.
-- **A Vercel integration fails on every pull request.** The project deploys to
-  Cloudflare through the Sites workflow; the Vercel GitHub App (id 8329) still
-  creates preview deployments that fail. It is not a required check, so it blocks
-  nothing, but it is permanent red noise that trains reviewers to ignore failing
-  checks — plausibly part of why eight blocked Dependabot pull requests went
-  unnoticed. Removing it needs the Vercel dashboard or the GitHub App settings;
-  it cannot be done with a repository-scoped token.
+- **The Vercel integration is fixed.** It had failed on every pull request:
+  Vercel auto-detected Next.js and looked for `.next/routes-manifest.json`,
+  which `vinext build` never produces. The build itself always succeeded, so
+  only output collection failed. `vercel.json` now pins `framework: null` and
+  builds through `build:vercel`, which prerenders `/` to
+  `dist/client/index.html` via the built Worker; the project's dashboard
+  framework setting was corrected to match. Verified in a browser: the
+  deployed preview renders the game, WebGL included, with no console errors.
+  Vercel remains a preview target — the public game is still served by the
+  Cloudflare Worker.
 - **`installTestBridge` ships in the client bundle**, runtime-gated on `?test=1`.
   It is 169 lines of test affordances that any visitor can enable. There is no
   meaningful risk — the game is single-player with no server-authoritative state,
