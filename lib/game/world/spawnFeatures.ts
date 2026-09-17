@@ -518,17 +518,3 @@ export function createAuthoredGameplayFeaturesForChunk(
   }
   return { root, colliders, targets };
 }
-
-/** Compatibility wrapper for the original single-compound caller. */
-export function createSpawnGameplayFeatures(
-  quality: QualityLevel,
-  totalMinutes: number,
-  containerStates: Readonly<ContainerStates>,
-) {
-  return createAuthoredGameplayFeaturesForChunk(
-    "0:0",
-    quality,
-    totalMinutes,
-    containerStates,
-  );
-}

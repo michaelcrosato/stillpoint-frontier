@@ -31,7 +31,6 @@ export const GRAVITY = 19.5;
 export const STAMINA_DRAIN_RATE = 0.24;
 export const STAMINA_REGEN_RATE = 0.18;
 export const STAMINA_REGEN_DELAY = 0.65;
-export const INTERACTION_DISTANCE = 6.25;
 
 export type QualityLevel = "ultra" | "cinematic" | "performance";
 
@@ -150,8 +149,6 @@ export const QUALITY_PRESETS: Readonly<Record<QualityLevel, QualityPreset>> = {
 } as const;
 
 export const QUALITY_LEVELS = ["performance", "cinematic", "ultra"] as const;
-export const MAX_PIXEL_RATIO = QUALITY_PRESETS.cinematic.pixelRatioCap;
-export const SHADOW_MAP_SIZE = QUALITY_PRESETS.cinematic.sunShadowMapSize;
 
 export function isQualityLevel(value: unknown): value is QualityLevel {
   return value === "ultra" || value === "cinematic" || value === "performance";

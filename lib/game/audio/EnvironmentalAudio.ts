@@ -144,9 +144,6 @@ export class EnvironmentalAudio implements AudioPort<AudioCue> {
   private wildlifeGain: GainNode | null = null;
   private settlementGain: GainNode | null = null;
   private windFilter: BiquadFilterNode | null = null;
-  private weatherFilter: BiquadFilterNode | null = null;
-  private wildlifeFilter: BiquadFilterNode | null = null;
-  private settlementFilter: BiquadFilterNode | null = null;
   private noiseBuffer: AudioBuffer | null = null;
   private levels: AudioLevels;
   private unlocked = false;
@@ -300,9 +297,6 @@ export class EnvironmentalAudio implements AudioPort<AudioCue> {
     this.wildlifeGain = null;
     this.settlementGain = null;
     this.windFilter = null;
-    this.weatherFilter = null;
-    this.wildlifeFilter = null;
-    this.settlementFilter = null;
     this.noiseBuffer = null;
     void context?.close().catch(() => undefined);
   }
@@ -367,9 +361,6 @@ export class EnvironmentalAudio implements AudioPort<AudioCue> {
     this.wildlifeGain = wildlifeGain;
     this.settlementGain = settlementGain;
     this.windFilter = windFilter;
-    this.weatherFilter = weatherFilter;
-    this.wildlifeFilter = wildlifeFilter;
-    this.settlementFilter = settlementFilter;
     this.noiseBuffer = buffer;
     this.setLevels(this.levels);
   }
