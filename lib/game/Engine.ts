@@ -158,6 +158,13 @@ import { WORLD_HALF_EXTENT, nearestSettlement, sampleClimate } from "./world/mac
 import { sampleTerrainHeight, worldToChunk } from "./world/terrain";
 import { isWorldWaterAt } from "./world/worldWater";
 import {
+  MAX_PLACED_ENTITIES,
+  evaluateDeploymentPlacement,
+  placementFootprintRadius,
+  placementOffsetDistance,
+  type PlacementRejection,
+} from "./gameplay/deploymentPlacement";
+import {
   AUTHORED_LANDMARK_NAVIGATION_SYSTEM_ID,
   AUTHORED_LANDMARK_WAYPOINTS,
 } from "./world/authoredLandmarks";
@@ -208,6 +215,23 @@ import {
   sessionPersists,
   type SessionMode,
 } from "./session/sessionPresets";
+
+const PLACEMENT_NOTICES: Readonly<
+  Record<PlacementRejection, { title: string; detail: string }>
+> = Object.freeze({
+  registry_full: {
+    title: "Deployment registry full",
+    detail: `The current field build supports up to ${MAX_PLACED_ENTITIES} persistent placements.`,
+  },
+  unclear_ground: {
+    title: "Clear ground required",
+    detail: "Face a dry, unobstructed patch of terrain and try again.",
+  },
+  no_serial: {
+    title: "Deployment registry unavailable",
+    detail: "No safe persistent identifier is available for this placement.",
+  },
+});
 
 const FIXED_STEP = 1 / 60;
 const MAX_FRAME_DELTA = 0.075;
@@ -1411,67 +1435,32 @@ export class Engine {
   }
 
   private placeInventoryItem(item: ItemId, archetypeId: PlacementArchetype) {
-    if (this.featureProgress.placedEntities.length >= 64) {
-      this.lastFeatureNotice = {
-        type: "placement",
-        title: "Deployment registry full",
-        detail: "The current field build supports up to 64 persistent placements.",
-      };
-      this.emitSnapshot(true);
-      return false;
-    }
-    const distance = archetypeId === "weather_shelter" ? 3.1 : 2.35;
+    const distance = placementOffsetDistance(archetypeId);
     const x = this.player.position.x - Math.sin(this.player.yaw) * distance;
     const z = this.player.position.z - Math.cos(this.player.yaw) * distance;
+    const radius = placementFootprintRadius(archetypeId);
     const y = this.world.sampleGroundHeight(x, z, this.player.position.y);
-    const radius = archetypeId === "weather_shelter" ? 1.5 : archetypeId === "bedroll" ? 0.95 : 0.55;
-    const supportHeights = [
-      this.world.sampleGroundHeight(x + radius, z, y),
-      this.world.sampleGroundHeight(x - radius, z, y),
-      this.world.sampleGroundHeight(x, z + radius, y),
-      this.world.sampleGroundHeight(x, z - radius, y),
-    ];
-    const overlap = this.featureProgress.placedEntities.some((record) => {
-      const existingRadius = record.archetypeId === "weather_shelter"
-        ? 1.5
-        : record.archetypeId === "bedroll"
-          ? 0.95
-          : 0.55;
-      return Math.abs(record.y - y) < 1.5 &&
-        Math.hypot(record.x - x, record.z - z) < existingRadius + radius + 0.25;
-    });
-    if (
-      !Number.isFinite(y) ||
-      !supportHeights.every(Number.isFinite) ||
-      isWorldWaterAt(x, z, radius) ||
-      Math.abs(y - this.player.position.y) > 1.1 ||
-      Math.max(...supportHeights) - Math.min(...supportHeights) > 0.65 ||
-      Math.abs(x) > WORLD_HALF_EXTENT ||
-      Math.abs(z) > WORLD_HALF_EXTENT ||
-      overlap ||
-      !this.world.canStandAt(x, z, y, radius)
-    ) {
-      this.lastFeatureNotice = {
-        type: "placement",
-        title: "Clear ground required",
-        detail: "Face a dry, unobstructed patch of terrain and try again.",
-      };
-      this.emitSnapshot(true);
-      return false;
-    }
     const serial = this.featureProgress.nextPlacedSerial;
-    if (
-      !Number.isSafeInteger(serial) ||
-      serial < 1 ||
-      serial > MAX_PLACED_SERIAL ||
-      this.featureProgress.placedEntities.some((record) =>
-        record.id === `placed:${archetypeId}:${serial}`)
-    ) {
-      this.lastFeatureNotice = {
-        type: "placement",
-        title: "Deployment registry unavailable",
-        detail: "No safe persistent identifier is available for this placement.",
-      };
+    const rejection = evaluateDeploymentPlacement({
+      archetypeId,
+      x,
+      z,
+      y,
+      supportHeights: [
+        this.world.sampleGroundHeight(x + radius, z, y),
+        this.world.sampleGroundHeight(x - radius, z, y),
+        this.world.sampleGroundHeight(x, z + radius, y),
+        this.world.sampleGroundHeight(x, z - radius, y),
+      ],
+      playerY: this.player.position.y,
+      overWater: isWorldWaterAt(x, z, radius),
+      standable: this.world.canStandAt(x, z, y, radius),
+      placed: this.featureProgress.placedEntities,
+      serial,
+      maxSerial: MAX_PLACED_SERIAL,
+    });
+    if (rejection) {
+      this.lastFeatureNotice = { type: "placement", ...PLACEMENT_NOTICES[rejection] };
       this.emitSnapshot(true);
       return false;
     }

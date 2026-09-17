@@ -70,6 +70,7 @@ export default defineConfig({
         "lib/game/citizens/citizenRecipes.ts",
         "lib/game/gameplay/items.ts",
         "lib/game/gameplay/contracts.ts",
+        "lib/game/gameplay/deploymentPlacement.ts",
         "lib/game/gameplay/contractEvidence.ts",
         "lib/game/gameplay/crafting.ts",
         "lib/game/gameplay/fieldGuide.ts",

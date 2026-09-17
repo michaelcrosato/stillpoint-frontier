@@ -63,6 +63,9 @@ const CAMP_VERTICAL_MINIMUM = -0.8;
 const CAMP_VERTICAL_MAXIMUM = 2.2;
 
 export const MAX_PLACED_SERIAL = 999_999;
+
+/** Persistent placements the current field build supports. */
+export const MAX_PLACED_ENTITIES = 64;
 const PLACED_ID = /^placed:(?:bedroll|campfire|survey_marker|weather_shelter|field_torch):[0-9]{1,6}$/;
 const ARCHETYPES = new Set<PlacementArchetype>([
   "bedroll",
@@ -296,7 +299,7 @@ export function normalizePlacedEntities(value: unknown) {
   const records: PlacedEntity[] = [];
   const ids = new Set<string>();
   for (const raw of value) {
-    if (records.length >= 64 || !raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    if (records.length >= MAX_PLACED_ENTITIES || !raw || typeof raw !== "object" || Array.isArray(raw)) continue;
     const source = raw as Partial<PlacedEntity>;
     const serialToken = typeof source.id === "string"
       ? source.id.split(":").at(-1) ?? ""
