@@ -644,7 +644,12 @@ export class Engine {
       this.applyGraphicsFeatures();
       this.environment.setHorizonMode(this.horizonMode);
     } catch (error) {
-      this.disposeSubsystems();
+      try {
+        this.disposeSubsystems();
+      } catch {
+        // Best-effort cleanup. A teardown failure must not replace the
+        // construction failure the shell is about to report.
+      }
       throw error;
     }
     if (!saved.player) {
