@@ -155,6 +155,24 @@ Worker build. The current review is in [DEPENDENCIES.md](docs/DEPENDENCIES.md).
 Prefer a targeted bump over `npm audit fix --force`, which has previously
 proposed a framework beta and a database-tool downgrade.
 
+## Preview deployments
+
+The repository is connected to Vercel, which builds every pull request. Vercel
+is a preview target only; the public game is served by the Cloudflare Worker
+through the Sites workflow below.
+
+`vercel.json` pins `framework: null` so Vercel does not auto-detect Next.js and
+look for a `.next` directory that `vinext build` never produces. The Vercel
+build runs `npm run build:vercel`, which is the normal build plus
+`scripts/prerender-static.mjs`. That script renders `/` through the built Worker
+and writes `dist/client/index.html`, so the output can be served as static
+files: the game is client-side and the shell carries its RSC payload inline.
+
+Do not add the prerender to `npm run build`. A Cloudflare Worker with an assets
+directory serves a matching static file before invoking the Worker, so an
+`index.html` in `dist/client` would shadow the live render and bypass the
+Worker response headers.
+
 ## Publishing
 
 Reuse the existing project ID in .openai/hosting.json. Build the exact source
