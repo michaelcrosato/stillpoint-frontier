@@ -556,65 +556,73 @@ export class Engine {
       this.settings.isometricAngle,
     );
 
-    this.renderPipeline = new RenderPipeline({
-      canvas: this.canvas,
-      preserveDrawingBuffer: this.testMode,
-      scene: this.scene,
-      camera: this.camera,
-      quality: this.quality,
-    });
-    this.renderer = this.renderPipeline.renderer;
-    this.materialLibrary = new WorldMaterialLibrary();
-    this.materialLibrary.setQuality(this.quality);
-    this.materialLibrary.setFeatures(this.graphicsFeatures);
+    // Construction allocates GPU resources and window listeners before the
+    // caller can hold a reference, so a throw here would strand them with no
+    // owner. Release whatever exists, then rethrow so the shell still reports.
+    try {
+      this.renderPipeline = new RenderPipeline({
+        canvas: this.canvas,
+        preserveDrawingBuffer: this.testMode,
+        scene: this.scene,
+        camera: this.camera,
+        quality: this.quality,
+      });
+      this.renderer = this.renderPipeline.renderer;
+      this.materialLibrary = new WorldMaterialLibrary();
+      this.materialLibrary.setQuality(this.quality);
+      this.materialLibrary.setFeatures(this.graphicsFeatures);
 
-    this.input = new InputManager(
-      this.canvas,
-      this.handlePointerLockChange,
-      this.settings.keyBindings,
-      // Deterministic browser sessions do not acquire pointer lock, so their
-      // keyboard checks need the same gameplay routing as captured play.
-      this.testMode,
-    );
-    this.world = new ChunkManager(
-      this.scene,
-      this.quality,
-      this.worldDiffs,
-      this.doorStates,
-      this.featureProgress.containerStates,
-      this.featureProgress.placedEntities,
-      this.materialLibrary,
-    );
-    this.forestStress = new ForestStressTest(
-      this.scene,
-      this.quality,
-      this.materialLibrary,
-    );
-    this.horizon = new HorizonRenderer(
-      this.scene,
-      this.horizonMode,
-      this.settings.worldDetail,
-    );
-    this.citizens = new CitizenEngine(this.scene, this.quality);
-    this.animals = new AnimalEngine(this.scene, this.quality, {
-      sampleHeight: sampleTerrainHeight,
-      queryColliders: (current, desired, radius, minY, maxY) =>
-        this.world.queryColliders(current, desired, radius, minY, maxY),
-    });
-    this.playerAvatar = new PlayerAvatar(this.scene, this.quality);
-    this.flashlight = new PlayerFlashlight(this.scene, this.quality);
-    this.audio = new EnvironmentalAudio(
-      audioLevelsFromSettings(this.settings),
-      this.testMode,
-    );
-    this.environment = createEnvironment(
-      this.scene,
-      this.renderer,
-      this.quality,
-      saved.worldMinutes,
-    );
-    this.applyGraphicsFeatures();
-    this.environment.setHorizonMode(this.horizonMode);
+      this.input = new InputManager(
+        this.canvas,
+        this.handlePointerLockChange,
+        this.settings.keyBindings,
+        // Deterministic browser sessions do not acquire pointer lock, so their
+        // keyboard checks need the same gameplay routing as captured play.
+        this.testMode,
+      );
+      this.world = new ChunkManager(
+        this.scene,
+        this.quality,
+        this.worldDiffs,
+        this.doorStates,
+        this.featureProgress.containerStates,
+        this.featureProgress.placedEntities,
+        this.materialLibrary,
+      );
+      this.forestStress = new ForestStressTest(
+        this.scene,
+        this.quality,
+        this.materialLibrary,
+      );
+      this.horizon = new HorizonRenderer(
+        this.scene,
+        this.horizonMode,
+        this.settings.worldDetail,
+      );
+      this.citizens = new CitizenEngine(this.scene, this.quality);
+      this.animals = new AnimalEngine(this.scene, this.quality, {
+        sampleHeight: sampleTerrainHeight,
+        queryColliders: (current, desired, radius, minY, maxY) =>
+          this.world.queryColliders(current, desired, radius, minY, maxY),
+      });
+      this.playerAvatar = new PlayerAvatar(this.scene, this.quality);
+      this.flashlight = new PlayerFlashlight(this.scene, this.quality);
+      this.audio = new EnvironmentalAudio(
+        audioLevelsFromSettings(this.settings),
+        this.testMode,
+      );
+      this.environment = createEnvironment(
+        this.scene,
+        this.renderer,
+        this.quality,
+        saved.worldMinutes,
+      );
+      this.applyGraphicsFeatures();
+      this.environment.setHorizonMode(this.horizonMode);
+    } catch (error) {
+      this.disposeSubsystems();
+      throw error;
+    }
     if (!saved.player) {
       this.player.position.y = sampleTerrainHeight(
         this.player.position.x,
@@ -2644,6 +2652,30 @@ export class Engine {
     return diagnostics;
   }
 
+  /**
+   * Releases every subsystem construction managed to create. These fields are
+   * declared non-optional because a constructor that returns always assigns
+   * them, but a constructor that throws leaves the later ones unassigned, so
+   * each teardown is guarded. `pipeline` and `navigation` are field
+   * initializers and always exist.
+   */
+  private disposeSubsystems() {
+    this.input?.dispose();
+    this.pipeline.dispose();
+    this.navigation.dispose();
+    this.citizens?.dispose();
+    this.animals?.dispose();
+    this.playerAvatar?.dispose();
+    this.flashlight?.dispose();
+    this.audio?.dispose();
+    this.forestStress?.dispose();
+    this.world?.dispose();
+    this.materialLibrary?.dispose();
+    this.horizon?.dispose();
+    this.environment?.dispose();
+    this.renderPipeline?.dispose();
+  }
+
   dispose() {
     if (this.disposed) return;
     if (this.started) this.persist();
@@ -2658,20 +2690,7 @@ export class Engine {
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     this.canvas.removeEventListener("webglcontextlost", this.handleContextLost);
     this.canvas.removeEventListener("webglcontextrestored", this.handleContextRestored);
-    this.input.dispose();
-    this.pipeline.dispose();
-    this.navigation.dispose();
-    this.citizens.dispose();
-    this.animals.dispose();
-    this.playerAvatar.dispose();
-    this.flashlight.dispose();
-    this.audio.dispose();
-    this.forestStress.dispose();
-    this.world.dispose();
-    this.materialLibrary.dispose();
-    this.horizon.dispose();
-    this.environment.dispose();
-    this.renderPipeline.dispose();
+    this.disposeSubsystems();
     if (window.__STILLPOINT_TEST__) delete window.__STILLPOINT_TEST__;
   }
 
