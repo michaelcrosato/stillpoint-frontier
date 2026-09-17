@@ -180,6 +180,13 @@ export class RenderPipeline {
       // has actually been rendering with. Setting it directly is identical and
       // keeps the warning out of every player console.
       this.renderer.shadowMap.type = THREE.PCFShadowMap;
+      // Any material with transmission > 0 makes Three re-render the opaque
+      // scene into a separate target (WebGLRenderer.renderTransmissionPass).
+      // That target defaults to full resolution. The only transmissive
+      // materials here are small window panes on three authored buildings, one
+      // of which is the spawn compound, so every session pays for it. Half
+      // resolution quarters the pass and is imperceptible through 4 cm glass.
+      this.renderer.transmissionResolutionScale = 0.5;
       // One presented frame can contain bloom, world, GTAO and fullscreen draws.
       // Keep Three from resetting counters for each internal renderer.render call.
       this.renderer.info.autoReset = false;
@@ -553,7 +560,9 @@ export class RenderPipeline {
     const shadowAutoUpdate = this.renderer.shadowMap.autoUpdate;
     try {
       this.options.scene.background = this.bloomBackground;
-      this.options.scene.traverse(this.darkenBloomOccluder);
+      // traverseVisible, not traverse: an invisible subtree is not drawn, so
+      // darkening it is wasted work on a per-frame full-graph walk.
+      this.options.scene.traverseVisible(this.darkenBloomOccluder);
       // Bloom precedes the beauty pass and does not own shadow freshness. The
       // subsequent main RenderPass remains the single shadow-map update.
       this.renderer.shadowMap.autoUpdate = false;
@@ -562,7 +571,7 @@ export class RenderPipeline {
         this.bloomPass.renderTargetsHorizontal[0].texture;
     } finally {
       this.renderer.shadowMap.autoUpdate = shadowAutoUpdate;
-      this.options.scene.traverse(this.restoreBloomMaterial);
+      this.restoreBloomOccluders();
       this.options.scene.background = background;
     }
   }
@@ -585,14 +594,20 @@ export class RenderPipeline {
     }
   };
 
-  private readonly restoreBloomMaterial = (object: THREE.Object3D) => {
-    if (object instanceof THREE.Mesh) {
-      const material = this.bloomMaterials.get(object);
-      if (material) {
-        object.material = material;
-        this.bloomMaterials.delete(object);
-      }
+  /**
+   * Restores exactly what the darken pass changed. Iterating the two
+   * collections avoids a second full scene walk every frame; the previous
+   * traversal visited every object in the graph to find the handful it had
+   * touched.
+   */
+  private restoreBloomOccluders() {
+    for (const [object, material] of this.bloomMaterials) {
+      object.material = material;
     }
-    if (this.bloomHidden.delete(object)) object.visible = true;
-  };
+    this.bloomMaterials.clear();
+    for (const object of this.bloomHidden) {
+      object.visible = true;
+    }
+    this.bloomHidden.clear();
+  }
 }
