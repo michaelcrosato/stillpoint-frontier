@@ -158,6 +158,13 @@ import { WORLD_HALF_EXTENT, nearestSettlement, sampleClimate } from "./world/mac
 import { sampleTerrainHeight, worldToChunk } from "./world/terrain";
 import { isWorldWaterAt } from "./world/worldWater";
 import {
+  MAX_PLACED_ENTITIES,
+  evaluateDeploymentPlacement,
+  placementFootprintRadius,
+  placementOffsetDistance,
+  type PlacementRejection,
+} from "./gameplay/deploymentPlacement";
+import {
   AUTHORED_LANDMARK_NAVIGATION_SYSTEM_ID,
   AUTHORED_LANDMARK_WAYPOINTS,
 } from "./world/authoredLandmarks";
@@ -208,6 +215,23 @@ import {
   sessionPersists,
   type SessionMode,
 } from "./session/sessionPresets";
+
+const PLACEMENT_NOTICES: Readonly<
+  Record<PlacementRejection, { title: string; detail: string }>
+> = Object.freeze({
+  registry_full: {
+    title: "Deployment registry full",
+    detail: `The current field build supports up to ${MAX_PLACED_ENTITIES} persistent placements.`,
+  },
+  unclear_ground: {
+    title: "Clear ground required",
+    detail: "Face a dry, unobstructed patch of terrain and try again.",
+  },
+  no_serial: {
+    title: "Deployment registry unavailable",
+    detail: "No safe persistent identifier is available for this placement.",
+  },
+});
 
 const FIXED_STEP = 1 / 60;
 const MAX_FRAME_DELTA = 0.075;
@@ -556,65 +580,78 @@ export class Engine {
       this.settings.isometricAngle,
     );
 
-    this.renderPipeline = new RenderPipeline({
-      canvas: this.canvas,
-      preserveDrawingBuffer: this.testMode,
-      scene: this.scene,
-      camera: this.camera,
-      quality: this.quality,
-    });
-    this.renderer = this.renderPipeline.renderer;
-    this.materialLibrary = new WorldMaterialLibrary();
-    this.materialLibrary.setQuality(this.quality);
-    this.materialLibrary.setFeatures(this.graphicsFeatures);
+    // Construction allocates GPU resources and window listeners before the
+    // caller can hold a reference, so a throw here would strand them with no
+    // owner. Release whatever exists, then rethrow so the shell still reports.
+    try {
+      this.renderPipeline = new RenderPipeline({
+        canvas: this.canvas,
+        preserveDrawingBuffer: this.testMode,
+        scene: this.scene,
+        camera: this.camera,
+        quality: this.quality,
+      });
+      this.renderer = this.renderPipeline.renderer;
+      this.materialLibrary = new WorldMaterialLibrary();
+      this.materialLibrary.setQuality(this.quality);
+      this.materialLibrary.setFeatures(this.graphicsFeatures);
 
-    this.input = new InputManager(
-      this.canvas,
-      this.handlePointerLockChange,
-      this.settings.keyBindings,
-      // Deterministic browser sessions do not acquire pointer lock, so their
-      // keyboard checks need the same gameplay routing as captured play.
-      this.testMode,
-    );
-    this.world = new ChunkManager(
-      this.scene,
-      this.quality,
-      this.worldDiffs,
-      this.doorStates,
-      this.featureProgress.containerStates,
-      this.featureProgress.placedEntities,
-      this.materialLibrary,
-    );
-    this.forestStress = new ForestStressTest(
-      this.scene,
-      this.quality,
-      this.materialLibrary,
-    );
-    this.horizon = new HorizonRenderer(
-      this.scene,
-      this.horizonMode,
-      this.settings.worldDetail,
-    );
-    this.citizens = new CitizenEngine(this.scene, this.quality);
-    this.animals = new AnimalEngine(this.scene, this.quality, {
-      sampleHeight: sampleTerrainHeight,
-      queryColliders: (current, desired, radius, minY, maxY) =>
-        this.world.queryColliders(current, desired, radius, minY, maxY),
-    });
-    this.playerAvatar = new PlayerAvatar(this.scene, this.quality);
-    this.flashlight = new PlayerFlashlight(this.scene, this.quality);
-    this.audio = new EnvironmentalAudio(
-      audioLevelsFromSettings(this.settings),
-      this.testMode,
-    );
-    this.environment = createEnvironment(
-      this.scene,
-      this.renderer,
-      this.quality,
-      saved.worldMinutes,
-    );
-    this.applyGraphicsFeatures();
-    this.environment.setHorizonMode(this.horizonMode);
+      this.input = new InputManager(
+        this.canvas,
+        this.handlePointerLockChange,
+        this.settings.keyBindings,
+        // Deterministic browser sessions do not acquire pointer lock, so their
+        // keyboard checks need the same gameplay routing as captured play.
+        this.testMode,
+      );
+      this.world = new ChunkManager(
+        this.scene,
+        this.quality,
+        this.worldDiffs,
+        this.doorStates,
+        this.featureProgress.containerStates,
+        this.featureProgress.placedEntities,
+        this.materialLibrary,
+      );
+      this.forestStress = new ForestStressTest(
+        this.scene,
+        this.quality,
+        this.materialLibrary,
+      );
+      this.horizon = new HorizonRenderer(
+        this.scene,
+        this.horizonMode,
+        this.settings.worldDetail,
+      );
+      this.citizens = new CitizenEngine(this.scene, this.quality);
+      this.animals = new AnimalEngine(this.scene, this.quality, {
+        sampleHeight: sampleTerrainHeight,
+        queryColliders: (current, desired, radius, minY, maxY) =>
+          this.world.queryColliders(current, desired, radius, minY, maxY),
+      });
+      this.playerAvatar = new PlayerAvatar(this.scene, this.quality);
+      this.flashlight = new PlayerFlashlight(this.scene, this.quality);
+      this.audio = new EnvironmentalAudio(
+        audioLevelsFromSettings(this.settings),
+        this.testMode,
+      );
+      this.environment = createEnvironment(
+        this.scene,
+        this.renderer,
+        this.quality,
+        saved.worldMinutes,
+      );
+      this.applyGraphicsFeatures();
+      this.environment.setHorizonMode(this.horizonMode);
+    } catch (error) {
+      try {
+        this.disposeSubsystems();
+      } catch {
+        // Best-effort cleanup. A teardown failure must not replace the
+        // construction failure the shell is about to report.
+      }
+      throw error;
+    }
     if (!saved.player) {
       this.player.position.y = sampleTerrainHeight(
         this.player.position.x,
@@ -1403,67 +1440,32 @@ export class Engine {
   }
 
   private placeInventoryItem(item: ItemId, archetypeId: PlacementArchetype) {
-    if (this.featureProgress.placedEntities.length >= 64) {
-      this.lastFeatureNotice = {
-        type: "placement",
-        title: "Deployment registry full",
-        detail: "The current field build supports up to 64 persistent placements.",
-      };
-      this.emitSnapshot(true);
-      return false;
-    }
-    const distance = archetypeId === "weather_shelter" ? 3.1 : 2.35;
+    const distance = placementOffsetDistance(archetypeId);
     const x = this.player.position.x - Math.sin(this.player.yaw) * distance;
     const z = this.player.position.z - Math.cos(this.player.yaw) * distance;
+    const radius = placementFootprintRadius(archetypeId);
     const y = this.world.sampleGroundHeight(x, z, this.player.position.y);
-    const radius = archetypeId === "weather_shelter" ? 1.5 : archetypeId === "bedroll" ? 0.95 : 0.55;
-    const supportHeights = [
-      this.world.sampleGroundHeight(x + radius, z, y),
-      this.world.sampleGroundHeight(x - radius, z, y),
-      this.world.sampleGroundHeight(x, z + radius, y),
-      this.world.sampleGroundHeight(x, z - radius, y),
-    ];
-    const overlap = this.featureProgress.placedEntities.some((record) => {
-      const existingRadius = record.archetypeId === "weather_shelter"
-        ? 1.5
-        : record.archetypeId === "bedroll"
-          ? 0.95
-          : 0.55;
-      return Math.abs(record.y - y) < 1.5 &&
-        Math.hypot(record.x - x, record.z - z) < existingRadius + radius + 0.25;
-    });
-    if (
-      !Number.isFinite(y) ||
-      !supportHeights.every(Number.isFinite) ||
-      isWorldWaterAt(x, z, radius) ||
-      Math.abs(y - this.player.position.y) > 1.1 ||
-      Math.max(...supportHeights) - Math.min(...supportHeights) > 0.65 ||
-      Math.abs(x) > WORLD_HALF_EXTENT ||
-      Math.abs(z) > WORLD_HALF_EXTENT ||
-      overlap ||
-      !this.world.canStandAt(x, z, y, radius)
-    ) {
-      this.lastFeatureNotice = {
-        type: "placement",
-        title: "Clear ground required",
-        detail: "Face a dry, unobstructed patch of terrain and try again.",
-      };
-      this.emitSnapshot(true);
-      return false;
-    }
     const serial = this.featureProgress.nextPlacedSerial;
-    if (
-      !Number.isSafeInteger(serial) ||
-      serial < 1 ||
-      serial > MAX_PLACED_SERIAL ||
-      this.featureProgress.placedEntities.some((record) =>
-        record.id === `placed:${archetypeId}:${serial}`)
-    ) {
-      this.lastFeatureNotice = {
-        type: "placement",
-        title: "Deployment registry unavailable",
-        detail: "No safe persistent identifier is available for this placement.",
-      };
+    const rejection = evaluateDeploymentPlacement({
+      archetypeId,
+      x,
+      z,
+      y,
+      supportHeights: [
+        this.world.sampleGroundHeight(x + radius, z, y),
+        this.world.sampleGroundHeight(x - radius, z, y),
+        this.world.sampleGroundHeight(x, z + radius, y),
+        this.world.sampleGroundHeight(x, z - radius, y),
+      ],
+      playerY: this.player.position.y,
+      overWater: isWorldWaterAt(x, z, radius),
+      standable: this.world.canStandAt(x, z, y, radius),
+      placed: this.featureProgress.placedEntities,
+      serial,
+      maxSerial: MAX_PLACED_SERIAL,
+    });
+    if (rejection) {
+      this.lastFeatureNotice = { type: "placement", ...PLACEMENT_NOTICES[rejection] };
       this.emitSnapshot(true);
       return false;
     }
@@ -2644,6 +2646,30 @@ export class Engine {
     return diagnostics;
   }
 
+  /**
+   * Releases every subsystem construction managed to create. These fields are
+   * declared non-optional because a constructor that returns always assigns
+   * them, but a constructor that throws leaves the later ones unassigned, so
+   * each teardown is guarded. `pipeline` and `navigation` are field
+   * initializers and always exist.
+   */
+  private disposeSubsystems() {
+    this.input?.dispose();
+    this.pipeline.dispose();
+    this.navigation.dispose();
+    this.citizens?.dispose();
+    this.animals?.dispose();
+    this.playerAvatar?.dispose();
+    this.flashlight?.dispose();
+    this.audio?.dispose();
+    this.forestStress?.dispose();
+    this.world?.dispose();
+    this.materialLibrary?.dispose();
+    this.horizon?.dispose();
+    this.environment?.dispose();
+    this.renderPipeline?.dispose();
+  }
+
   dispose() {
     if (this.disposed) return;
     if (this.started) this.persist();
@@ -2658,20 +2684,7 @@ export class Engine {
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     this.canvas.removeEventListener("webglcontextlost", this.handleContextLost);
     this.canvas.removeEventListener("webglcontextrestored", this.handleContextRestored);
-    this.input.dispose();
-    this.pipeline.dispose();
-    this.navigation.dispose();
-    this.citizens.dispose();
-    this.animals.dispose();
-    this.playerAvatar.dispose();
-    this.flashlight.dispose();
-    this.audio.dispose();
-    this.forestStress.dispose();
-    this.world.dispose();
-    this.materialLibrary.dispose();
-    this.horizon.dispose();
-    this.environment.dispose();
-    this.renderPipeline.dispose();
+    this.disposeSubsystems();
     if (window.__STILLPOINT_TEST__) delete window.__STILLPOINT_TEST__;
   }
 

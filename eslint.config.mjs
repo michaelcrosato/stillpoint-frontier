@@ -7,10 +7,11 @@ const eslintConfig = defineConfig([
   ...nextTs,
   // Override default ignores of eslint-config-next.
   globalIgnores([
-    // Default ignores of eslint-config-next:
+    // Default ignores of eslint-config-next. "build/**" is omitted: that
+    // pattern assumes build/ is output, but here it holds build/sites-vite-plugin.ts,
+    // which is real source that runs in the build pipeline.
     ".next/**",
     "out/**",
-    "build/**",
     "next-env.d.ts",
   ]),
 ]);

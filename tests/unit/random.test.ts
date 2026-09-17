@@ -16,7 +16,9 @@ describe("seeded random", () => {
   });
 
   it("hashes text to stable unsigned values", () => {
-    expect(hashString("STILL-0317")).toBe(hashString("STILL-0317"));
+    // Golden value. Comparing the call to itself cannot fail, and this hash is the
+    // FNV-1a root of every seeded world recipe: changing it regenerates the world.
+    expect(hashString("STILL-0317")).toBe(261_792_633);
     expect(hashString("STILL-0317")).toBeGreaterThanOrEqual(0);
     expect(hashString("STILL-0317")).toBeLessThanOrEqual(0xffffffff);
   });

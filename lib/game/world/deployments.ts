@@ -9,6 +9,7 @@ import type { RestSiteDefinition } from "../gameplay/resting";
 import type { PlanarCollider } from "../systems/collision";
 import type { WorldTarget } from "./targets";
 import { WORLD_HALF_EXTENT } from "./macroWorld";
+import { MAX_PLACED_ENTITIES } from "../gameplay/deploymentPlacement";
 import { isSupportedWorldHeight } from "./heightBounds";
 
 export type PlacementArchetype =
@@ -296,7 +297,7 @@ export function normalizePlacedEntities(value: unknown) {
   const records: PlacedEntity[] = [];
   const ids = new Set<string>();
   for (const raw of value) {
-    if (records.length >= 64 || !raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    if (records.length >= MAX_PLACED_ENTITIES || !raw || typeof raw !== "object" || Array.isArray(raw)) continue;
     const source = raw as Partial<PlacedEntity>;
     const serialToken = typeof source.id === "string"
       ? source.id.split(":").at(-1) ?? ""

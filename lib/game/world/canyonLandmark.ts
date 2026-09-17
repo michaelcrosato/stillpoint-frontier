@@ -124,12 +124,6 @@ export function canyonEllipticalDistance(x: number, z: number) {
   );
 }
 
-export function canyonFootprintInfluence(x: number, z: number) {
-  const distance = canyonEllipticalDistance(x, z);
-  if (distance >= 1) return 0;
-  return smootherstep(1 - distance);
-}
-
 function canyonLongitudinalInfluence(longitudinal: number) {
   const normalized = Math.abs(longitudinal) / CANYON_LANDMARK.halfLength;
   if (normalized >= 1) return 0;

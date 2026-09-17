@@ -102,8 +102,15 @@ export class EnvironmentMapRuntime {
     if (this.disposed || this.enabled === enabled) return;
     this.enabled = enabled;
     this.signature = null;
-    if (!enabled && this.scene.environment === this.target?.texture) {
-      this.scene.environment = null;
+    if (!enabled) {
+      // present() early-returns while disabled, so nothing would replace or
+      // release this target before dispose(). Free it now; re-enabling clears
+      // the signature above and recaptures.
+      if (this.scene.environment === this.target?.texture) {
+        this.scene.environment = null;
+      }
+      this.target?.dispose();
+      this.target = null;
     }
     this.applyQuality();
   }

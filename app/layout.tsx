@@ -12,7 +12,7 @@ export const metadata: Metadata = {
     type: "website",
     images: [
       {
-        url: "/og.png",
+        url: "/og.jpg",
         width: 1731,
         height: 909,
         alt: "Stillpoint Frontier relay tower in the Red Basin",
@@ -23,7 +23,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Stillpoint Frontier",
     description: "Cross the Greywater. Read the land. Shape the frontier.",
-    images: ["/og.png"],
+    images: ["/og.jpg"],
   },
   icons: {
     icon: "/favicon.svg",

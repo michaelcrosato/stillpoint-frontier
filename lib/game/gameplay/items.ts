@@ -106,8 +106,6 @@ export const ITEM_DEFINITIONS = {
 export type ItemId = keyof typeof ITEM_DEFINITIONS;
 export type InventoryState = Record<ItemId, number>;
 
-export const BASE_MATERIAL_ITEMS = ["stone", "wood", "fiber", "ore", "relic"] as const;
-
 export function createEmptyInventory(): InventoryState {
   return Object.fromEntries(
     (Object.keys(ITEM_DEFINITIONS) as ItemId[]).map((item) => [item, 0]),

@@ -10,6 +10,7 @@ A Three.js open-world game on React and Vinext. The world is a deterministic
 - [Architecture and system contracts](docs/ARCHITECTURE.md)
 - [Testing and hardware QA](docs/TESTING.md)
 - [Latest audit, fixes, and known limits](docs/AUDIT.md)
+- [Most recent remediation pass](docs/audits/2026-09-16-remediation.md)
 - [Dependency security review](docs/DEPENDENCIES.md)
 - [Contributor and Codex guide](AGENTS.md)
 
@@ -109,13 +110,25 @@ use the same validated height range, from −1,000 to 5,000 m.
 | lib/game/gameplay/ | Pure inventory, contracts, loot, crafting, rest |
 | lib/game/persistence/ and session/ | Versioned saves, preferences, launch policy |
 | lib/game/navigation/ and cartography/ | Waypoints, compass, map viewport |
+| lib/game/npcs/, citizens/, animals/ | Authored and ambient population |
+| lib/game/audio/ and equipment/ | Environmental audio, player gear |
+| lib/game/ui/ | Modal keyboard boundaries |
+| lib/game/developer/ | Developer sandbox, benchmark, stress tests |
+| worker/ | Cloudflare Worker entry point that serves the game |
+| build/ | Vite plugin that packages Sites metadata into dist/ |
+| public/ | Favicon, social preview image, static art |
+| db/, drizzle/, examples/d1/ | Optional D1 scaffolding, unused by the game |
 | tests/unit/ | Deterministic logic and non-browser integration tests |
 | tests/e2e/ | Browser and hardware-facing scenarios |
 | scripts/ | Bounded Linux install, environment, and build helpers |
 
-Optional Sites auth and D1 scaffolding remains in app/chatgpt-auth.ts, db/,
-examples/d1/, and worker/. The public game does not require sign-in or a database.
-Do not treat browser-local state as server-authoritative data.
+worker/index.ts is live: vite.config.ts names it as the Worker entry and the
+build emits it to dist/server. Optional Sites auth and D1 scaffolding remains in
+app/chatgpt-auth.ts, db/, and examples/d1/; none of it is wired into the game,
+which requires neither sign-in nor a database. app/chatgpt-auth.ts derives
+identity from proxy-supplied headers, so it is only safe behind a gateway that
+strips client copies of those headers. Do not treat browser-local state as
+server-authoritative data.
 
 ## Release checks
 
@@ -134,11 +147,13 @@ construction. For a constrained machine, use
 `npm test` runs unit tests, the production build, and the rendered Worker HTML
 contract. Browser checks are separate. See [Testing](docs/TESTING.md).
 
-For a dependency review, run `npm audit` and inspect the affected dependency
-paths. Development packages can still supply code to the Worker build. The
-current review and unresolved findings are in [DEPENDENCIES.md](docs/DEPENDENCIES.md).
-Do not apply `npm audit fix --force`: its proposed changes include a framework
-beta and a database-tool downgrade.
+`npm run audit:ci` fails on any high or critical advisory and runs in CI ahead
+of the static gates. For a manual review run `npm audit` and inspect the
+affected dependency paths; development packages can still supply code to the
+Worker build. The current review is in [DEPENDENCIES.md](docs/DEPENDENCIES.md).
+
+Prefer a targeted bump over `npm audit fix --force`, which has previously
+proposed a framework beta and a database-tool downgrade.
 
 ## Publishing
 

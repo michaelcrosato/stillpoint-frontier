@@ -17,6 +17,7 @@
   },
   "scripts": {
     "install:ci": "bash scripts/install-ci.sh",
+    "audit:ci": "bash scripts/sites-env.sh -- npm audit --audit-level=high --audit=true",
     "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vite",
     "build": "bash scripts/build-verified.sh",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
@@ -40,11 +41,11 @@
     "next": "16.3.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "three": "^0.185.1"
+    "three": "0.185.1"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "1.54.0",
-    "@cloudflare/workers-types": "5.20260826.1",
+    "@cloudflare/vite-plugin": "1.54.11",
+    "@cloudflare/workers-types": "5.20260917.1",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
@@ -56,7 +57,7 @@
     "@vitest/coverage-v8": "^4.1.11",
     "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
-    "eslint-config-next": "16.2.11",
+    "eslint-config-next": "16.3.4",
     "fast-check": "^4.9.0",
     "react-server-dom-webpack": "19.2.8",
     "tailwindcss": "4.2.1",
@@ -64,15 +65,11 @@
     "vinext": "1.0.0-beta.8",
     "vite": "8.0.16",
     "vitest": "^4.1.11",
-    "wrangler": "4.126.0"
+    "wrangler": "4.133.0"
   },
   "type": "module",
   "displayName": "Stillpoint Frontier",
   "overrides": {
-    "next": {
-      "postcss": "8.5.23",
-      "sharp": "0.35.2"
-    },
     "@esbuild-kit/core-utils": {
       "esbuild": "0.25.12"
     }

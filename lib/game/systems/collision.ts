@@ -863,6 +863,3 @@ export function isPlanarPositionClear(
     (collider) => penetrationAgainstCollider(position, collider, radius) === null,
   );
 }
-
-/** @deprecated Use resolvePlanarMovement; retained for feature-module compatibility. */
-export const resolveCircleMovement = resolvePlanarMovement;

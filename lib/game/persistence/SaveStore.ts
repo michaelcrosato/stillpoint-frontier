@@ -42,7 +42,7 @@ export interface StorageAdapter {
 }
 
 export interface FrontierSave {
-  version: 8;
+  version: typeof CURRENT_SAVE_VERSION;
   scanned: BeaconId[];
   inventory: InventoryState;
   worldDiffs: Record<string, EntityDiff>;
@@ -86,7 +86,7 @@ export interface SavedPlayerState {
 
 export function createEmptyFrontierSave(): FrontierSave {
   return {
-    version: 8,
+    version: CURRENT_SAVE_VERSION,
     scanned: [],
     inventory: { ...EMPTY_INVENTORY },
     worldDiffs: {},
@@ -260,7 +260,7 @@ export class SaveStore {
       }
       if (version < 2 || version > CURRENT_SAVE_VERSION) return createEmptyFrontierSave();
       return {
-        version: 8,
+        version: CURRENT_SAVE_VERSION,
         scanned: normalizeScanned(parsed.scanned),
         inventory: normalizeInventory(parsed.inventory),
         worldDiffs: normalizeWorldDiffs(parsed.worldDiffs),
@@ -303,7 +303,7 @@ export class SaveStore {
         }
       }
       const payload: FrontierSave = {
-        version: 8,
+        version: CURRENT_SAVE_VERSION,
         scanned: normalizeScanned(input.scanned),
         inventory: normalizeInventory(input.inventory),
         worldDiffs: normalizeWorldDiffs(input.worldDiffs),
