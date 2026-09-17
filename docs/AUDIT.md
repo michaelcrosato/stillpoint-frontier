@@ -3,6 +3,9 @@
 > A later pass on 2026-09-16 covered dependency security, the merge pipeline,
 > subsystem lifetimes, test integrity and documentation accuracy. See the
 > [2026-09-16 remediation report](audits/2026-09-16-remediation.md).
+>
+> A rendering-engine pass on 2026-09-17 measured the render path on real
+> hardware. See the [rendering engine audit](audits/2026-09-17-rendering-engine.md).
 
 ## Scope and evidence
 

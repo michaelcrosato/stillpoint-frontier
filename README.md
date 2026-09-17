@@ -11,6 +11,7 @@ A Three.js open-world game on React and Vinext. The world is a deterministic
 - [Testing and hardware QA](docs/TESTING.md)
 - [Latest audit, fixes, and known limits](docs/AUDIT.md)
 - [Most recent remediation pass](docs/audits/2026-09-16-remediation.md)
+- [Rendering engine audit](docs/audits/2026-09-17-rendering-engine.md)
 - [Dependency security review](docs/DEPENDENCIES.md)
 - [Contributor and Codex guide](AGENTS.md)
 
