@@ -39,8 +39,10 @@ camera behavior remain intact.
 ## Verification
 
 Strict TypeScript, ESLint, all 491 unit tests in 95 files, the production build,
-and the rendered Worker HTML contract pass. Enforced coverage is 94.63%
-statements, 86.74% branches, 96.16% functions, and 96.65% lines.
+and the rendered Worker HTML contract pass. The enforced thresholds are 88%
+statements, 82% branches, 88% functions and 88% lines, over the include list in
+vitest.config.ts rather than the whole repository. Measured coverage of that list
+exceeds each threshold; see docs/TESTING.md for the scope caveat.
 Coverage percentages apply only to the explicit include list in vitest.config.ts.
 The new wildlife and PMREM tests exercise Three objects without WebGL. They do
 not establish GPU performance, driver behavior, or correct pixels on hardware.

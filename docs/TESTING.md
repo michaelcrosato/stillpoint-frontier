@@ -12,7 +12,12 @@ construction tests without raising timeouts. On constrained machines, append
 For a source-only release check, run typecheck, lint, test:coverage, build, then
 test:rendered. The last command tests the built Worker response, not a browser.
 Coverage gates apply to the explicit include list in vitest.config.ts, not the
-entire repository. Browser/GPU lifecycles still need separate acceptance.
+entire repository. That list covers roughly half of the source lines under app/,
+lib/ and components/; Engine.ts, ChunkManager.ts, HorizonRenderer.ts and every
+React component sit outside it, so the reported percentages describe the included
+slice and not the codebase. Thresholds are aggregate, not per file, so an
+individual included file can sit well below the bar. Browser/GPU lifecycles still
+need separate acceptance.
 
 - `npm run typecheck` — strict TypeScript across the site, worker, game, and tests.
 - `npm run lint` — ESLint across source and tests.
@@ -22,13 +27,27 @@ entire repository. Browser/GPU lifecycles still need separate acceptance.
 - `npm run test:e2e` — browser boot, WebGL pixel, split world/citizen streaming, movement,
   gathering, persistence, interaction, representative world-collision probes, map waypoint guidance, temporary fast travel,
   day/night controls, proportional citizens, resource budgets, and context-loss tests.
-- `npm run test:visual` — captures deterministic entry/world screenshots as Playwright artifacts.
-- `npm run test:visual:update` — writes or reviews golden snapshots when
-  `VISUAL_BASELINES=1` is set in a pinned browser environment.
-- `npm run test:ci` — complete CI gate.
+- `npm run test:visual` — captures deterministic entry/world screenshots as Playwright
+  artifacts. It does not compare them: without `VISUAL_BASELINES=1` each screenshot is
+  only asserted to be non-blank.
+- `npm run test:visual:compare` — compares against committed baselines. Sets
+  `VISUAL_BASELINES=1` itself.
+- `npm run test:visual:update` — rewrites the baselines. Sets `VISUAL_BASELINES=1`
+  itself; run it only in a pinned browser environment.
+- `npm run test:ci:static` — lint, typecheck, coverage, build, rendered contract. This
+  is what the CI quality gate runs, after `npm run audit:ci`.
+- `npm run test:ci` — `test:ci:static` plus the browser suites. CI runs the browser
+  suites as a separate sharded job rather than through this script.
+- `npm run audit:ci` — fails on any high or critical dependency advisory.
+
+No baselines are committed, so `visual-chromium` runs in no CI job today. Generating the
+first set captures whatever build produces them; review those images before committing.
 
 Install the Playwright browser once in a new environment with
-`npx playwright install --with-deps chromium`. Keep browser version, OS image, viewport,
+`npm run test:browser:install -- --with-deps`. Use that script rather than a bare
+`npx playwright install`: every test script runs through `scripts/sites-env.sh`, which
+repoints `HOME` at `.sites-runtime/home`, so Playwright resolves browsers from a
+project-local cache that a bare install does not populate. Keep browser version, OS image, viewport,
 DPR, locale, timezone, seed, and quality profile pinned before accepting golden images.
 
 ## Deterministic browser mode
@@ -163,8 +182,10 @@ reset while paused without requiring a browser audio device.
 
 Horizon tests enforce monotonic finite profiles, the invariant 81-chunk detailed ring,
 continuous concentric LOD definitions, atlas-edge clamping, deterministic settlement
-silhouettes, frustum/shadow policy, no gameplay fields on proxies, and fixed budgets below
-60,000 far-terrain triangles and 200 proxy instances. Crownspire coverage additionally locks
+silhouettes, frustum/shadow policy, no gameplay fields on proxies, and the per-detail-level
+far-terrain triangle budget from `WORLD_DETAIL_PRESETS` — below 60,000 at the lowest
+level, 120,000 at the default and a hard 300,000 at Maximum — alongside 200 proxy
+instances. Crownspire coverage additionally locks
 its sub-256-triangle camera-relative silhouette, near-range handoff, weather attenuation,
 and disposal. Browser coverage cycles and persists
 all three profiles while checking that gameplay and citizen residency never changes.

@@ -1,60 +1,70 @@
 # Dependency security review
 
-Reviewed on 2026-09-05 UTC using the complete package lock and `npm audit --json`.
-The original lock reported 23 affected packages: 17 high, five moderate, and one
-low. The revised lock reports 15: 11 high and four moderate. Neither scan reported
-critical findings. Package totals include dependency chains and are not counts
-of distinct vulnerabilities. The remaining audit exit code is 1.
+Reviewed on 2026-09-16 UTC against the committed lockfile with `npm audit`.
+`npm audit` reports **0 vulnerabilities**. The previous review (2026-09-05) left
+eight advisories outstanding; every one is now resolved by a supported version
+change rather than a forced repair.
+
+`npm run audit:ci` runs this check in CI ahead of the static gates and fails on
+any high or critical advisory. Package totals below count dependency chains, not
+distinct vulnerabilities.
 
 ## Applied fixes
 
-React, React DOM, and react-server-dom-webpack move together from 19.2.6 to
-19.2.8. The installed Vinext and RSC plugin accept these versions. The RSC patch
-addresses a crafted-request denial of service; declaring the package as a
-development dependency does not exclude it from the Worker bundle. See the
-[React security advisory](https://github.com/react/react/security/advisories/GHSA-wx67-qw84-cm4g).
+| Package | Previous | Resolved | Why |
+| --- | --- | --- | --- |
+| next | 16.2.11 | 16.3.4 | Two critical advisories: [GHSA-p293-qw3h-jr36](https://github.com/advisories/GHSA-p293-qw3h-jr36) and [GHSA-2xp9-vwfh-vxw4](https://github.com/advisories/GHSA-2xp9-vwfh-vxw4). Patched in 16.3.3. |
+| @cloudflare/vite-plugin | 1.54.0 | 1.54.11 | Pulls miniflare 5.20260916.0-alpha and wrangler 4.133.0, which resolve sharp to a patched build. |
+| @cloudflare/workers-types | 5.20260826.1 | 5.20260917.1 | wrangler 4.133.0 declares `peerOptional @cloudflare/workers-types ^5.20260916.1`; the install fails with ERESOLVE without this. |
+| wrangler | 4.126.0 | 4.133.0 | Above the `4.16.0 - 4.130.0` advisory range and matched to the plugin. |
+| sharp (indirect) | 0.35.2 | 0.35.4 | [GHSA-rgj7-g3m4-5g8c](https://github.com/advisories/GHSA-rgj7-g3m4-5g8c), libheif. |
+| browserslist (indirect) | 4.28.2 | 4.29.0 | Two high advisories, patched in 4.28.7. |
+| baseline-browser-mapping (indirect) | 2.10.30 | 2.11.24 | Patched in 2.11.0. |
+| fflate (indirect) | 0.7.4 | 0.7.5 | Reached under `@shuding/opentype.js`'s own `^0.7.3` range, so no override was needed. |
+| three | `^0.185.1` | `0.185.1` | Not a security change. The production engine was the only runtime dependency on a floating range. |
 
-The following indirect packages were updated inside the existing dependency
-ranges. Related Babel helpers and browser data also move where needed by those
-packages. No package override or forced audit repair is used.
+`sharp` could not be lifted by removing the override alone: `miniflare` pinned it
+to exactly 0.35.2, so the fix had to come from the Cloudflare toolchain. The
+exact changes are in package-lock.json, which is generated on Linux to match CI.
 
-| Package | Previous version | Resolved version |
-| --- | --- | --- |
-| @babel/core | 7.29.0 | 7.29.7 |
-| brace-expansion | 1.1.14 / 5.0.6 | 1.1.18 / 5.0.9 |
-| browserslist | 4.28.2 | 4.28.9 |
-| fast-uri | 3.1.2 | 3.1.7 |
-| fflate | 0.7.4 | 0.7.5 |
-| js-yaml | 4.1.1 | 4.3.2 |
-| nanoid | 3.3.12 | 3.3.18 |
+## Overrides in use
 
-The exact changes are in package-lock.json. Fresh locked installation, strict
-types, lint, coverage, the Worker build, and rendered HTML are release gates for
-this update. These checks do not demonstrate absence of exploitable defects.
+The previous revision of this document stated that no override was used. That was
+incorrect. One override is load-bearing:
 
-## Remaining findings
+| Override | Reason |
+| --- | --- |
+| `@esbuild-kit/core-utils` → `esbuild` `0.25.12` | `@esbuild-kit/core-utils@3.3.2` declares `esbuild ~0.18.20`. The package is deprecated upstream (merged into tsx) and arrives through drizzle-kit. Removing the override reintroduces esbuild 0.18.x. |
 
-| Affected packages | Count and severity | Exposure review and next step |
-| --- | --- | --- |
-| @cloudflare/vite-plugin, miniflare, wrangler, undici, ws | Five high | The local development/emulation toolchain brings HTTP and WebSocket dependencies. Upgrade the Cloudflare toolchain together, then validate Worker build, local serving, and deployment compatibility. |
-| sharp | One high | Native image handling is reached through Next and the local emulator. Check its parent constraints during the toolchain update; do not force a native-library override. |
-| next, postcss | Two high | Next is installed for framework compatibility; Vinext serves this game. Review each advisory against the generated Worker and update supported parent versions. The app currently has no Server Actions, image upload route, or authored rewrites. This is a reachability review, not an exploit test. |
-| vite | One high | The advisory targets the Windows development server. The documented setup uses Linux/WSL, and production runs a built Worker. Apply a compatible Vite fix with the framework/toolchain upgrade; keep development servers private. |
-| vinext, image-size | Two high | Vinext pulls image-size 2.0.2. The reviewed use reads local metadata images; no user image upload route is present. The linked image-size advisory lists no patched version. Review a supported Vinext change that removes or replaces the affected path. |
-| drizzle-kit, @esbuild-kit/core-utils, @esbuild-kit/esm-loader, esbuild | Four moderate | These belong to optional database/migration tooling. No D1 binding or active game database is configured. Replace the legacy loader through a supported Drizzle update, or remove the optional scaffolding in a deliberate cleanup. |
+Two overrides were removed. `next` 16.3.4 declares `sharp ^0.35.4` and
+`postcss 8.5.23` itself, so the `next` override block pinned `sharp` *below* both
+Next's own floor and the libheif fix while duplicating Next's postcss pin. That
+pin is also why the automated `sharp` security update failed.
 
-Some Next advisories need specific features. For example, its
-[Server Action denial-of-service advisory](https://github.com/vercel/next.js/security/advisories/GHSA-m99w-x7hq-7vfj)
-requires at least one Server Action. That condition was not found in application
-source. This does not dismiss other Next findings or the separately patched React
-decoder. The [image-size advisory](https://github.com/advisories/GHSA-w3rx-r6r6-pgpr)
-describes a malformed ICNS image causing a non-terminating loop.
+## Reachability notes
 
-Do not run `npm audit fix --force` as a release step. In this scan, npm proposes
-Vinext 1.0.0-beta.9 and a Drizzle downgrade to 0.18.1. Those are platform changes,
-not verified repairs for this project. Several other findings need newer pinned
-parent packages. Keep them visible until an explicit compatibility update passes
-the relevant source, local runtime, and hardware checks.
+These remain true and are worth carrying forward, because a resolved advisory
+count is not the same as an exposure assessment.
+
+- **Production runs a built Cloudflare Worker**, a Linux V8 isolate. Advisories
+  that require a Windows-hosted Next server do not describe the deployed target.
+- **The image-optimization route has been removed** from `worker/index.ts`.
+  Nothing imports `next/image` and no `IMAGES` binding was ever declared, so the
+  route could only dereference an undefined binding. Both Next criticals above
+  concern image optimization.
+- **`sharp`, `browserslist`, `baseline-browser-mapping` and `fflate` are
+  build- and development-time only.** None appears in the built Worker bundle.
+  Development packages *can* still supply code to that bundle, so category alone
+  is never sufficient — this was checked against `dist/`.
+- **No D1 binding or active game database is configured** (`.openai/hosting.json`
+  has `"d1": null`), so the drizzle-kit migration toolchain is not on any runtime
+  path.
+- **`image-size` is not installed.** A previous revision of this document
+  recorded findings against it; it appears nowhere in the lockfile.
+
+Prefer a targeted bump over `npm audit fix --force`, which has previously proposed
+a framework beta and a database-tool downgrade. Those are platform changes, not
+verified repairs for this project.
 
 ## Repeat the review
 
