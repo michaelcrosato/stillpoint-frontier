@@ -38,6 +38,7 @@ response headers.
 | Lint scope | `eslint.config.mjs` inherited `build/**` from eslint-config-next, where `build/` is output. Here it holds `build/sites-vite-plugin.ts`, real source that runs in the build pipeline and was never linted. | No longer ignored. The file was already clean. |
 | Payload | `og.png` was 1.90 MB — 4.5 times the entire gzipped application bundle, and the whole of `public/`. | Re-encoded at the same 1731 x 909 as JPEG q88: 186 KB, a 90% reduction at 0.9% RMSE. |
 | Dead code | Seven exports had exactly one reference repo-wide, their own declaration. `EnvironmentalAudio` kept three filter-node references that were assigned and nulled but never read. | Removed. The filter nodes stay in the audio graph; only the dead fields go. |
+| Coverage scope | The enforced gate measured 51.0% of the source lines under `app/`, `lib/` and `components/`, reported as if it described the codebase. `ChunkManager.ts` was excluded although `chunk-residency.test.ts` exercises it in the node environment. | Eight modules added to the include list, taking the gate to 64.1% with all four thresholds still met: 93.28% statements, 84.55% branches, 93.51% functions, 95.16% lines. |
 | Documentation | README called `worker/` optional scaffolding when it is the Worker entry point, and its map omitted eight directories. TESTING.md documented a Playwright install that populates the wrong cache under `sites-env.sh`, misdescribed the CI gate and the visual scripts, and stated a fixed 60,000-triangle horizon budget where the test asserts the per-detail-level budget. AUDIT.md reported measured coverage as enforced. DEPENDENCIES.md claimed resolved versions that were never installed, carried findings against `image-size` which is absent from the lockfile, and stated that no override was used while `package.json` carried three. | All corrected; DEPENDENCIES.md rewritten against the current lockfile. |
 
 ## Findings investigated and dismissed
@@ -76,12 +77,13 @@ specific advisory or unblocks one that does.
 
 ## Known limits
 
-- **The coverage gate still measures roughly half the source.** The
-  `vitest.config.ts` include list omits `Engine.ts`, `ChunkManager.ts`,
-  `HorizonRenderer.ts` and every React component. `ChunkManager` is demonstrably
-  unit-testable in the node environment, so its exclusion is not explained by the
-  WebGL rationale in the config comment. Thresholds remain aggregate, so an
-  included file can sit well below the bar; seventeen currently do on branches.
+- **The coverage gate measures about two thirds of the source.** Eight modules
+  joined the include list in this pass, taking it from 51.0% to 64.1% of the
+  source lines under `app/`, `lib/` and `components/` with every threshold still
+  green. `Engine.ts`, `HorizonRenderer.ts`, `RenderPipeline.ts` and every React
+  component remain outside it. Thresholds are aggregate rather than per file, so
+  an included file can sit well below the bar, and `world/targets.ts` now sits in
+  the gate at 0%.
 - **There is no visual regression gate.** No baselines are committed and
   `visual-chromium` runs in no CI job. Without `VISUAL_BASELINES=1` the four
   `@visual` tests assert only that a screenshot is non-blank.

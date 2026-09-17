@@ -12,7 +12,20 @@ export default defineConfig({
       // Browser-owned renderer/PMREM lifecycles require a real WebGL2 context
       // and live in Playwright; their pure policies and non-GPU collaborators
       // remain part of this enforced unit-coverage gate.
+      //
+      // This list is still narrower than the source tree. Anything added here
+      // must keep the aggregate thresholds below green, and the thresholds are
+      // aggregate rather than per file, so an individual entry can sit well
+      // under the bar. docs/TESTING.md records that caveat.
       include: [
+        "lib/game/world/ChunkManager.ts",
+        "lib/game/environment.ts",
+        "lib/game/world/canyonLandmark.ts",
+        "lib/game/world/mountainLandmark.ts",
+        "lib/game/animals/groundMotion.ts",
+        "lib/game/config.ts",
+        "lib/game/world/targets.ts",
+        "lib/game/core/events.ts",
         "lib/game/core/random.ts",
         "lib/game/core/SystemPipeline.ts",
         "lib/game/core/FeatureRegistry.ts",
