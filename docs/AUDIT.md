@@ -1,5 +1,9 @@
 # Repository audit — 2026-09-05 UTC
 
+> A later pass on 2026-09-16 covered dependency security, the merge pipeline,
+> subsystem lifetimes, test integrity and documentation accuracy. See the
+> [2026-09-16 remediation report](audits/2026-09-16-remediation.md).
+
 ## Scope and evidence
 
 This review starts from public version 44, commit
