@@ -1,5 +1,4 @@
 import type { PlacedEntity, PlacementArchetype } from "../world/deployments";
-import { MAX_PLACED_ENTITIES } from "../world/deployments";
 import { isSupportedWorldHeight } from "../world/heightBounds";
 import { WORLD_HALF_EXTENT } from "../world/macroWorld";
 
@@ -29,7 +28,8 @@ export const PLACEMENT_OFFSET_DISTANCE: Readonly<Record<PlacementArchetype, numb
     field_torch: 2.35,
   });
 
-export { MAX_PLACED_ENTITIES };
+/** Persistent placements the current field build supports. */
+export const MAX_PLACED_ENTITIES = 64;
 
 const MAX_SUPPORT_SPREAD = 0.65;
 const MAX_STEP_FROM_PLAYER = 1.1;

@@ -9,6 +9,7 @@ import type { RestSiteDefinition } from "../gameplay/resting";
 import type { PlanarCollider } from "../systems/collision";
 import type { WorldTarget } from "./targets";
 import { WORLD_HALF_EXTENT } from "./macroWorld";
+import { MAX_PLACED_ENTITIES } from "../gameplay/deploymentPlacement";
 import { isSupportedWorldHeight } from "./heightBounds";
 
 export type PlacementArchetype =
@@ -63,9 +64,6 @@ const CAMP_VERTICAL_MINIMUM = -0.8;
 const CAMP_VERTICAL_MAXIMUM = 2.2;
 
 export const MAX_PLACED_SERIAL = 999_999;
-
-/** Persistent placements the current field build supports. */
-export const MAX_PLACED_ENTITIES = 64;
 const PLACED_ID = /^placed:(?:bedroll|campfire|survey_marker|weather_shelter|field_torch):[0-9]{1,6}$/;
 const ARCHETYPES = new Set<PlacementArchetype>([
   "bedroll",

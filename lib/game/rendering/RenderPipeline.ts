@@ -156,81 +156,94 @@ export class RenderPipeline {
     const reversedDepthSupported = Boolean(
       webglContext?.getExtension("EXT_clip_control"),
     );
-    this.renderer = new THREE.WebGLRenderer({
-      canvas: options.canvas,
-      context: webglContext ?? undefined,
-      antialias: true,
-      alpha: false,
-      powerPreference: "high-performance",
-      stencil: false,
-      preserveDrawingBuffer: options.preserveDrawingBuffer ?? false,
-      reversedDepthBuffer: reversedDepthSupported,
-      logarithmicDepthBuffer: !reversedDepthSupported,
-    });
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.12;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    // One presented frame can contain bloom, world, GTAO and fullscreen draws.
-    // Keep Three from resetting counters for each internal renderer.render call.
-    this.renderer.info.autoReset = false;
-    this.graphicsCapabilities = new GraphicsCapabilities(this.renderer.getContext());
-    this.gpuFrameTimer = new GpuFrameTimer(
-      this.renderer.getContext() as WebGL2RenderingContext,
-    );
+    // The renderer, both composers and their render targets are live GPU
+    // resources the moment they are constructed. A throw in any later
+    // allocation would strand them where the caller cannot reach them, because
+    // the field this pipeline is being assigned to is still undefined.
+    try {
+      this.renderer = new THREE.WebGLRenderer({
+        canvas: options.canvas,
+        context: webglContext ?? undefined,
+        antialias: true,
+        alpha: false,
+        powerPreference: "high-performance",
+        stencil: false,
+        preserveDrawingBuffer: options.preserveDrawingBuffer ?? false,
+        reversedDepthBuffer: reversedDepthSupported,
+        logarithmicDepthBuffer: !reversedDepthSupported,
+      });
+      this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+      this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      this.renderer.toneMappingExposure = 1.12;
+      this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      // One presented frame can contain bloom, world, GTAO and fullscreen draws.
+      // Keep Three from resetting counters for each internal renderer.render call.
+      this.renderer.info.autoReset = false;
+      this.graphicsCapabilities = new GraphicsCapabilities(this.renderer.getContext());
+      this.gpuFrameTimer = new GpuFrameTimer(
+        this.renderer.getContext() as WebGL2RenderingContext,
+      );
 
-    this.composer = new EffectComposer(
-      this.renderer,
-      this.createComposerTarget(options.quality),
-    );
-    this.renderPass = new RenderPass(options.scene, options.camera);
-    this.bloomComposer = new EffectComposer(
-      this.renderer,
-      this.createBloomTarget(),
-    );
-    this.bloomComposer.renderToScreen = false;
-    this.bloomRenderPass = new RenderPass(options.scene, options.camera);
-    this.gtaoPass = new ShortRangeGtaoPass(options.scene, options.camera, 64);
-    this.gtaoPass.updateGtaoMaterial({
-      radius: 1.2,
-      distanceExponent: 1.6,
-      thickness: 0.8,
-      distanceFallOff: 1,
-      scale: 1.1,
-      samples: 12,
-      screenSpaceRadius: false,
-    });
-    this.gtaoPass.updatePdMaterial({
-      lumaPhi: 10,
-      depthPhi: 2,
-      normalPhi: 3,
-      radius: 6,
-      radiusExponent: 2,
-      rings: 2,
-      samples: 8,
-    });
-    this.gtaoPass.blendIntensity = 0.7;
-    this.bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0, 0, 1);
-    this.bloomCompositePass = new ShaderPass(BloomCompositeShader);
-    this.gradePass = new ShaderPass(FieldGradeShader);
-    this.outputPass = new OutputPass();
-    this.bloomComposer.addPass(this.bloomRenderPass);
-    this.bloomComposer.addPass(this.bloomPass);
-    this.composer.addPass(this.renderPass);
-    this.composer.addPass(this.gtaoPass);
-    this.composer.addPass(this.bloomCompositePass);
-    this.composer.addPass(this.gradePass);
-    this.composer.addPass(this.outputPass);
+      this.composer = new EffectComposer(
+        this.renderer,
+        this.createComposerTarget(options.quality),
+      );
+      this.renderPass = new RenderPass(options.scene, options.camera);
+      this.bloomComposer = new EffectComposer(
+        this.renderer,
+        this.createBloomTarget(),
+      );
+      this.bloomComposer.renderToScreen = false;
+      this.bloomRenderPass = new RenderPass(options.scene, options.camera);
+      this.gtaoPass = new ShortRangeGtaoPass(options.scene, options.camera, 64);
+      this.gtaoPass.updateGtaoMaterial({
+        radius: 1.2,
+        distanceExponent: 1.6,
+        thickness: 0.8,
+        distanceFallOff: 1,
+        scale: 1.1,
+        samples: 12,
+        screenSpaceRadius: false,
+      });
+      this.gtaoPass.updatePdMaterial({
+        lumaPhi: 10,
+        depthPhi: 2,
+        normalPhi: 3,
+        radius: 6,
+        radiusExponent: 2,
+        rings: 2,
+        samples: 8,
+      });
+      this.gtaoPass.blendIntensity = 0.7;
+      this.bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0, 0, 1);
+      this.bloomCompositePass = new ShaderPass(BloomCompositeShader);
+      this.gradePass = new ShaderPass(FieldGradeShader);
+      this.outputPass = new OutputPass();
+      this.bloomComposer.addPass(this.bloomRenderPass);
+      this.bloomComposer.addPass(this.bloomPass);
+      this.composer.addPass(this.renderPass);
+      this.composer.addPass(this.gtaoPass);
+      this.composer.addPass(this.bloomCompositePass);
+      this.composer.addPass(this.gradePass);
+      this.composer.addPass(this.outputPass);
 
-    // GTAO understands reversed depth, but not the logarithmic fallback used
-    // on devices without EXT_clip_control.
-    this.gtaoCompatible = !this.renderer.capabilities.logarithmicDepthBuffer;
-    this.environmentMap = new EnvironmentMapRuntime(
-      this.renderer,
-      options.scene,
-      options.quality,
-    );
-    this.configure(options.quality);
+      // GTAO understands reversed depth, but not the logarithmic fallback used
+      // on devices without EXT_clip_control.
+      this.gtaoCompatible = !this.renderer.capabilities.logarithmicDepthBuffer;
+      this.environmentMap = new EnvironmentMapRuntime(
+        this.renderer,
+        options.scene,
+        options.quality,
+      );
+      this.configure(options.quality);
+    } catch (error) {
+      try {
+        this.disposeOwned();
+      } catch {
+        // Best-effort cleanup must not replace the construction failure.
+      }
+      throw error;
+    }
   }
 
   async compile() {
@@ -426,22 +439,32 @@ export class RenderPipeline {
     };
   }
 
+  /**
+   * Releases everything construction managed to allocate. These fields are
+   * declared non-optional because a constructor that returns always assigns
+   * them, but a constructor that throws leaves the later ones unassigned, so
+   * each teardown is guarded.
+   */
+  private disposeOwned() {
+    this.gpuFrameTimer?.dispose();
+    this.environmentMap?.dispose();
+    this.renderPass?.dispose();
+    this.gtaoPass?.dispose();
+    this.bloomRenderPass?.dispose();
+    this.bloomPass?.dispose();
+    this.bloomCompositePass?.dispose();
+    this.gradePass?.dispose();
+    this.outputPass?.dispose();
+    this.composer?.dispose();
+    this.bloomComposer?.dispose();
+    this.bloomOccluderMaterial?.dispose();
+    this.renderer?.dispose();
+  }
+
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
-    this.gpuFrameTimer.dispose();
-    this.environmentMap.dispose();
-    this.renderPass.dispose();
-    this.gtaoPass.dispose();
-    this.bloomRenderPass.dispose();
-    this.bloomPass.dispose();
-    this.bloomCompositePass.dispose();
-    this.gradePass.dispose();
-    this.outputPass.dispose();
-    this.composer.dispose();
-    this.bloomComposer.dispose();
-    this.bloomOccluderMaterial.dispose();
-    this.renderer.dispose();
+    this.disposeOwned();
   }
 
   private configure(quality: QualityLevel) {
