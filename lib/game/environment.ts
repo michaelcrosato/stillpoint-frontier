@@ -339,6 +339,11 @@ export function createEnvironment(
   sun.shadow.camera.right = 88;
   sun.shadow.camera.top = 88;
   sun.shadow.camera.bottom = -88;
+  // three 0.185 removed PCFSoftShadowMap, so shadow.radius is the only
+  // remaining softness control for the 5-tap Vogel PCF kernel. The flashlight
+  // already sets 2; the sun was left at the default 1, which is the hardest
+  // setting available.
+  sun.shadow.radius = 2.5;
   const sunTarget = new THREE.Object3D();
   scene.add(sun, sunTarget);
   sun.target = sunTarget;

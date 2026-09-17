@@ -524,7 +524,6 @@ export class HorizonRenderer {
   private readonly settlementGeometry = new THREE.BoxGeometry(1, 1, 1);
   private readonly settlementMaterial = new THREE.MeshLambertMaterial({
     color: 0xffffff,
-    vertexColors: true,
     fog: true,
   });
   private readonly settlementLightMaterial = new THREE.PointsMaterial({
@@ -541,7 +540,6 @@ export class HorizonRenderer {
   });
   private readonly sceneryMaterial = new THREE.MeshLambertMaterial({
     color: 0xffffff,
-    vertexColors: true,
     fog: true,
   });
   private readonly sceneryTrunkGeometry = new THREE.CylinderGeometry(0.18, 0.26, 1, 5);

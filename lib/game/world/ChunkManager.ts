@@ -1207,7 +1207,6 @@ export class ChunkManager {
           color: 0xffffff,
           roughness: 0.78,
           metalness: settlement.tier === "megacity" ? 0.22 : 0.08,
-          vertexColors: true,
         }),
         {
           role: "building",
@@ -1237,7 +1236,6 @@ export class ChunkManager {
       const windowGeometry = new THREE.PlaneGeometry(1, 1);
       const windowMaterial = new THREE.MeshBasicMaterial({
         color: 0xffffff,
-        vertexColors: true,
         transparent: true,
         opacity: 0,
         depthWrite: false,
@@ -1511,7 +1509,6 @@ export class ChunkManager {
           color: 0xffffff,
           roughness: 1,
           flatShading: true,
-          vertexColors: true,
         }),
         {
           role: "rock",
