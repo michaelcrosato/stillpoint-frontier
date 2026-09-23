@@ -6,10 +6,16 @@ import {
 } from "../../lib/game/equipment/PlayerFlashlight";
 
 describe("player phone flashlight", () => {
+  it("requires the renderer's depth convention", () => {
+    // @ts-expect-error Omitting it would silently pick the standard-depth bias sign.
+    const flashlight = new PlayerFlashlight(new THREE.Scene(), "cinematic");
+    flashlight.dispose();
+  });
+
   it("tracks the camera, toggles two bounded beams, and scales shadows by quality", () => {
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera();
-    const flashlight = new PlayerFlashlight(scene, "cinematic");
+    const flashlight = new PlayerFlashlight(scene, "cinematic", false);
     const root = scene.getObjectByName("player-phone-light");
     const core = scene.getObjectByName("player-phone-light:core");
     const spill = scene.getObjectByName("player-phone-light:spill");
