@@ -4,6 +4,7 @@ import type { CameraRigDiagnostics } from "../../lib/game/camera/CameraRig";
 import { PlayerAvatar } from "../../lib/game/camera/PlayerAvatar";
 import { PLAYER_RADIUS } from "../../lib/game/config";
 import { ForestStressTest } from "../../lib/game/developer/ForestStressTest";
+import { Engine } from "../../lib/game/Engine";
 import { createEnvironment } from "../../lib/game/environment";
 import { ShadowUpdatePolicy } from "../../lib/game/rendering/ShadowUpdatePolicy";
 import { WorldMaterialLibrary } from "../../lib/game/rendering/WorldMaterialLibrary";
@@ -183,5 +184,27 @@ describe("shadow invalidation sources", () => {
     expect(markDirty).toHaveBeenCalledWith("forest");
     forest.dispose();
     materials.dispose();
+  });
+});
+
+describe("shadow after a WebGL context restore", () => {
+  it("renders the sun shadow again, since the restored context lost the map", () => {
+    const shadowUpdates = new ShadowUpdatePolicy();
+    const still = new THREE.Vector3(4, 0, -2);
+    const sun = new THREE.Vector3(0.3, 0.9, 0.2).normalize();
+    expect(shadowUpdates.shouldRender(still, sun)).toBe(true);
+    expect(shadowUpdates.shouldRender(still, sun)).toBe(false);
+    const engine = Object.create(Engine.prototype) as unknown as { onContextRestored(): void };
+    Object.assign(engine, {
+      shadowUpdates,
+      scene: new THREE.Scene(),
+      renderPipeline: { handleContextRestored: vi.fn(), presentEnvironment: vi.fn() },
+      environment: { getVisualState: () => ({}) },
+      materialLibrary: { setEnvironment: vi.fn() },
+      emitSnapshot: vi.fn(),
+    });
+    engine.onContextRestored();
+    expect(shadowUpdates.shouldRender(still, sun)).toBe(true);
+    expect(shadowUpdates.diagnostics.lastReason).toBe("context");
   });
 });

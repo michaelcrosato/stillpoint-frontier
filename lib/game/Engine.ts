@@ -3282,7 +3282,9 @@ export class Engine {
     this.emitSnapshot(true);
   };
 
-  private handleContextRestored = () => {
+  private handleContextRestored = () => this.onContextRestored();
+
+  private onContextRestored() {
     this.contextStatus = "ready";
     this.renderPipeline.handleContextRestored();
     this.renderPipeline.presentEnvironment(this.environment.getVisualState());
@@ -3291,8 +3293,10 @@ export class Engine {
       this.scene.environmentIntensity,
       this.scene.environmentRotation,
     );
+    // The lost context took the cached sun shadow map with it.
+    this.shadowUpdates.markDirty("context");
     this.emitSnapshot(true);
-  };
+  }
 
   private installTestBridge() {
     window.__STILLPOINT_TEST__ = {
