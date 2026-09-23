@@ -6,6 +6,9 @@
 >
 > A rendering-engine pass on 2026-09-17 measured the render path on real
 > hardware. See the [rendering engine audit](audits/2026-09-17-rendering-engine.md).
+>
+> A follow-up on 2026-09-22 fixed or ruled on every open finding from both
+> passes. See the [follow-up record](audits/2026-09-22-audit-followups.md).
 
 ## Scope and evidence
 
@@ -67,6 +70,8 @@ See [DEPENDENCIES.md](DEPENDENCIES.md) for paths, source links, and follow-up wo
 - One browser-local survey slot has no cloud sync or cross-tab conflict handling.
   Save version 8 reads versions 1–8 and protects newer-version data. Save caps are
   10,000 resource changes, 256 doors, 128 discoveries, 512 containers, and 64 placements.
+  The first three live in persistence/SaveStore.ts, the container cap in
+  gameplay/loot.ts, and the placement cap in gameplay/deploymentPlacement.ts.
 - Camera collision uses terrain, authored supports, and height-aware prisms.
   It is not a full capsule solver. Vegetation shadows remain static.
 - Chunk construction is synchronous. Measure 20× travel before changing its
@@ -74,8 +79,8 @@ See [DEPENDENCIES.md](DEPENDENCIES.md) for paths, source links, and follow-up wo
 - The build warns about the game bundle size: about 1.10 MB minified, or 290 KB
   with local gzip compression. It includes the Three runtime and game. Profile
   network and startup work before deciding whether a new loading boundary helps.
-- Mid-factory allocation failure is not fully exception-safe. The PMREM change
-  restores renderer state but cannot reclaim an output target that Three allocates
+- A chunk builder that throws now leaves nothing behind (2026-09-22). The PMREM
+  change restores renderer state but cannot reclaim an output target that Three allocates
   internally and never returns after a failed capture. Repeated distinct failed
   captures and WebGL context loss need hardware resource checks.
 - Extract session/persistence orchestration from Engine when expanding save slots

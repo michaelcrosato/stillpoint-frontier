@@ -122,10 +122,15 @@ then restore them through normal mixing.
 Performance regressions count material writes during 81-root registration and bound
 registered chunk residency throughout successful far travel. Chunk tests also inject
 failure before construction and verify same-center retry and fresh gameplay caches.
-They do not prove exception-safe mid-factory allocation or automatic Engine recovery.
+Failures injected inside a chunk builder and after registration leave no chunk
+behind: the partial tree is disposed, its shared-asset lease released, and the next
+update retries it. They do not prove automatic Engine recovery.
 These are work-count/resource invariants, not hardware FPS assertions.
-The version-42 follow-up adds a dry-canyon save round trip at −640.57 m. It
+The version-43 fix added a dry-canyon save round trip at −640.57 m. It
 preserves both player state and camp placement and rejects invalid heights.
+Terrain height goldens pin nine literal world positions to half a millimetre,
+including dry canyon floor at −640.56 m at (37,100, −13,485), because saves
+store literal positions.
 Engine tests keep horizon changes and Reset Settings out of the survey save
 path, before and after launch. Crafting tests cover all six recipes at the
 output limit and with exactly enough room. Rendered component markup tests
