@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import {
   SHADOW_DIRECTION_THRESHOLD_RADIANS,
+  SHADOW_MOVEMENT_TOLERANCE_METERS,
   SHADOW_SAFETY_REFRESH_EVALUATIONS,
   ShadowUpdatePolicy,
 } from "../../lib/game/rendering/ShadowUpdatePolicy";
@@ -29,10 +30,24 @@ describe("sun shadow update policy", () => {
     expect(rendered().shouldRender(anchor.clone(), direction.clone())).toBe(false);
   });
 
-  it("renders when the shadow anchor moves", () => {
+  it("renders when the player has moved beyond the tolerance", () => {
     const policy = rendered();
-    expect(policy.shouldRender(anchor.clone().setX(12.1), direction)).toBe(true);
-    expect(policy.shouldRender(anchor.clone().setX(12.1), direction)).toBe(false);
+    const moved = anchor.clone().setX(anchor.x + SHADOW_MOVEMENT_TOLERANCE_METERS * 1.5);
+    expect(policy.shouldRender(moved, direction)).toBe(true);
+    expect(policy.shouldRender(moved.clone(), direction)).toBe(false);
+  });
+
+  it("ignores movement within the tolerance", () => {
+    const moved = anchor.clone().setZ(anchor.z + SHADOW_MOVEMENT_TOLERANCE_METERS * 0.4);
+    expect(rendered().shouldRender(moved, direction)).toBe(false);
+  });
+
+  it("measures movement from the last rendered position, so a slow walk still updates", () => {
+    const policy = rendered();
+    const step = SHADOW_MOVEMENT_TOLERANCE_METERS * 0.4;
+    expect(policy.shouldRender(anchor.clone().setX(anchor.x + step), direction)).toBe(false);
+    expect(policy.shouldRender(anchor.clone().setX(anchor.x + step * 2), direction)).toBe(false);
+    expect(policy.shouldRender(anchor.clone().setX(anchor.x + step * 3), direction)).toBe(true);
   });
 
   it("ignores a light turn below the threshold", () => {

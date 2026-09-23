@@ -649,7 +649,7 @@ export function createEnvironment(
     sunTarget.position.copy(shadowAnchor);
     // Only ever set the flag: three clears it after rendering, and a render
     // requested elsewhere (a new map after a quality change) must survive.
-    if (sun.castShadow && shadowUpdates.shouldRender(shadowAnchor, shadowLightOffset)) {
+    if (sun.castShadow && shadowUpdates.shouldRender(position, shadowLightOffset)) {
       sun.shadow.needsUpdate = true;
     }
     if (useSun) {

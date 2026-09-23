@@ -52,6 +52,32 @@ describe("cached sun shadow", () => {
     environment.dispose();
   });
 
+  it("holds the cache while the sun turns slowly, far from the world origin", () => {
+    // The stabilised anchor is snapped in the light's own basis, so a turning
+    // sun sweeps it around the world origin by about angle x distance. That
+    // sweep must not count as player movement.
+    const environment = createEnvironment(new THREE.Scene(), stubRenderer(), "cinematic");
+    environment.setDeveloperMode(true);
+    environment.setDeveloperClockPaused(true);
+    environment.setDeveloperMinuteOfDay(10 * 60);
+    const position = new THREE.Vector3(2_400, 30, -1_800);
+    environment.sync(position, true);
+    environment.present(position, 0);
+    let renders = 0;
+    for (let frame = 0; frame < 60; frame += 1) {
+      environment.sun.shadow.needsUpdate = false;
+      environment.advanceDeveloperMinutes(1 / 60); // one real second per game minute
+      environment.sync(position, true);
+      environment.present(position, 0);
+      if (environment.sun.shadow.needsUpdate) renders += 1;
+    }
+    // 60 frames turn the sun about 0.0044 rad: several threshold crossings,
+    // far fewer than one render per frame.
+    expect(renders).toBeGreaterThanOrEqual(4);
+    expect(renders).toBeLessThanOrEqual(12);
+    environment.dispose();
+  });
+
   it("keeps a pending render requested elsewhere until three performs it", () => {
     const policy = new ShadowUpdatePolicy();
     const environment = createEnvironment(new THREE.Scene(), stubRenderer(), "cinematic", undefined, policy);

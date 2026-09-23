@@ -14,6 +14,14 @@ export const NO_SHADOW_INVALIDATOR: ShadowInvalidator = { markDirty: () => undef
  */
 export const SHADOW_DIRECTION_THRESHOLD_RADIANS = 0.0005;
 
+/**
+ * The 176 m shadow box is re-rendered at a texel-snapped anchor, so between
+ * renders it only has to follow the player for coverage at its edge. Measured
+ * on the player, not the snapped anchor: that anchor is snapped in the light's
+ * own basis and sweeps around the world origin as the sun turns.
+ */
+export const SHADOW_MOVEMENT_TOLERANCE_METERS = 1;
+
 /** Bounds the staleness of any change that was not reported. */
 export const SHADOW_SAFETY_REFRESH_EVALUATIONS = 30;
 
@@ -25,12 +33,14 @@ export interface ShadowUpdateDiagnostics {
 
 /**
  * Decides, once per presented frame, whether the sun's shadow map must be
- * re-rendered. The map depends on the shadow camera (anchor and light
- * direction) and on the casters inside it; casters report changes through
- * markDirty. Everything else reuses the previous map.
+ * re-rendered. The map depends on the shadow camera (which follows the player
+ * and the light direction) and on the casters inside it; casters report
+ * changes through markDirty. Everything else reuses the previous map, which
+ * stays consistent because three updates the shadow matrix only when it
+ * renders the map.
  */
 export class ShadowUpdatePolicy implements ShadowInvalidator {
-  private readonly renderedAnchor = new THREE.Vector3();
+  private readonly renderedPosition = new THREE.Vector3();
   private readonly renderedDirection = new THREE.Vector3();
   private dirty = true;
   private idleEvaluations = 0;
@@ -44,15 +54,16 @@ export class ShadowUpdatePolicy implements ShadowInvalidator {
   }
 
   shouldRender(
-    anchor: Readonly<THREE.Vector3>,
+    playerPosition: Readonly<THREE.Vector3>,
     lightDirection: Readonly<THREE.Vector3>,
   ) {
     this.idleEvaluations += 1;
     const render =
       this.dirty ||
-      !anchor.equals(this.renderedAnchor) ||
-      // Measured from the last rendered direction, so a slowly moving sun
-      // still crosses the threshold.
+      // Both are measured from the last render, so a slow walk or a slowly
+      // moving sun still crosses its threshold.
+      playerPosition.distanceToSquared(this.renderedPosition) >
+        SHADOW_MOVEMENT_TOLERANCE_METERS ** 2 ||
       lightDirection.angleTo(this.renderedDirection) > SHADOW_DIRECTION_THRESHOLD_RADIANS ||
       this.idleEvaluations >= SHADOW_SAFETY_REFRESH_EVALUATIONS;
     if (!render) {
@@ -61,7 +72,7 @@ export class ShadowUpdatePolicy implements ShadowInvalidator {
     }
     this.dirty = false;
     this.idleEvaluations = 0;
-    this.renderedAnchor.copy(anchor);
+    this.renderedPosition.copy(playerPosition);
     this.renderedDirection.copy(lightDirection);
     this.renders += 1;
     return true;
