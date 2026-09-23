@@ -234,9 +234,14 @@ float stillpointPlaneDetail(vec2 point, float frequency) {
   return clamp(0.5 + broad * 0.23 + crossing * 0.18 + grain * 0.09, 0.0, 1.0);
 }
 
-float stillpointSurfaceDetail(vec3 worldPosition, float frequency) {
-  vec3 dx = dFdx(worldPosition);
-  vec3 dy = dFdy(worldPosition);
+// dx and dy come from the caller: this runs inside a per-fragment branch,
+// where derivatives are undefined.
+float stillpointSurfaceDetail(
+  vec3 worldPosition,
+  float frequency,
+  vec3 dx,
+  vec3 dy
+) {
   vec3 geometricNormal = abs(normalize(cross(dx, dy)));
   geometricNormal = max(pow(geometricNormal, vec3(4.0)), vec3(0.0001));
   geometricNormal /= geometricNormal.x + geometricNormal.y + geometricNormal.z;
@@ -258,6 +263,12 @@ float stillpointCloudField(vec2 point) {
 
 const SURFACE_DETAIL_COLOR = /* glsl */ `
 vec3 stillpointViewWorld = (vec4(-vViewPosition, 0.0) * viewMatrix).xyz;
+// Every derivative is taken here, before the distance-guarded branches below:
+// inside control flow that differs across a 2x2 quad they are undefined. The
+// wrapped camera offset is uniform, so these are also the derivatives of
+// stillpointDetailPosition.
+vec3 stillpointPositionDx = dFdx(stillpointViewWorld);
+vec3 stillpointPositionDy = dFdy(stillpointViewWorld);
 float stillpointDetailDistance = length(stillpointViewWorld);
 vec3 stillpointWrappedCamera =
   mod(mod(cameraPosition, 256.0) + 256.0, 256.0);
@@ -267,8 +278,8 @@ float stillpointDetailAmount = 0.0;
 float stillpointCenteredDetail = 0.0;
 float stillpointWetPoolAmount = 0.0;
 float stillpointFootprint = max(
-  length(dFdx(stillpointViewWorld)),
-  length(dFdy(stillpointViewWorld))
+  length(stillpointPositionDx),
+  length(stillpointPositionDy)
 ) * uStillpointDetailFrequency / 256.0;
 if (
   uStillpointDetailEnabled > 0.0001 &&
@@ -276,7 +287,9 @@ if (
 ) {
   stillpointDetailValue = stillpointSurfaceDetail(
     stillpointDetailPosition,
-    uStillpointDetailFrequency
+    uStillpointDetailFrequency,
+    stillpointPositionDx,
+    stillpointPositionDy
   );
   float stillpointDistanceFade = 1.0 - smoothstep(
     uStillpointDetailFade.x,
@@ -329,9 +342,7 @@ if (
   uStillpointSurfaceWetness > 0.015 &&
   stillpointDetailDistance < 210.0
 ) {
-  vec3 stillpointPoolDx = dFdx(stillpointDetailPosition);
-  vec3 stillpointPoolDy = dFdy(stillpointDetailPosition);
-  vec3 stillpointPoolNormal = cross(stillpointPoolDx, stillpointPoolDy);
+  vec3 stillpointPoolNormal = cross(stillpointPositionDx, stillpointPositionDy);
   float stillpointPoolNormalLength = max(length(stillpointPoolNormal), 0.0001);
   float stillpointUpFacing = abs(stillpointPoolNormal.y / stillpointPoolNormalLength);
   float stillpointPoolField = stillpointPlaneDetail(
@@ -366,8 +377,8 @@ roughnessFactor = mix(
 `;
 
 const SURFACE_DETAIL_NORMAL = /* glsl */ `
-vec3 stillpointDpdx = mat3(viewMatrix) * dFdx(stillpointDetailPosition);
-vec3 stillpointDpdy = mat3(viewMatrix) * dFdy(stillpointDetailPosition);
+vec3 stillpointDpdx = mat3(viewMatrix) * stillpointPositionDx;
+vec3 stillpointDpdy = mat3(viewMatrix) * stillpointPositionDy;
 float stillpointDhdx = dFdx(stillpointDetailValue);
 float stillpointDhdy = dFdy(stillpointDetailValue);
 if (

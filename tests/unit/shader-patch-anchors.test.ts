@@ -37,7 +37,58 @@ function patchRealShader(install: (material: THREE.MeshStandardMaterial) => unkn
   return { shader, before, material };
 }
 
+function balanced(source: string, openIndex: number, open: string, close: string) {
+  let depth = 0;
+  for (let index = openIndex; index < source.length; index += 1) {
+    if (source[index] === open) depth += 1;
+    else if (source[index] === close && --depth === 0) return source.slice(openIndex, index + 1);
+  }
+  throw new Error(`unbalanced ${open}${close} at ${openIndex}`);
+}
+
+/** Bodies of the `if` blocks whose condition names a patch identifier. */
+function stillpointBranchBodies(source: string) {
+  const bodies: string[] = [];
+  for (const match of source.matchAll(/\bif\s*\(/g)) {
+    const conditionStart = (match.index ?? 0) + match[0].length - 1;
+    const condition = balanced(source, conditionStart, "(", ")");
+    if (!/stillpoint/i.test(condition)) continue;
+    const bodyStart = source.indexOf("{", conditionStart + condition.length);
+    bodies.push(balanced(source, bodyStart, "{", "}"));
+  }
+  return bodies;
+}
+
+/** Bodies of the functions the patch defines. */
+function stillpointFunctionBodies(source: string) {
+  return [...source.matchAll(/\b(?:float|vec[234]|void)\s+stillpoint\w*\s*\([^)]*\)\s*\{/g)]
+    .map((match) => balanced(source, (match.index ?? 0) + match[0].length - 1, "{", "}"));
+}
+
 describe("shader hooks patch the shader source Three actually ships", () => {
+  // Derivatives are undefined inside control flow that differs between the
+  // fragments of a 2x2 quad, which every distance guard here does.
+  it("keeps every surface-detail derivative in uniform control flow", () => {
+    const { shader } = patchRealShader((material) =>
+      installProceduralSurfaceDetail(material, {
+        frequency: 0.25,
+        colorStrength: 0.5,
+        roughnessStrength: 0.5,
+        normalStrength: 0.5,
+        fadeStart: 40,
+        fadeEnd: 210,
+      }),
+    );
+    const derivative = /\b(?:dFdx|dFdy|fwidth)\s*\(/;
+    const branches = stillpointBranchBodies(shader.fragmentShader);
+    expect(branches.length).toBeGreaterThanOrEqual(4);
+    for (const body of branches) expect(body).not.toMatch(derivative);
+    // The branches call these, so they may not differentiate either.
+    const functions = stillpointFunctionBodies(shader.fragmentShader);
+    expect(functions.length).toBeGreaterThanOrEqual(3);
+    for (const body of functions) expect(body).not.toMatch(derivative);
+  });
+
   // The real regression guard. String.replace no-ops on a missed anchor, so a
   // Three upgrade that renames a ShaderChunk breaks the hooks silently - and
   // partially, leaving SURFACE_DETAIL_ROUGHNESS referencing identifiers that
