@@ -92,3 +92,49 @@ describe("environment reflection failure isolation", () => {
     expect(scene.environment).toBeNull();
   });
 });
+
+describe("environment map rotation", () => {
+  const sunAt = (azimuth: number, daylight = 1) => ({
+    ...atmosphere,
+    daylight,
+    sunDirection: new THREE.Vector3(Math.cos(azimuth) * 0.6, 0.8, Math.sin(azimuth) * 0.6),
+  }) as EnvironmentVisualState;
+
+  it("turns the captured map with the sun instead of recapturing", () => {
+    const { renderer, previousTarget } = createRenderer();
+    const scene = new THREE.Scene();
+    const runtime = new EnvironmentMapRuntime(renderer as unknown as THREE.WebGLRenderer, scene, "cinematic");
+    try {
+      runtime.present(sunAt(0.4));
+      expect(runtime.diagnostics.revision).toBe(1);
+      expect(runtime.diagnostics.rotationY).toBeCloseTo(0);
+      runtime.present(sunAt(0.7));
+      expect(runtime.diagnostics.revision).toBe(1);
+      expect(runtime.diagnostics.rotationY).toBeCloseTo(0.3);
+      expect(scene.environmentRotation.y).toBeCloseTo(0.3);
+      // Wrapped into (-pi, pi].
+      runtime.present(sunAt(0.4 + 3.5));
+      expect(runtime.diagnostics.rotationY).toBeCloseTo(3.5 - Math.PI * 2);
+    } finally {
+      runtime.dispose();
+      previousTarget.dispose();
+    }
+  });
+
+  it("starts from zero rotation on each new capture", () => {
+    const { renderer, previousTarget } = createRenderer();
+    const scene = new THREE.Scene();
+    const runtime = new EnvironmentMapRuntime(renderer as unknown as THREE.WebGLRenderer, scene, "cinematic");
+    try {
+      runtime.present(sunAt(0.4));
+      runtime.present(sunAt(1.2));
+      runtime.present(sunAt(1.2, 0.2));
+      expect(runtime.diagnostics.revision).toBe(2);
+      expect(runtime.diagnostics.rotationY).toBeCloseTo(0);
+      expect(scene.environmentRotation.y).toBeCloseTo(0);
+    } finally {
+      runtime.dispose();
+      previousTarget.dispose();
+    }
+  });
+});

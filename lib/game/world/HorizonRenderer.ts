@@ -8,6 +8,7 @@ import {
   type HorizonRingDefinition,
 } from "../config";
 import { seededRandom } from "../core/random";
+import { fogVisibilityMeters } from "../environment/model";
 import { BLOOM_LAYER } from "../rendering/Bloom";
 import type { GraphicsFeatureState } from "../rendering/GraphicsFeatures";
 import {
@@ -76,8 +77,18 @@ interface HorizonSettlementRecipe {
 interface TerrainRingRuntime {
   anchorX: number;
   anchorZ: number;
+  /** Rendered inner edge, used to cull the whole ring behind fog. */
+  inner: number;
   meshes: THREE.Mesh[];
   triangles: number;
+}
+
+/**
+ * A ring whose inner edge lies beyond the fog horizon is fog colour from end
+ * to end, so it can be skipped without a visible change.
+ */
+export function ringVisibleThroughFog(innerMeters: number, visibilityMeters: number) {
+  return !Number.isFinite(visibilityMeters) || innerMeters < visibilityMeters;
 }
 
 export interface HorizonDiagnostics {
@@ -559,6 +570,8 @@ export class HorizonRenderer {
     this.mountainProxyMaterial,
   );
   private terrainRings = new Map<number, TerrainRingRuntime>();
+  /** Distance at which the rendered fog is complete; see ringVisibleThroughFog. */
+  private fogVisibility = Number.POSITIVE_INFINITY;
   private settlementMeshes: THREE.InstancedMesh[] = [];
   private settlementLightMeshes: THREE.Points[] = [];
   private sceneryMeshes: THREE.InstancedMesh[] = [];
@@ -689,6 +702,11 @@ export class HorizonRenderer {
     const fogDensity = Number.isFinite(state.fogDensity)
       ? Math.max(0, state.fogDensity as number)
       : 0.0032;
+    // Cull only against fog the caller actually rendered.
+    this.fogVisibility = Number.isFinite(state.fogDensity)
+      ? fogVisibilityMeters(fogDensity)
+      : Number.POSITIVE_INFINITY;
+    this.applyFogCulling();
     const fogClarity = 1 - THREE.MathUtils.smoothstep(
       fogDensity,
       0.0042,
@@ -879,6 +897,13 @@ export class HorizonRenderer {
     this.rebuilds += 1;
   }
 
+  private applyFogCulling() {
+    for (const ring of this.terrainRings.values()) {
+      const visible = ringVisibleThroughFog(ring.inner, this.fogVisibility);
+      for (const mesh of ring.meshes) mesh.visible = visible;
+    }
+  }
+
   private reconcileTerrainRings() {
     if (!this.anchor) return;
     const preset = HORIZON_PRESETS[this.mode];
@@ -937,8 +962,11 @@ export class HorizonRenderer {
         meshes.push(mesh);
         this.group.add(mesh);
       }
-      this.terrainRings.set(ringIndex, { anchorX, anchorZ, meshes, triangles });
+      this.terrainRings.set(ringIndex, { anchorX, anchorZ,
+        inner: renderRing.inner, meshes, triangles });
     }
+    // Rebuilt rings start visible; keep them behind the current fog.
+    this.applyFogCulling();
   }
 
   private rebuildScenery() {

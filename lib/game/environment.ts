@@ -26,6 +26,7 @@ import {
 import {
   GAME_MINUTES_PER_REAL_SECOND,
   WORLD_START_MINUTES,
+  fogVisibilityMeters,
   keyLightHandover,
   sampleEnvironment,
   sanitizeWorldMinutes,
@@ -36,10 +37,14 @@ import {
   SUN_SHADOW_EXTENT_METERS,
   sunShadowBiases,
 } from "./rendering/ShadowBias";
+import { CelestialDiscs, type CelestialDiscInput } from "./rendering/CelestialDiscs";
 import { ShadowUpdatePolicy } from "./rendering/ShadowUpdatePolicy";
 import { sampleClimate } from "./world/macroWorld";
 
 const CINEMATIC_PRECIPITATION_POINTS = 720;
+/** Warm forward-scattered haze blended into fog colour looking toward a low sun. */
+const SUNWARD_HAZE = new THREE.Color(0xf2a868);
+const SUNWARD_HAZE_STRENGTH = 0.4;
 const PERFORMANCE_PRECIPITATION_POINTS = 280;
 
 export function stormLightningFlash(
@@ -84,6 +89,8 @@ export interface EnvironmentRuntime {
     position: THREE.Vector3,
     deltaSeconds: number,
     viewPosition?: Readonly<THREE.Vector3>,
+    /** Camera forward, for the sunward fog tint; omitted leaves fog untinted. */
+    viewDirection?: Readonly<THREE.Vector3>,
   ): void;
   sync(position: THREE.Vector3, snap?: boolean): void;
   setWorldMinutes(minutes: number): void;
@@ -178,6 +185,26 @@ export interface EnvironmentVisualState {
   sunColor: THREE.Color;
   skyColor: THREE.Color;
   horizonColor: THREE.Color;
+}
+
+/**
+ * Weight, in [0, 1], of the warm sunward haze for a view direction: forward
+ * scattering is strongest looking toward a low sun and absent facing away,
+ * outside golden hour, or at night.
+ */
+export function sunwardFogTint(
+  viewDirection: Readonly<THREE.Vector3>,
+  sunDirection: Readonly<THREE.Vector3>,
+  goldenHour: number,
+  daylight: number,
+) {
+  const lengths = viewDirection.length() * sunDirection.length();
+  if (!(lengths > 0)) return 0;
+  const alignment = viewDirection.dot(sunDirection) / lengths;
+  if (!(alignment > 0)) return 0;
+  const golden = THREE.MathUtils.clamp(Number.isFinite(goldenHour) ? goldenHour : 0, 0, 1);
+  const lit = THREE.MathUtils.clamp(Number.isFinite(daylight) ? daylight * 1.6 : 0, 0, 1);
+  return THREE.MathUtils.clamp(alignment ** 3 * golden * lit, 0, 1);
 }
 
 /** One celestial solution drives both the visible discs and the key light. */
@@ -487,9 +514,24 @@ export function createEnvironment(
   });
   const sky = new THREE.Mesh(skyGeometry, skyMaterial);
   sky.name = "atmosphere-sky";
+  // Hidden, not darkened, in the bloom pass: a darkened dome writes depth and
+  // would cover the celestial discs, which sit near the far plane.
+  sky.userData.hideInBloom = true;
   sky.frustumCulled = false;
   sky.renderOrder = -3;
   scene.add(sky);
+  const celestialDiscs = new CelestialDiscs(scene);
+  const discInput: CelestialDiscInput = {
+    viewPosition: new THREE.Vector3(),
+    sunDirection: new THREE.Vector3(0, 1, 0),
+    moonDirection: new THREE.Vector3(0, -1, 0),
+    sunColor: skyMaterial.uniforms.sunDiscColor.value,
+    moonColor: skyMaterial.uniforms.moonDiscColor.value,
+    daylight: 1,
+    night: 0,
+    cloudCover: 0,
+    distance: 1,
+  };
 
   const stars = createStars();
   scene.add(stars.points);
@@ -579,6 +621,7 @@ export function createEnvironment(
   const applyAtmosphere = (
     position: THREE.Vector3,
     viewPosition: Readonly<THREE.Vector3> = position,
+    viewDirection?: Readonly<THREE.Vector3>,
   ) => {
     const lightningFlash = stormLightningFlash(
       effectSeconds,
@@ -625,6 +668,18 @@ export function createEnvironment(
     );
     skyMaterial.uniforms.sunDirection.value.copy(sunDirection);
     skyMaterial.uniforms.moonDirection.value.copy(moonDirection);
+    if (viewDirection) {
+      fog.color.lerp(
+        SUNWARD_HAZE,
+        SUNWARD_HAZE_STRENGTH *
+          sunwardFogTint(
+            viewDirection,
+            sunDirection,
+            displaySample.goldenHour,
+            displaySample.daylight,
+          ),
+      );
+    }
     const keyDirection = useSun ? sunDirection : moonDirection;
     const horizontal = 116;
     const keyX = keyDirection.x * horizontal;
@@ -665,6 +720,15 @@ export function createEnvironment(
         (1 - displaySample.cloudCover * 0.52) *
         handover.intensityScale;
     }
+    (discInput.viewPosition as THREE.Vector3).copy(viewPosition);
+    (discInput.sunDirection as THREE.Vector3).copy(sunDirection);
+    (discInput.moonDirection as THREE.Vector3).copy(moonDirection);
+    discInput.daylight = displaySample.daylight;
+    discInput.night = displaySample.night;
+    discInput.cloudCover = displaySample.cloudCover;
+    // Near the far plane, so the horizon and HLOD terrain occlude the glow.
+    discInput.distance = HORIZON_PRESETS[horizonMode].drawDistanceMeters * 0.9;
+    celestialDiscs.present(discInput);
     if (lightningFlash > 0) {
       sun.color.lerp(lightningColor, lightningFlash * 0.9);
       sun.intensity += lightningFlash * 7.5;
@@ -772,7 +836,7 @@ export function createEnvironment(
       }
       runtime.sync(position);
     },
-    present(position, deltaSeconds, viewPosition = position) {
+    present(position, deltaSeconds, viewPosition = position, viewDirection) {
       const safeDelta = Number.isFinite(deltaSeconds) ? Math.max(0, deltaSeconds) : 0;
       const alpha = 1 - Math.exp(-safeDelta * 2.25);
       for (const field of BLENDED_SAMPLE_FIELDS) {
@@ -782,7 +846,7 @@ export function createEnvironment(
       displaySample.weatherId = targetSample.weatherId;
       displaySample.weatherLabel = targetSample.weatherLabel;
       displaySample.precipitation = targetSample.precipitation;
-      applyAtmosphere(position, viewPosition);
+      applyAtmosphere(position, viewPosition, viewDirection);
     },
     sync(position, snap = false) {
       climate = sampleClimate(position.x, position.z);
@@ -826,7 +890,7 @@ export function createEnvironment(
         publishedSample.visibilityMeters = Math.round(
           Math.min(
             HORIZON_PRESETS[horizonMode].drawDistanceMeters,
-            1.978 / effectiveFogDensity(targetSample),
+            fogVisibilityMeters(effectiveFogDensity(targetSample)),
           ),
         );
         publishedSource = targetSample;
@@ -917,6 +981,7 @@ export function createEnvironment(
         stars.points,
         precipitation.points,
       );
+      celestialDiscs.dispose();
       skyGeometry.dispose();
       skyMaterial.dispose();
       stars.geometry.dispose();

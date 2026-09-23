@@ -9,7 +9,9 @@ import {
 import {
   HorizonRenderer,
   horizonSettlementRecipes,
+  ringVisibleThroughFog,
 } from "../../lib/game/world/HorizonRenderer";
+import { fogVisibilityMeters } from "../../lib/game/environment/model";
 import { WORLD_HALF_EXTENT } from "../../lib/game/world/macroWorld";
 import {
   WORLD_DETAIL_PRESETS,
@@ -286,5 +288,62 @@ describe("fixed-budget horizon HLOD", () => {
       expect("target" in recipe).toBe(false);
       expect("citizen" in recipe).toBe(false);
     }
+  });
+});
+
+describe("horizon rings behind fog", () => {
+  it("counts a ring visible only while its inner edge is nearer than the fog horizon", () => {
+    expect(ringVisibleThroughFog(1_920, 11_000)).toBe(true);
+    expect(ringVisibleThroughFog(24_576, 11_000)).toBe(false);
+    expect(ringVisibleThroughFog(11_000, 11_000)).toBe(false);
+    expect(ringVisibleThroughFog(24_576, Number.POSITIVE_INFINITY)).toBe(true);
+    expect(ringVisibleThroughFog(24_576, Number.NaN)).toBe(true);
+  });
+
+  it("puts the fog horizon where FogExp2 reaches 98 percent", () => {
+    const density = 0.0004;
+    const fogFactor = 1 - Math.exp(-((density * fogVisibilityMeters(density)) ** 2));
+    expect(fogFactor).toBeCloseTo(0.98, 3);
+    expect(fogVisibilityMeters(0)).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it("hides whole rings the rendered fog covers and restores them when it lifts", () => {
+    const scene = new THREE.Scene();
+    const horizon = new HorizonRenderer(scene, "unlimited");
+    horizon.update(0, 8);
+    const ringMeshes = (ring: number) => {
+      const meshes: THREE.Object3D[] = [];
+      scene.traverse((object) => {
+        if (object.name.startsWith(`horizon-terrain:${ring}:`)) meshes.push(object);
+      });
+      expect(meshes.length).toBeGreaterThan(0);
+      return meshes;
+    };
+    const tiles = horizon.diagnostics.terrainTiles;
+    // Visibility about 4.9 km: rings starting at 6.1 km and 24.6 km are covered.
+    horizon.presentEnvironment({ surfaceWetness: 0, fogDensity: 0.0004 });
+    expect(ringMeshes(0).every((mesh) => mesh.visible)).toBe(true);
+    expect(ringMeshes(1).every((mesh) => mesh.visible)).toBe(true);
+    expect(ringMeshes(2).every((mesh) => mesh.visible)).toBe(false);
+    expect(ringMeshes(3).every((mesh) => mesh.visible)).toBe(false);
+    expect(horizon.diagnostics.terrainTiles).toBe(tiles);
+    horizon.presentEnvironment({ surfaceWetness: 0, fogDensity: 0.00005 });
+    expect(ringMeshes(3).every((mesh) => mesh.visible)).toBe(true);
+    horizon.dispose();
+  });
+
+  it("keeps fog culling on rings that are rebuilt after the fog set in", () => {
+    const scene = new THREE.Scene();
+    const horizon = new HorizonRenderer(scene, "unlimited");
+    horizon.update(0, 8);
+    horizon.presentEnvironment({ surfaceWetness: 0, fogDensity: 0.0004 });
+    horizon.update(5_000, 5_000);
+    const far: THREE.Object3D[] = [];
+    scene.traverse((object) => {
+      if (object.name.startsWith("horizon-terrain:3:")) far.push(object);
+    });
+    expect(far.length).toBeGreaterThan(0);
+    expect(far.every((mesh) => !mesh.visible)).toBe(true);
+    horizon.dispose();
   });
 });

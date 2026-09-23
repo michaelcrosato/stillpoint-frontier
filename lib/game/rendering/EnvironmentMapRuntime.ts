@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { QUALITY_PRESETS, type QualityLevel } from "../config";
 import type { EnvironmentVisualState } from "../environment";
-import { environmentMapSignature } from "./RenderingPolicy";
+import { environmentMapSignature, sunAzimuth, wrapAngle } from "./RenderingPolicy";
 
 export { environmentMapSignature } from "./RenderingPolicy";
 
@@ -11,6 +11,8 @@ export interface EnvironmentMapDiagnostics {
   /** `quality:packed-buckets`, formatted only when diagnostics are read. */
   signature: string | null;
   revision: number;
+  /** Turn applied about the vertical since the capture, to follow the sun. */
+  rotationY: number;
   size: number;
 }
 
@@ -23,6 +25,9 @@ export class EnvironmentMapRuntime {
   private target: THREE.WebGLRenderTarget | null = null;
   private signature: number | null = null;
   private revision = 0;
+  /** Sun azimuth the current map was captured at. */
+  private capturedAzimuth = 0;
+  private rotationY = 0;
   private quality: QualityLevel;
   private enabled = true;
   private disposed = false;
@@ -119,7 +124,14 @@ export class EnvironmentMapRuntime {
   present(state: Readonly<EnvironmentVisualState>) {
     if (this.disposed || !this.enabled) return;
     const nextSignature = environmentMapSignature(state, this.quality);
-    if (nextSignature === this.signature) return;
+    if (nextSignature === this.signature) {
+      // Three samples the map at envMapRotation x direction, and a turn of
+      // theta about Y lowers a direction's azimuth by theta: turning by the
+      // sun's travel since the capture brings today's sun back onto the
+      // captured one.
+      this.setRotation(wrapAngle(sunAzimuth(state.sunDirection) - this.capturedAzimuth));
+      return;
+    }
 
     // Store the attempt first so a constrained device cannot trigger a costly
     // failing allocation on every animation frame.
@@ -156,6 +168,8 @@ export class EnvironmentMapRuntime {
       this.scene.environment = nextTarget.texture;
       previousTarget?.dispose();
       this.revision += 1;
+      this.capturedAzimuth = sunAzimuth(state.sunDirection);
+      this.setRotation(0);
     } catch {
       // Direct lights remain the supported fallback on constrained devices.
     } finally {
@@ -178,6 +192,7 @@ export class EnvironmentMapRuntime {
     this.scene.environment = null;
     this.signature = null;
     this.revision = 0;
+    this.setRotation(0);
   }
 
   get diagnostics(): EnvironmentMapDiagnostics {
@@ -186,6 +201,7 @@ export class EnvironmentMapRuntime {
       enabled: this.enabled,
       signature: this.signature === null ? null : `${this.quality}:${this.signature}`,
       revision: this.revision,
+      rotationY: this.rotationY,
       size: QUALITY_PRESETS[this.quality].environmentMap.size,
     };
   }
@@ -201,6 +217,11 @@ export class EnvironmentMapRuntime {
     this.sphere.geometry.dispose();
     this.material.dispose();
     this.generator.dispose();
+  }
+
+  private setRotation(rotationY: number) {
+    this.rotationY = rotationY;
+    this.scene.environmentRotation.set(0, rotationY, 0);
   }
 
   private applyQuality() {

@@ -63,6 +63,16 @@ describe("rendering policy", () => {
       .toBe(environmentMapSignature(state, "cinematic"));
   });
 
+  it("ignores sun azimuth, which the runtime handles by rotating the captured map", () => {
+    const state = environmentSample();
+    const turned = {
+      ...state,
+      sunDirection: state.sunDirection.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), 2.1),
+    };
+    expect(environmentMapSignature(turned, "cinematic"))
+      .toBe(environmentMapSignature(state, "cinematic"));
+  });
+
   it("keeps a stable signature for non-finite input instead of recapturing every frame", () => {
     const hostile = {
       ...environmentSample(),
@@ -85,28 +95,23 @@ describe("rendering policy", () => {
           for (let cloud = 0; cloud <= 3; cloud += 1) {
             for (let dust = 0; dust <= 2; dust += 1) {
               for (let elevation = 0; elevation <= 7; elevation += 1) {
-                for (let azimuth = 0; azimuth < 12; azimuth += 1) {
-                  // Stay off the poles, where azimuth is undefined.
-                  const y = THREE.MathUtils.clamp((elevation / 7) * 2 - 1, -0.99, 0.99);
-                  const angle = (azimuth / 12) * Math.PI * 2 - Math.PI;
-                  const radius = Math.sqrt(1 - y * y);
-                  direction.set(Math.cos(angle) * radius, y, Math.sin(angle) * radius);
-                  buckets.add([quality, daylight, golden, cloud, dust, elevation, azimuth].join(":"));
-                  signatures.add(Number(environmentMapSignature({
-                    daylight: daylight / 5,
-                    goldenHour: golden / 3,
-                    cloudCover: cloud / 3,
-                    dust: dust / 2,
-                    sunDirection: direction,
-                  }, quality)));
-                }
+                const y = (elevation / 7) * 2 - 1;
+                direction.set(Math.sqrt(1 - y * y), y, 0);
+                buckets.add([quality, daylight, golden, cloud, dust, elevation].join(":"));
+                signatures.add(Number(environmentMapSignature({
+                  daylight: daylight / 5,
+                  goldenHour: golden / 3,
+                  cloudCover: cloud / 3,
+                  dust: dust / 2,
+                  sunDirection: direction,
+                }, quality)));
               }
             }
           }
         }
       }
     }
-    expect(buckets.size).toBe(3 * 6 * 4 * 4 * 3 * 8 * 12);
+    expect(buckets.size).toBe(3 * 6 * 4 * 4 * 3 * 8);
     expect(signatures.size).toBe(buckets.size);
   });
 

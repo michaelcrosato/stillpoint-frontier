@@ -404,6 +404,7 @@ export class Engine {
   private readonly renderPipeline: RenderPipeline;
   private readonly renderer: THREE.WebGLRenderer;
   private readonly materialLibrary: WorldMaterialLibrary;
+  private readonly viewDirection = new THREE.Vector3();
   /** Decides when the cached sun shadow map is re-rendered. */
   private readonly shadowUpdates = new ShadowUpdatePolicy();
   /**
@@ -603,6 +604,7 @@ export class Engine {
       this.renderPipeline = new RenderPipeline({
         canvas: this.canvas,
         preserveDrawingBuffer: this.testMode,
+        adaptiveResolution: !this.testMode,
         scene: this.scene,
         camera: this.camera,
         quality: this.quality,
@@ -2613,7 +2615,12 @@ export class Engine {
 
   private presentRenderState(deltaSeconds: number, snap = false) {
     this.presentCamera(deltaSeconds, snap);
-    this.environment.present(this.player.position, deltaSeconds, this.camera.position);
+    this.environment.present(
+      this.player.position,
+      deltaSeconds,
+      this.camera.position,
+      this.camera.getWorldDirection(this.viewDirection),
+    );
     this.forestStress.update(
       this.player.position.x,
       this.player.position.z,
@@ -2632,8 +2639,8 @@ export class Engine {
       !this.developerPanelOpen
         ? this.accumulator
         : 0;
-    this.citizens.present(interpolation);
-    this.animals.present(interpolation);
+    this.citizens.present(interpolation, this.camera.position);
+    this.animals.present(interpolation, this.camera.position);
     this.flashlight.present(this.playerCamera);
   }
 
@@ -3146,7 +3153,11 @@ export class Engine {
     this.world.presentEnvironment(visualState);
     this.horizon.presentEnvironment(visualState);
     this.renderPipeline.presentEnvironment(visualState);
-    this.materialLibrary.setEnvironment(this.scene.environment, this.scene.environmentIntensity);
+    this.materialLibrary.setEnvironment(
+      this.scene.environment,
+      this.scene.environmentIntensity,
+      this.scene.environmentRotation,
+    );
   }
 
   private synchronizeTimeDependentWorld() {
@@ -3273,7 +3284,11 @@ export class Engine {
     this.contextStatus = "ready";
     this.renderPipeline.handleContextRestored();
     this.renderPipeline.presentEnvironment(this.environment.getVisualState());
-    this.materialLibrary.setEnvironment(this.scene.environment, this.scene.environmentIntensity);
+    this.materialLibrary.setEnvironment(
+      this.scene.environment,
+      this.scene.environmentIntensity,
+      this.scene.environmentRotation,
+    );
     this.emitSnapshot(true);
   };
 

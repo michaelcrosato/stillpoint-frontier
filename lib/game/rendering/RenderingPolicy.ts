@@ -19,22 +19,34 @@ const quantize = (value: number, steps: number) =>
 /**
  * Broad deterministic buckets keep PMREM generation out of the frame loop.
  * The buckets are packed into one integer, one mixed-radix digit each, so the
- * per-frame comparison allocates nothing.
+ * per-frame comparison allocates nothing. Sun azimuth is not a bucket: the
+ * captured sky is symmetric about the vertical apart from the sun, so the
+ * runtime turns the captured map with the sun instead of recapturing.
  */
 export function environmentMapSignature(
   state: Readonly<EnvironmentMapSample>,
   quality: QualityLevel,
 ): number {
-  const azimuth = Math.atan2(state.sunDirection.z, state.sunDirection.x);
-  const normalizedAzimuth = (azimuth + Math.PI) / (Math.PI * 2);
   const elevation = state.sunDirection.y * 0.5 + 0.5;
   let signature = QUALITY_LEVELS.indexOf(quality);
   signature = signature * 6 + quantize(state.daylight, 5);
   signature = signature * 4 + quantize(state.goldenHour, 3);
   signature = signature * 4 + quantize(state.cloudCover, 3);
   signature = signature * 3 + quantize(state.dust, 2);
-  signature = signature * 8 + quantize(elevation, 7);
-  return signature * 12 + (quantize(normalizedAzimuth, 12) % 12);
+  return signature * 8 + quantize(elevation, 7);
+}
+
+/** Azimuth of a direction about the vertical, as atan2(z, x). */
+export function sunAzimuth(direction: Readonly<THREE.Vector3>) {
+  const azimuth = Math.atan2(direction.z, direction.x);
+  return Number.isFinite(azimuth) ? azimuth : 0;
+}
+
+/** Wraps an angle into (-pi, pi]. */
+export function wrapAngle(angle: number) {
+  if (!Number.isFinite(angle)) return 0;
+  const wrapped = ((((angle + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) - Math.PI;
+  return wrapped === -Math.PI ? Math.PI : wrapped;
 }
 
 export function renderPixelRatio(

@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import {
   calculateCelestialDirections,
+  sunwardFogTint,
   stabilizeDirectionalShadowAnchor,
 } from "../../lib/game/environment";
 
@@ -95,5 +96,30 @@ describe("directional shadow stabilization", () => {
       const texels = snapped.dot(axis) / texel;
       expect(Math.abs(texels - Math.round(texels))).toBeLessThan(1e-6);
     }
+  });
+});
+
+describe("sunward fog tint", () => {
+  const sun = new THREE.Vector3(0.6, 0.12, -0.79).normalize();
+
+  it("peaks facing the sun at golden hour", () => {
+    const facing = sunwardFogTint(sun, sun, 1, 0.6);
+    expect(facing).toBeGreaterThan(0.5);
+    expect(facing).toBeLessThanOrEqual(1);
+    const sideways = new THREE.Vector3(0.79, 0, 0.6).normalize();
+    expect(sunwardFogTint(sideways, sun, 1, 0.6)).toBeLessThan(facing);
+  });
+
+  it("is zero facing away, at night, and outside golden hour", () => {
+    expect(sunwardFogTint(sun.clone().negate(), sun, 1, 0.6)).toBe(0);
+    expect(sunwardFogTint(sun, sun, 1, 0)).toBe(0);
+    expect(sunwardFogTint(sun, sun, 0, 1)).toBe(0);
+  });
+
+  it("stays in [0, 1] for hostile input", () => {
+    const nan = new THREE.Vector3(Number.NaN, 0, 0);
+    expect(sunwardFogTint(nan, sun, 1, 1)).toBe(0);
+    expect(sunwardFogTint(new THREE.Vector3(), sun, 1, 1)).toBe(0);
+    expect(sunwardFogTint(sun, sun, 7, 7)).toBeLessThanOrEqual(1);
   });
 });

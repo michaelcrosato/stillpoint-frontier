@@ -134,6 +134,18 @@ export const BIOME_WEATHER_PROFILES: Record<
   ],
 };
 
+/**
+ * FogExp2 is 98 percent fog at this many metres times 1/density
+ * (1 - exp(-1.978^2) = 0.98): beyond it only fog colour is left to see.
+ */
+export const FOG_VISIBILITY_EXTINCTION = 1.978;
+
+export function fogVisibilityMeters(density: number) {
+  return Number.isFinite(density) && density > 0
+    ? FOG_VISIBILITY_EXTINCTION / density
+    : Number.POSITIVE_INFINITY;
+}
+
 export function sanitizeWorldMinutes(value: number) {
   return Number.isFinite(value)
     ? Math.min(MAX_WORLD_MINUTES, Math.max(0, value))
@@ -261,7 +273,7 @@ export function sampleBiomeWeather(
       temperatureBase +
       mix(current.definition.temperatureOffset, next.definition.temperatureOffset, transition),
     dust: mix(current.definition.dust, next.definition.dust, transition),
-    visibilityMeters: Math.round(Math.min(12_000, Math.max(120, 1.978 / fogDensity))),
+    visibilityMeters: Math.round(Math.min(12_000, Math.max(120, fogVisibilityMeters(fogDensity)))),
     transition,
     epoch,
   };
@@ -295,7 +307,7 @@ export function sampleForcedBiomeWeather(
       -8 + climate.temperature * 36 + definition.temperatureOffset,
     dust: definition.dust,
     visibilityMeters: Math.round(
-      Math.min(12_000, Math.max(120, 1.978 / fogDensity)),
+      Math.min(12_000, Math.max(120, fogVisibilityMeters(fogDensity))),
     ),
     transition: 1,
     epoch,

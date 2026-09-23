@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { BLOB_FOOTPRINT_SPREAD, BlobShadows, footprintRadius } from "../rendering/BlobShadows";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import {
   ANIMAL_CHUNK_LOAD_RADIUS,
@@ -156,6 +157,10 @@ export class AnimalEngine {
   private readonly reactions = new Map<string, AnimalReactionState>();
   private readonly presentedPoses = new Map<string, AnimalPose>();
   private disposed = false;
+  /** Animals never cast into the shadow map; these ground the walking ones. */
+  private readonly blobs: BlobShadows;
+  private readonly footprints = new Map<AnimalSpeciesId, number>();
+  private readonly viewPosition = new THREE.Vector3();
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -183,9 +188,16 @@ export class AnimalEngine {
       mesh.userData.nonInteractive = true;
       mesh.userData.speciesId = species.id;
       this.geometries.set(species.id, geometry);
+      this.footprints.set(species.id, footprintRadius(geometry));
       this.meshes.set(species.id, mesh);
       this.scene.add(mesh);
     }
+    this.blobs = new BlobShadows(scene, {
+      name: "animal-blob-shadows",
+      capacity: maximumResidentAnimals,
+      fadeStart: 32,
+      fadeEnd: 72,
+    });
   }
 
   update(playerX: number, playerZ: number, deltaSeconds: number, paused: boolean) {
@@ -199,7 +211,8 @@ export class AnimalEngine {
     }
   }
 
-  present(interpolationSeconds = 0) {
+  present(interpolationSeconds = 0, viewPosition?: Readonly<THREE.Vector3>) {
+    if (viewPosition) this.viewPosition.copy(viewPosition);
     const safeInterpolation = Number.isFinite(interpolationSeconds)
       ? Math.min(0.1, Math.max(0, interpolationSeconds))
       : 0;
@@ -209,8 +222,11 @@ export class AnimalEngine {
     const position = new THREE.Vector3();
     const scale = new THREE.Vector3();
     const up = new THREE.Vector3(0, 1, 0);
+    this.blobs.begin(this.viewPosition);
     for (const [speciesId, mesh] of this.meshes) {
       const recipes = this.visibleRecipes.get(speciesId) ?? [];
+      const flying = ANIMAL_SPECIES[speciesId].flying;
+      const footprint = this.footprints.get(speciesId) ?? 0;
       mesh.count = recipes.length;
       recipes.forEach((recipe, index) => {
         const basePose = sampleAnimalPose(recipe, presentationTime);
@@ -225,6 +241,7 @@ export class AnimalEngine {
         scale.setScalar(recipe.scale);
         matrix.compose(position, quaternion, scale);
         mesh.setMatrixAt(index, matrix);
+        if (!flying) this.blobs.add(pose.x, pose.y, pose.z, footprint * BLOB_FOOTPRINT_SPREAD * recipe.scale);
       });
       if (recipes.length > 0) mesh.instanceMatrix.needsUpdate = true;
       // Terrain height, flight, and reactions can move instances outside a
@@ -232,6 +249,7 @@ export class AnimalEngine {
       // Wildlife is capped at 72 instances across all species.
       mesh.computeBoundingSphere();
     }
+    this.blobs.end();
   }
 
   updateStreaming(playerX: number, playerZ: number) {
@@ -336,6 +354,7 @@ export class AnimalEngine {
     this.meshes.clear();
     for (const geometry of this.geometries.values()) geometry.dispose();
     this.geometries.clear();
+    this.blobs.dispose();
     this.material.dispose();
     this.loaded.clear();
     this.visibleRecipes.clear();

@@ -277,8 +277,14 @@ export class WorldMaterialLibrary {
    * scene.environmentIntensity. So the library assigns the map itself, and
    * the per-role scale and wet boost apply on top of this quality intensity.
    */
-  setEnvironment(texture: THREE.Texture | null, intensity: number) {
+  setEnvironment(
+    texture: THREE.Texture | null,
+    intensity: number,
+    /** The scene's environment rotation; every tracked map shares it. */
+    rotation?: Readonly<THREE.Euler>,
+  ) {
     if (this.disposed) return;
+    if (rotation) this.environmentRotation.copy(rotation);
     const nextIntensity = Math.max(0, finiteOr(intensity, 0));
     if (texture === this.environment && nextIntensity === this.environmentIntensity) return;
     this.environment = texture;
