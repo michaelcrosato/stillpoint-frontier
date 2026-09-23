@@ -4,6 +4,7 @@ import {
   MINUTES_PER_WORLD_DAY,
   WEATHER_EPOCH_MINUTES,
   WORLD_START_MINUTES,
+  keyLightHandover,
   sampleBiomeWeather,
   sampleDaylight,
   sampleEnvironment,
@@ -40,6 +41,22 @@ describe("deterministic world atmosphere", () => {
       hour: 1,
       minute: 15,
     });
+  });
+
+  it("moves the sun continuously between whole minutes", () => {
+    const before = sampleDaylight(420);
+    const middle = sampleDaylight(420.5);
+    const after = sampleDaylight(421);
+    expect(middle.sunElevation).not.toBe(before.sunElevation);
+    expect(middle.sunElevation).toBeGreaterThan(before.sunElevation);
+    expect(middle.sunElevation).toBeLessThan(after.sunElevation);
+    expect(middle.minuteOfDay).toBe(420);
+  });
+
+  it("leaves whole-minute samples unchanged", () => {
+    const sample = sampleDaylight(720);
+    expect(sample.sunElevation).toBeCloseTo(1, 12);
+    expect(sample.minuteOfDay).toBe(720);
   });
 
   it("makes noon visibly brighter than midnight without invalid values", () => {
@@ -145,5 +162,33 @@ describe("deterministic world atmosphere", () => {
     expect(sanitizeWorldMinutes(Number.POSITIVE_INFINITY)).toBe(WORLD_START_MINUTES);
     expect(sanitizeWorldMinutes(-50)).toBe(0);
     expect(sampleDaylight(Number.NaN).totalMinutes).toBe(WORLD_START_MINUTES);
+  });
+});
+
+describe("key-light handover", () => {
+  it("fades the key light out and back in instead of popping", () => {
+    let previous = keyLightHandover(0.2);
+    for (let elevation = 0.2; elevation >= -0.3; elevation -= 0.0005) {
+      const next = keyLightHandover(elevation);
+      expect(Math.abs(next.intensityScale - previous.intensityScale)).toBeLessThan(0.02);
+      previous = next;
+    }
+  });
+
+  it("switches direction only where the light is dark", () => {
+    const eps = 0.0001;
+    for (let elevation = -0.3; elevation <= 0.2; elevation += eps) {
+      const here = keyLightHandover(elevation);
+      const next = keyLightHandover(elevation + eps);
+      if (here.useSun !== next.useSun) {
+        expect(here.intensityScale).toBeLessThan(0.01);
+        expect(next.intensityScale).toBeLessThan(0.01);
+      }
+    }
+  });
+
+  it("is the identity outside the window", () => {
+    expect(keyLightHandover(0.3)).toEqual({ useSun: true, intensityScale: 1 });
+    expect(keyLightHandover(-0.4)).toEqual({ useSun: false, intensityScale: 1 });
   });
 });

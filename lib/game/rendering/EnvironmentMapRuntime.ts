@@ -8,6 +8,7 @@ export { environmentMapSignature } from "./RenderingPolicy";
 export interface EnvironmentMapDiagnostics {
   active: boolean;
   enabled: boolean;
+  /** `quality:packed-buckets`, formatted only when diagnostics are read. */
   signature: string | null;
   revision: number;
   size: number;
@@ -20,7 +21,7 @@ export class EnvironmentMapRuntime {
   private readonly material: THREE.ShaderMaterial;
   private readonly sphere: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial>;
   private target: THREE.WebGLRenderTarget | null = null;
-  private signature: string | null = null;
+  private signature: number | null = null;
   private revision = 0;
   private quality: QualityLevel;
   private enabled = true;
@@ -183,7 +184,7 @@ export class EnvironmentMapRuntime {
     return {
       active: this.scene.environment === this.target?.texture,
       enabled: this.enabled,
-      signature: this.signature,
+      signature: this.signature === null ? null : `${this.quality}:${this.signature}`,
       revision: this.revision,
       size: QUALITY_PRESETS[this.quality].environmentMap.size,
     };

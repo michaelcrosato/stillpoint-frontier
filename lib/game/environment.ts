@@ -26,11 +26,17 @@ import {
 import {
   GAME_MINUTES_PER_REAL_SECOND,
   WORLD_START_MINUTES,
+  keyLightHandover,
   sampleEnvironment,
   sanitizeWorldMinutes,
   type EnvironmentSample,
   type WeatherId,
 } from "./environment/model";
+import {
+  SUN_SHADOW_EXTENT_METERS,
+  sunShadowBiases,
+} from "./rendering/ShadowBias";
+import { ShadowUpdatePolicy } from "./rendering/ShadowUpdatePolicy";
 import { sampleClimate } from "./world/macroWorld";
 
 const CINEMATIC_PRECIPITATION_POINTS = 720;
@@ -82,7 +88,8 @@ export interface EnvironmentRuntime {
   sync(position: THREE.Vector3, snap?: boolean): void;
   setWorldMinutes(minutes: number): void;
   getPersistentWorldMinutes(): number;
-  getSample(): EnvironmentSample;
+  /** One shared object, updated in place: read its fields, do not keep it. */
+  getSample(): Readonly<EnvironmentSample>;
   getVisualState(): Readonly<EnvironmentVisualState>;
   setDeveloperMode(enabled: boolean): void;
   setDeveloperClockPaused(paused: boolean): void;
@@ -125,11 +132,20 @@ export function stabilizeDirectionalShadowAnchor(
   const height = Math.max(0.001, camera.top - camera.bottom);
   const texelX = width / Math.max(1, mapSize.x);
   const texelY = height / Math.max(1, mapSize.y);
-  scratch.forward.copy(lightOffset).normalize();
+  // Build the basis exactly as Matrix4.lookAt builds the shadow camera's, so
+  // the grid we snap to is the grid the shadow map is rasterised on. That
+  // includes its handling of a light at the zenith.
+  scratch.forward.copy(lightOffset);
+  if (scratch.forward.lengthSq() === 0) scratch.forward.z = 1;
+  scratch.forward.normalize();
   scratch.right.set(0, 1, 0).cross(scratch.forward);
-  if (scratch.right.lengthSq() < 0.000001) scratch.right.set(1, 0, 0);
-  else scratch.right.normalize();
-  scratch.up.copy(scratch.forward).cross(scratch.right).normalize();
+  if (scratch.right.lengthSq() === 0) {
+    scratch.forward.z += 0.0001;
+    scratch.forward.normalize();
+    scratch.right.set(0, 1, 0).cross(scratch.forward);
+  }
+  scratch.right.normalize();
+  scratch.up.copy(scratch.forward).cross(scratch.right);
   const projectedX = scratch.right.dot(anchor);
   const projectedY = scratch.up.dot(anchor);
   const correctionX = Math.round(projectedX / texelX) * texelX - projectedX;
@@ -322,6 +338,7 @@ export function createEnvironment(
   renderer: THREE.WebGLRenderer,
   quality: QualityLevel,
   initialWorldMinutes = WORLD_START_MINUTES,
+  shadowUpdates = new ShadowUpdatePolicy(),
 ): EnvironmentRuntime {
   const fog = new THREE.FogExp2(0x8f7657, 0.00365);
   scene.fog = fog;
@@ -335,15 +352,18 @@ export function createEnvironment(
   sun.castShadow = qualityUsesShadows(quality);
   sun.shadow.camera.near = 1;
   sun.shadow.camera.far = 260;
-  sun.shadow.camera.left = -88;
-  sun.shadow.camera.right = 88;
-  sun.shadow.camera.top = 88;
-  sun.shadow.camera.bottom = -88;
+  sun.shadow.camera.left = -SUN_SHADOW_EXTENT_METERS / 2;
+  sun.shadow.camera.right = SUN_SHADOW_EXTENT_METERS / 2;
+  sun.shadow.camera.top = SUN_SHADOW_EXTENT_METERS / 2;
+  sun.shadow.camera.bottom = -SUN_SHADOW_EXTENT_METERS / 2;
   // three 0.185 removed PCFSoftShadowMap, so shadow.radius is the only
   // remaining softness control for the 5-tap Vogel PCF kernel. The flashlight
   // already sets 2; the sun was left at the default 1, which is the hardest
   // setting available.
   sun.shadow.radius = 2.5;
+  // The map is re-rendered only when shadowUpdates says its inputs changed;
+  // see applyAtmosphere.
+  sun.shadow.autoUpdate = false;
   const sunTarget = new THREE.Object3D();
   scene.add(sun, sunTarget);
   sun.target = sunTarget;
@@ -484,6 +504,11 @@ export function createEnvironment(
   let climate = sampleClimate(0, 8);
   let targetSample = sampleEnvironment(worldMinutes, climate);
   let displaySample = { ...targetSample };
+  // getSample() is read by several systems every frame. It returns this one
+  // object, refreshed only when the target sample or horizon mode changes.
+  const publishedSample: EnvironmentSample = { ...targetSample };
+  let publishedSource: EnvironmentSample | null = null;
+  let publishedHorizon: HorizonMode | null = null;
   const topColor = new THREE.Color();
   const horizonColor = new THREE.Color();
   const groundColor = new THREE.Color();
@@ -590,7 +615,8 @@ export function createEnvironment(
     fog.density = effectiveFogDensity(displaySample);
     (scene.background as THREE.Color).copy(fogColor).multiplyScalar(0.72);
 
-    const useSun = displaySample.sunElevation > -0.06;
+    const handover = keyLightHandover(displaySample.sunElevation);
+    const useSun = handover.useSun;
     calculateCelestialDirections(
       displaySample.sunElevation,
       displaySample.sunAzimuth,
@@ -621,14 +647,23 @@ export function createEnvironment(
     }
     sun.position.copy(shadowAnchor).add(shadowLightOffset);
     sunTarget.position.copy(shadowAnchor);
+    // Only ever set the flag: three clears it after rendering, and a render
+    // requested elsewhere (a new map after a quality change) must survive.
+    if (sun.castShadow && shadowUpdates.shouldRender(position, shadowLightOffset)) {
+      sun.shadow.needsUpdate = true;
+    }
     if (useSun) {
       temporaryColor.lerpColors(sunDay, sunDawn, displaySample.goldenHour * 0.86);
       sun.color.copy(temporaryColor);
       skyMaterial.uniforms.sunDiscColor.value.copy(temporaryColor);
-      sun.intensity = 4.2 * displaySample.lightScale;
+      sun.intensity = 4.2 * displaySample.lightScale * handover.intensityScale;
     } else {
       sun.color.copy(moonColor);
-      sun.intensity = 0.34 * displaySample.night * (1 - displaySample.cloudCover * 0.52);
+      sun.intensity =
+        0.34 *
+        displaySample.night *
+        (1 - displaySample.cloudCover * 0.52) *
+        handover.intensityScale;
     }
     if (lightningFlash > 0) {
       sun.color.lerp(lightningColor, lightningFlash * 0.9);
@@ -786,13 +821,18 @@ export function createEnvironment(
       return worldMinutes;
     },
     getSample() {
-      const density = effectiveFogDensity(targetSample);
-      return {
-        ...targetSample,
-        visibilityMeters: Math.round(
-          Math.min(HORIZON_PRESETS[horizonMode].drawDistanceMeters, 1.978 / density),
-        ),
-      };
+      if (publishedSource !== targetSample || publishedHorizon !== horizonMode) {
+        Object.assign(publishedSample, targetSample);
+        publishedSample.visibilityMeters = Math.round(
+          Math.min(
+            HORIZON_PRESETS[horizonMode].drawDistanceMeters,
+            1.978 / effectiveFogDensity(targetSample),
+          ),
+        );
+        publishedSource = targetSample;
+        publishedHorizon = horizonMode;
+      }
+      return publishedSample;
     },
     getVisualState() {
       return visualState;
@@ -835,14 +875,23 @@ export function createEnvironment(
       sun.castShadow = qualityUsesShadows(nextQuality);
       const maximumTextureSize = renderer.capabilities.maxTextureSize || preset.sunShadowMapSize;
       const shadowMapSize = Math.min(preset.sunShadowMapSize, maximumTextureSize);
-      if (sun.shadow.mapSize.width !== shadowMapSize) {
+      if (!sun.castShadow || sun.shadow.mapSize.width !== shadowMapSize) {
+        // A preset without shadows keeps no map; a new size needs a new one.
         sun.shadow.map?.dispose();
         sun.shadow.map = null;
         sun.shadow.mapSize.set(shadowMapSize, shadowMapSize);
-        sun.shadow.needsUpdate = true;
       }
-      sun.shadow.bias = nextQuality === "ultra" ? -0.00008 : -0.00015;
-      sun.shadow.normalBias = nextQuality === "ultra" ? 0.015 : 0.02;
+      // With shadow.autoUpdate off, three skips a light that has no map
+      // unless it is asked to render one.
+      if (sun.castShadow && sun.shadow.map === null) sun.shadow.needsUpdate = true;
+      shadowUpdates.markDirty("quality");
+      const biases = sunShadowBiases(
+        nextQuality,
+        renderer.capabilities.reversedDepthBuffer === true,
+        shadowMapSize,
+      );
+      sun.shadow.bias = biases.bias;
+      sun.shadow.normalBias = biases.normalBias;
       precipitation.points.geometry.setDrawRange(
         0,
         qualityUsesHighDetail(nextQuality)

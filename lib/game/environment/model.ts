@@ -151,7 +151,9 @@ export function sampleDaylight(totalWorldMinutes: number): DaylightSample {
   const totalMinutes = sanitizeWorldMinutes(totalWorldMinutes);
   const wholeMinutes = Math.floor(totalMinutes);
   const minuteOfDay = wholeMinutes % MINUTES_PER_WORLD_DAY;
-  const dayProgress = minuteOfDay / MINUTES_PER_WORLD_DAY;
+  // The clock reads whole minutes; the sun keeps the fraction so its elevation
+  // moves as smoothly as its azimuth.
+  const dayProgress = (totalMinutes % MINUTES_PER_WORLD_DAY) / MINUTES_PER_WORLD_DAY;
   const sunElevation = Math.sin((dayProgress - 0.25) * Math.PI * 2);
   const daylight = smoothstep(-0.12, 0.25, sunElevation);
   const horizonProximity = 1 - Math.min(1, Math.abs(sunElevation - 0.08) / 0.34);
@@ -168,6 +170,24 @@ export function sampleDaylight(totalWorldMinutes: number): DaylightSample {
     daylight,
     goldenHour: horizonProximity * smoothstep(-0.1, 0.12, sunElevation),
     night: 1 - daylight,
+  };
+}
+
+export interface KeyLightHandover {
+  useSun: boolean;
+  intensityScale: number;
+}
+
+/**
+ * One directional light carries the sun by day and the moon by night. Across
+ * the handover window it fades to black and back, so its direction and colour
+ * switch while it contributes nothing, instead of popping mid-dusk.
+ */
+export function keyLightHandover(sunElevation: number): KeyLightHandover {
+  const sunWeight = smoothstep(-0.1, -0.02, sunElevation);
+  return {
+    useSun: sunWeight >= 0.5,
+    intensityScale: Math.abs(2 * sunWeight - 1),
   };
 }
 

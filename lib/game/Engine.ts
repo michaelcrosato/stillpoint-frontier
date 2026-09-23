@@ -35,6 +35,10 @@ import {
   RenderPipeline,
   type GraphicsDiagnostics,
 } from "./rendering/RenderPipeline";
+import {
+  ShadowUpdatePolicy,
+  type ShadowUpdateDiagnostics,
+} from "./rendering/ShadowUpdatePolicy";
 import { WorldMaterialLibrary } from "./rendering/WorldMaterialLibrary";
 import {
   DEFAULT_GRAPHICS_FEATURES,
@@ -305,6 +309,7 @@ export interface GameTestBridge {
   };
   audio(): EnvironmentalAudio["diagnostics"];
   graphics(): GraphicsDiagnostics;
+  shadowUpdates(): ShadowUpdateDiagnostics;
   graphicsFeatures(): GraphicsFeatureState;
   setGraphicsFeature(id: GraphicsFeatureId, enabled: boolean): boolean;
   graphicsBenchmark(): GraphicsBenchmarkSnapshot;
@@ -395,6 +400,13 @@ export class Engine {
   private readonly renderPipeline: RenderPipeline;
   private readonly renderer: THREE.WebGLRenderer;
   private readonly materialLibrary: WorldMaterialLibrary;
+  /** Decides when the cached sun shadow map is re-rendered. */
+  private readonly shadowUpdates = new ShadowUpdatePolicy();
+  /**
+   * Program count after the last flashlight warm-up. Zero, so the first frame
+   * after boot warms the passes boot's compile() cannot reach.
+   */
+  private flashlightWarmPrograms = 0;
   private readonly input: InputManager;
   private readonly world: ChunkManager;
   private readonly forestStress: ForestStressTest;
@@ -612,11 +624,13 @@ export class Engine {
         this.featureProgress.containerStates,
         this.featureProgress.placedEntities,
         this.materialLibrary,
+        this.shadowUpdates,
       );
       this.forestStress = new ForestStressTest(
         this.scene,
         this.quality,
         this.materialLibrary,
+        this.shadowUpdates,
       );
       this.horizon = new HorizonRenderer(
         this.scene,
@@ -629,8 +643,16 @@ export class Engine {
         queryColliders: (current, desired, radius, minY, maxY) =>
           this.world.queryColliders(current, desired, radius, minY, maxY),
       });
-      this.playerAvatar = new PlayerAvatar(this.scene, this.quality);
-      this.flashlight = new PlayerFlashlight(this.scene, this.quality);
+      this.playerAvatar = new PlayerAvatar(
+        this.scene,
+        this.quality,
+        this.shadowUpdates,
+      );
+      this.flashlight = new PlayerFlashlight(
+        this.scene,
+        this.quality,
+        this.renderer.capabilities.reversedDepthBuffer === true,
+      );
       this.audio = new EnvironmentalAudio(
         audioLevelsFromSettings(this.settings),
         this.testMode,
@@ -640,6 +662,7 @@ export class Engine {
         this.renderer,
         this.quality,
         saved.worldMinutes,
+        this.shadowUpdates,
       );
       this.applyGraphicsFeatures();
       this.environment.setHorizonMode(this.horizonMode);
@@ -2761,6 +2784,7 @@ export class Engine {
     frameIntervalMilliseconds: number,
     cpuFrameStartedAt: number,
   ) {
+    this.keepFlashlightVariantsWarm();
     const renderMetrics = this.renderPipeline.render(
       deltaSeconds,
       this.graphicsBenchmark.isMeasuringGpu,
@@ -3152,6 +3176,37 @@ export class Engine {
     this.resize();
   }
 
+  /**
+   * Switching the beam changes the scene's light list, and the light counts
+   * are part of every program key. Whenever the last frame compiled new
+   * programs (a quality change, a new environment map size, dusk lighting, a
+   * new material), render once in the pose the beam is not in, so the next
+   * switch compiles nothing.
+   *
+   * A render, not renderer.compile(): compile() covers only the scene's own
+   * materials, not the shadow depth passes or the bloom occluder, whose keys
+   * also carry the light counts. The posed beam has zero intensity, and the
+   * real frame renders straight after, so the image never shows the pose.
+   */
+  private keepFlashlightVariantsWarm() {
+    if (!this.ready || this.disposed || this.graphicsBenchmark.isMeasuringGpu) return;
+    const programs = this.renderer.info.programs?.length ?? 0;
+    if (programs <= this.flashlightWarmPrograms) {
+      // Follow releases down, so later growth is still noticed.
+      this.flashlightWarmPrograms = programs;
+      return;
+    }
+    this.flashlight.prepareForCompile(this.flashlight.isEnabled ? "off" : "on");
+    try {
+      this.renderPipeline.render(0);
+    } catch {
+      // Best-effort: the real frame follows and reports its own failures.
+    } finally {
+      this.flashlight.finishCompile();
+    }
+    this.flashlightWarmPrograms = this.renderer.info.programs?.length ?? 0;
+  }
+
   private toggleQuality() {
     const currentIndex = QUALITY_LEVELS.indexOf(this.quality);
     this.setQuality(QUALITY_LEVELS[(currentIndex + 1) % QUALITY_LEVELS.length]);
@@ -3261,6 +3316,7 @@ export class Engine {
       flashlight: () => this.flashlight.diagnostics,
       audio: () => this.audio.diagnostics,
       graphics: () => this.renderPipeline.diagnostics,
+      shadowUpdates: () => this.shadowUpdates.diagnostics,
       graphicsFeatures: () => ({ ...this.graphicsFeatures }),
       setGraphicsFeature: (id, enabled) =>
         this.setGraphicsFeature(id, enabled),

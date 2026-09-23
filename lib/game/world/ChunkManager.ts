@@ -24,6 +24,10 @@ import {
   tagWorldMaterial,
 } from "../rendering/WorldMaterialLibrary";
 import { markBloomSource } from "../rendering/Bloom";
+import {
+  NO_SHADOW_INVALIDATOR,
+  type ShadowInvalidator,
+} from "../rendering/ShadowUpdatePolicy";
 import { randomRange, seededRandom } from "../core/random";
 import {
   PlanarCollisionIndex,
@@ -213,6 +217,8 @@ export class ChunkManager {
     private containerStates: ContainerStates = {},
     placedEntities: readonly PlacedEntity[] = [],
     materialLibrary?: WorldMaterialLibrary,
+    /** Told whenever chunk content that casts into the sun's shadow changes. */
+    private readonly shadowInvalidator: ShadowInvalidator = NO_SHADOW_INVALIDATOR,
   ) {
     this.materialLibrary = materialLibrary ?? new WorldMaterialLibrary();
     this.ownsMaterialLibrary = materialLibrary === undefined;
@@ -265,6 +271,7 @@ export class ChunkManager {
       this.activeChunkKey = nextActiveKey;
     } finally {
       this.refreshCaches();
+      this.shadowInvalidator.markDirty("chunks");
     }
     return true;
   }
@@ -300,6 +307,7 @@ export class ChunkManager {
       });
     }
     this.applyPlacedLighting();
+    this.shadowInvalidator.markDirty("quality");
   }
 
   presentEnvironment(state: Readonly<EnvironmentVisualState>) {
@@ -310,11 +318,18 @@ export class ChunkManager {
   setWorldMinutes(totalMinutes: number) {
     if (!Number.isFinite(totalMinutes)) return;
     this.worldMinutes = Math.max(0, totalMinutes);
+    let npcMoved = false;
     for (const chunk of this.loaded.values()) {
       for (const target of chunk.targets) {
-        if (target.kind === "npc") updateAuthoredNpcTarget(target, this.worldMinutes);
+        if (target.kind !== "npc") continue;
+        // Authored NPCs hold still at a schedule anchor and move only when
+        // the schedule entry changes.
+        const anchor = target.root.userData.scheduleAnchor;
+        updateAuthoredNpcTarget(target, this.worldMinutes);
+        if (target.root.userData.scheduleAnchor !== anchor) npcMoved = true;
       }
     }
+    if (npcMoved) this.shadowInvalidator.markDirty("npc");
   }
 
   setContainerStates(states: Readonly<ContainerStates>) {
@@ -345,6 +360,7 @@ export class ChunkManager {
     this.scene.add(this.placedRuntime.root);
     this.applyPlacedLighting();
     this.refreshCaches();
+    this.shadowInvalidator.markDirty("placement");
   }
 
   get placedEntities() {
@@ -410,6 +426,7 @@ export class ChunkManager {
     const target = this.targetCache.find((candidate) => candidate.id === id);
     if (!target) return;
     this.applyTargetVisualState(target, diff);
+    this.shadowInvalidator.markDirty("harvest");
     if (diff.removed) {
       for (const chunk of this.loaded.values()) {
         chunk.colliders = chunk.colliders.filter((collider) => collider.id !== id);
@@ -571,6 +588,7 @@ export class ChunkManager {
         }
       }
       door.setOpen(nextOpen);
+      this.shadowInvalidator.markDirty("door");
       this.doorStates[id] = nextOpen;
       const target = chunk.targets.find((candidate) => candidate.doorId === id);
       if (target) target.open = nextOpen;

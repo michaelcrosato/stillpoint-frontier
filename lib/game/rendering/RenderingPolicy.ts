@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { QualityLevel } from "../config";
+import { QUALITY_LEVELS, type QualityLevel } from "../config";
 import type { EnvironmentVisualState } from "../environment";
 
 type EnvironmentMapSample = Pick<
@@ -11,26 +11,30 @@ type EnvironmentMapSample = Pick<
   | "sunDirection"
 >;
 
+// Non-finite input lands in bucket 0: a NaN signature never equals itself and
+// would regenerate the PMREM on every frame.
 const quantize = (value: number, steps: number) =>
-  Math.round(THREE.MathUtils.clamp(value, 0, 1) * steps);
+  Number.isFinite(value) ? Math.round(THREE.MathUtils.clamp(value, 0, 1) * steps) : 0;
 
-/** Broad deterministic buckets keep PMREM generation out of the frame loop. */
+/**
+ * Broad deterministic buckets keep PMREM generation out of the frame loop.
+ * The buckets are packed into one integer, one mixed-radix digit each, so the
+ * per-frame comparison allocates nothing.
+ */
 export function environmentMapSignature(
   state: Readonly<EnvironmentMapSample>,
   quality: QualityLevel,
-) {
+): number {
   const azimuth = Math.atan2(state.sunDirection.z, state.sunDirection.x);
   const normalizedAzimuth = (azimuth + Math.PI) / (Math.PI * 2);
   const elevation = state.sunDirection.y * 0.5 + 0.5;
-  return [
-    quality,
-    quantize(state.daylight, 5),
-    quantize(state.goldenHour, 3),
-    quantize(state.cloudCover, 3),
-    quantize(state.dust, 2),
-    quantize(elevation, 7),
-    Math.round(normalizedAzimuth * 12) % 12,
-  ].join(":");
+  let signature = QUALITY_LEVELS.indexOf(quality);
+  signature = signature * 6 + quantize(state.daylight, 5);
+  signature = signature * 4 + quantize(state.goldenHour, 3);
+  signature = signature * 4 + quantize(state.cloudCover, 3);
+  signature = signature * 3 + quantize(state.dust, 2);
+  signature = signature * 8 + quantize(elevation, 7);
+  return signature * 12 + (quantize(normalizedAzimuth, 12) % 12);
 }
 
 export function renderPixelRatio(

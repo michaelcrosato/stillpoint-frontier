@@ -4,6 +4,7 @@ import {
   qualityUsesShadows,
   type QualityLevel,
 } from "../config";
+import { shadowDepthBias } from "../rendering/ShadowBias";
 
 export const FLASHLIGHT_RANGE_METERS = 48;
 const CORE_INTENSITY = 190;
@@ -44,6 +45,8 @@ export class PlayerFlashlight {
   constructor(
     private readonly scene: THREE.Scene,
     quality: QualityLevel,
+    /** `renderer.capabilities.reversedDepthBuffer`; sets the depth-bias sign. */
+    private readonly reversedDepth = false,
   ) {
     this.quality = quality;
     this.root.name = "player-phone-light";
@@ -89,16 +92,22 @@ export class PlayerFlashlight {
     if (this.disposed) return;
     this.quality = quality;
     const preset = QUALITY_PRESETS[quality];
-    if (this.core.shadow.mapSize.width !== preset.flashlightShadowMapSize) {
+    const shadows = qualityUsesShadows(quality);
+    // A preset without shadows keeps no map. Switching the beam off keeps it,
+    // so the next switch-on does not reallocate.
+    if (!shadows || this.core.shadow.mapSize.width !== preset.flashlightShadowMapSize) {
       this.core.shadow.map?.dispose();
       this.core.shadow.map = null;
       this.core.shadow.mapSize.set(
         preset.flashlightShadowMapSize,
         preset.flashlightShadowMapSize,
       );
-      this.core.shadow.needsUpdate = true;
     }
-    this.core.shadow.bias = quality === "ultra" ? -0.0001 : -0.00018;
+    if (shadows && this.core.shadow.map === null) this.core.shadow.needsUpdate = true;
+    this.core.shadow.bias = shadowDepthBias(
+      quality === "ultra" ? 0.0001 : 0.00018,
+      this.reversedDepth,
+    );
     this.core.shadow.normalBias = quality === "ultra" ? 0.025 : 0.035;
     this.applyRuntimeState();
   }
@@ -112,9 +121,18 @@ export class PlayerFlashlight {
     this.root.updateMatrixWorld(true);
   }
 
-  /** Precompile the spotlight shader path without flashing the entry scene. */
-  prepareForCompile() {
+  /**
+   * Pose the rig for a shader warm-up without drawing it: "on" puts both beams
+   * in the light list at zero intensity, "off" takes them out. finishCompile
+   * restores the runtime state either way.
+   */
+  prepareForCompile(pose: "on" | "off" = "on") {
     if (this.disposed) return;
+    if (pose === "off") {
+      this.root.visible = false;
+      this.core.castShadow = false;
+      return;
+    }
     this.root.visible = true;
     this.core.castShadow = qualityUsesShadows(this.quality);
     this.core.intensity = 0;
