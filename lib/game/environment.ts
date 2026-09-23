@@ -41,6 +41,9 @@ import { ShadowUpdatePolicy } from "./rendering/ShadowUpdatePolicy";
 import { sampleClimate } from "./world/macroWorld";
 
 const CINEMATIC_PRECIPITATION_POINTS = 720;
+/** Warm forward-scattered haze blended into fog colour looking toward a low sun. */
+const SUNWARD_HAZE = new THREE.Color(0xf2a868);
+const SUNWARD_HAZE_STRENGTH = 0.4;
 const PERFORMANCE_PRECIPITATION_POINTS = 280;
 
 export function stormLightningFlash(
@@ -85,6 +88,8 @@ export interface EnvironmentRuntime {
     position: THREE.Vector3,
     deltaSeconds: number,
     viewPosition?: Readonly<THREE.Vector3>,
+    /** Camera forward, for the sunward fog tint; omitted leaves fog untinted. */
+    viewDirection?: Readonly<THREE.Vector3>,
   ): void;
   sync(position: THREE.Vector3, snap?: boolean): void;
   setWorldMinutes(minutes: number): void;
@@ -179,6 +184,26 @@ export interface EnvironmentVisualState {
   sunColor: THREE.Color;
   skyColor: THREE.Color;
   horizonColor: THREE.Color;
+}
+
+/**
+ * Weight, in [0, 1], of the warm sunward haze for a view direction: forward
+ * scattering is strongest looking toward a low sun and absent facing away,
+ * outside golden hour, or at night.
+ */
+export function sunwardFogTint(
+  viewDirection: Readonly<THREE.Vector3>,
+  sunDirection: Readonly<THREE.Vector3>,
+  goldenHour: number,
+  daylight: number,
+) {
+  const lengths = viewDirection.length() * sunDirection.length();
+  if (!(lengths > 0)) return 0;
+  const alignment = viewDirection.dot(sunDirection) / lengths;
+  if (!(alignment > 0)) return 0;
+  const golden = THREE.MathUtils.clamp(Number.isFinite(goldenHour) ? goldenHour : 0, 0, 1);
+  const lit = THREE.MathUtils.clamp(Number.isFinite(daylight) ? daylight * 1.6 : 0, 0, 1);
+  return THREE.MathUtils.clamp(alignment ** 3 * golden * lit, 0, 1);
 }
 
 /** One celestial solution drives both the visible discs and the key light. */
@@ -580,6 +605,7 @@ export function createEnvironment(
   const applyAtmosphere = (
     position: THREE.Vector3,
     viewPosition: Readonly<THREE.Vector3> = position,
+    viewDirection?: Readonly<THREE.Vector3>,
   ) => {
     const lightningFlash = stormLightningFlash(
       effectSeconds,
@@ -626,6 +652,18 @@ export function createEnvironment(
     );
     skyMaterial.uniforms.sunDirection.value.copy(sunDirection);
     skyMaterial.uniforms.moonDirection.value.copy(moonDirection);
+    if (viewDirection) {
+      fog.color.lerp(
+        SUNWARD_HAZE,
+        SUNWARD_HAZE_STRENGTH *
+          sunwardFogTint(
+            viewDirection,
+            sunDirection,
+            displaySample.goldenHour,
+            displaySample.daylight,
+          ),
+      );
+    }
     const keyDirection = useSun ? sunDirection : moonDirection;
     const horizontal = 116;
     const keyX = keyDirection.x * horizontal;
@@ -773,7 +811,7 @@ export function createEnvironment(
       }
       runtime.sync(position);
     },
-    present(position, deltaSeconds, viewPosition = position) {
+    present(position, deltaSeconds, viewPosition = position, viewDirection) {
       const safeDelta = Number.isFinite(deltaSeconds) ? Math.max(0, deltaSeconds) : 0;
       const alpha = 1 - Math.exp(-safeDelta * 2.25);
       for (const field of BLENDED_SAMPLE_FIELDS) {
@@ -783,7 +821,7 @@ export function createEnvironment(
       displaySample.weatherId = targetSample.weatherId;
       displaySample.weatherLabel = targetSample.weatherLabel;
       displaySample.precipitation = targetSample.precipitation;
-      applyAtmosphere(position, viewPosition);
+      applyAtmosphere(position, viewPosition, viewDirection);
     },
     sync(position, snap = false) {
       climate = sampleClimate(position.x, position.z);

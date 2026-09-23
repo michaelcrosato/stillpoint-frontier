@@ -404,6 +404,7 @@ export class Engine {
   private readonly renderPipeline: RenderPipeline;
   private readonly renderer: THREE.WebGLRenderer;
   private readonly materialLibrary: WorldMaterialLibrary;
+  private readonly viewDirection = new THREE.Vector3();
   /** Decides when the cached sun shadow map is re-rendered. */
   private readonly shadowUpdates = new ShadowUpdatePolicy();
   /**
@@ -2613,7 +2614,12 @@ export class Engine {
 
   private presentRenderState(deltaSeconds: number, snap = false) {
     this.presentCamera(deltaSeconds, snap);
-    this.environment.present(this.player.position, deltaSeconds, this.camera.position);
+    this.environment.present(
+      this.player.position,
+      deltaSeconds,
+      this.camera.position,
+      this.camera.getWorldDirection(this.viewDirection),
+    );
     this.forestStress.update(
       this.player.position.x,
       this.player.position.z,
