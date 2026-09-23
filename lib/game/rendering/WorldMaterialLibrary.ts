@@ -60,6 +60,9 @@ interface TrackedMaterial {
   descriptor: ResolvedWorldMaterialDescriptor;
   dryRoughness: number;
   dryEnvironmentIntensity: number;
+  /** An authored envMap is left alone; otherwise the library assigns one. */
+  ownEnvironmentMap: THREE.Texture | null;
+  dryEnvironmentRotation: THREE.Euler;
   references: number;
   surfaceDetail: InstalledSurfaceDetail | null;
   vegetationWind: InstalledVegetationWind | null;
@@ -175,6 +178,10 @@ export class WorldMaterialLibrary {
   private readonly shared = createSharedWorldUniforms();
   /** Wetness last written to every material; null forces the next pass. */
   private appliedWetness: number | null = null;
+  private environment: THREE.Texture | null = null;
+  private environmentIntensity = 1;
+  /** One rotation for every tracked environment map. */
+  readonly environmentRotation = new THREE.Euler();
 
   /**
    * Registers the tagged materials under root as they are now. The set is a
@@ -263,6 +270,23 @@ export class WorldMaterialLibrary {
     this.apply();
   }
 
+  /**
+   * The environment the tracked materials reflect, null while reflections are
+   * off. Three uses a material's envMapIntensity only when the material has
+   * its own envMap; one borrowed from scene.environment always gets
+   * scene.environmentIntensity. So the library assigns the map itself, and
+   * the per-role scale and wet boost apply on top of this quality intensity.
+   */
+  setEnvironment(texture: THREE.Texture | null, intensity: number) {
+    if (this.disposed) return;
+    const nextIntensity = Math.max(0, finiteOr(intensity, 0));
+    if (texture === this.environment && nextIntensity === this.environmentIntensity) return;
+    this.environment = texture;
+    this.environmentIntensity = nextIntensity;
+    this.appliedWetness = null;
+    this.apply();
+  }
+
   setQuality(quality: QualityLevel) {
     if (this.disposed || this.quality === quality) return;
     this.quality = quality;
@@ -326,10 +350,13 @@ export class WorldMaterialLibrary {
       descriptor,
       dryRoughness: material.roughness,
       dryEnvironmentIntensity: material.envMapIntensity,
+      ownEnvironmentMap: material.envMap,
+      dryEnvironmentRotation: material.envMapRotation,
       references: 1,
       surfaceDetail,
       vegetationWind,
     };
+    if (!tracked.ownEnvironmentMap) material.envMapRotation = this.environmentRotation;
     this.tracked.set(material, tracked);
     // Streamed roots only need to initialize newly registered materials.
     this.apply([tracked]);
@@ -348,6 +375,8 @@ export class WorldMaterialLibrary {
     this.removeShaderHooks(tracked);
     tracked.material.roughness = tracked.dryRoughness;
     tracked.material.envMapIntensity = tracked.dryEnvironmentIntensity;
+    tracked.material.envMap = tracked.ownEnvironmentMap;
+    tracked.material.envMapRotation = tracked.dryEnvironmentRotation;
   }
 
   /**
@@ -439,8 +468,10 @@ export class WorldMaterialLibrary {
       );
       tracked.material.envMapIntensity =
         tracked.dryEnvironmentIntensity *
+        this.environmentIntensity *
         tracked.descriptor.environmentScale *
         (1 + tracked.descriptor.wetReflectionBoost * exposure);
+      if (!tracked.ownEnvironmentMap) tracked.material.envMap = this.environment;
       if (tracked.surfaceDetail) {
         tracked.surfaceDetail.uniforms.uStillpointSurfaceWetness.value = exposure;
         tracked.surfaceDetail.uniforms.uStillpointWeatherExposure.value =

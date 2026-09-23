@@ -134,6 +134,92 @@ describe("world material library shared uniforms", () => {
   });
 });
 
+describe("world material environment reflections", () => {
+  function road() {
+    return tagWorldMaterial(new THREE.MeshStandardMaterial({ envMapIntensity: 1 }), {
+      role: "road",
+      weatherExposure: 1,
+      environmentScale: 0.8,
+      wetReflectionBoost: 0.5,
+    });
+  }
+
+  it("gives tracked materials the environment with per-role, wet-scaled intensity", () => {
+    const library = new WorldMaterialLibrary();
+    const geometry = new THREE.BoxGeometry();
+    const material = road();
+    library.track(new THREE.Mesh(geometry, material));
+    const texture = new THREE.Texture();
+    library.setEnvironment(texture, 0.68);
+    library.present({ surfaceWetness: 1 });
+    // Three reads envMapIntensity only when the material has its own envMap.
+    expect(material.envMap).toBe(texture);
+    expect(material.envMapIntensity).toBeCloseTo(0.68 * 0.8 * 1.5);
+    library.present({ surfaceWetness: 0 });
+    expect(material.envMapIntensity).toBeCloseTo(0.68 * 0.8);
+    library.dispose();
+    material.dispose();
+    texture.dispose();
+    geometry.dispose();
+  });
+
+  it("drops the environment while reflections are off and restores it after", () => {
+    const library = new WorldMaterialLibrary();
+    const geometry = new THREE.BoxGeometry();
+    const material = road();
+    library.track(new THREE.Mesh(geometry, material));
+    const texture = new THREE.Texture();
+    library.setEnvironment(texture, 0.68);
+    library.setEnvironment(null, 0);
+    expect(material.envMap).toBeNull();
+    library.setEnvironment(texture, 0.68);
+    expect(material.envMap).toBe(texture);
+    expect(material.envMapIntensity).toBeCloseTo(0.68 * 0.8);
+    library.dispose();
+    material.dispose();
+    texture.dispose();
+    geometry.dispose();
+  });
+
+  it("shares one environment rotation and restores each material on release", () => {
+    const library = new WorldMaterialLibrary();
+    const geometry = new THREE.BoxGeometry();
+    const first = road();
+    const second = road();
+    const originalRotation = first.envMapRotation;
+    const mesh = new THREE.Mesh(geometry, first);
+    library.track(mesh);
+    library.track(new THREE.Mesh(geometry, second));
+    const texture = new THREE.Texture();
+    library.setEnvironment(texture, 0.68);
+    expect(first.envMapRotation).toBe(second.envMapRotation);
+    library.untrack(mesh);
+    expect(first.envMap).toBeNull();
+    expect(first.envMapRotation).toBe(originalRotation);
+    expect(first.envMapIntensity).toBe(1);
+    library.dispose();
+    first.dispose();
+    second.dispose();
+    texture.dispose();
+    geometry.dispose();
+  });
+
+  it("leaves a material's own environment map alone", () => {
+    const library = new WorldMaterialLibrary();
+    const geometry = new THREE.BoxGeometry();
+    const own = new THREE.Texture();
+    const material = road();
+    material.envMap = own;
+    library.track(new THREE.Mesh(geometry, material));
+    library.setEnvironment(new THREE.Texture(), 0.68);
+    expect(material.envMap).toBe(own);
+    library.dispose();
+    material.dispose();
+    own.dispose();
+    geometry.dispose();
+  });
+});
+
 describe("world material library", () => {
   it("initializes new materials once without rewriting earlier streamed roots", () => {
     const library = new WorldMaterialLibrary();

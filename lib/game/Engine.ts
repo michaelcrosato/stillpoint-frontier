@@ -49,7 +49,11 @@ import {
 } from "./rendering/GraphicsFeatures";
 import { SystemPipeline } from "./core/SystemPipeline";
 import { FeatureRegistry } from "./core/FeatureRegistry";
-import { createEnvironment, type EnvironmentRuntime } from "./environment";
+import {
+  createEnvironment,
+  type EnvironmentRuntime,
+  type EnvironmentVisualState,
+} from "./environment";
 import {
   GAME_MINUTES_PER_REAL_SECOND,
   type WeatherId,
@@ -834,9 +838,7 @@ export class Engine {
     this.environment.sync(this.player.position, true);
     this.environment.present(this.player.position, 0, this.camera.position);
     const visualState = this.environment.getVisualState();
-    this.world.presentEnvironment(visualState);
-    this.horizon.presentEnvironment(visualState);
-    this.renderPipeline.presentEnvironment(visualState);
+    this.presentVisualEnvironment(visualState);
     this.synchronizeTimeDependentWorld();
     this.syncAuthoredLandmarkTargets();
     this.syncPlacedNavigationTargets();
@@ -965,9 +967,7 @@ export class Engine {
     this.environment.sync(this.player.position, true);
     this.environment.present(this.player.position, 0, this.camera.position);
     const visualState = this.environment.getVisualState();
-    this.world.presentEnvironment(visualState);
-    this.horizon.presentEnvironment(visualState);
-    this.renderPipeline.presentEnvironment(visualState);
+    this.presentVisualEnvironment(visualState);
     this.synchronizeTimeDependentWorld();
   }
 
@@ -2620,9 +2620,7 @@ export class Engine {
       this.environment.getDeveloperState().enabled,
     );
     const visualState = this.environment.getVisualState();
-    this.world.presentEnvironment(visualState);
-    this.horizon.presentEnvironment(visualState);
-    this.renderPipeline.presentEnvironment(visualState);
+    this.presentVisualEnvironment(visualState);
     const interpolation =
       this.started &&
       !this.paused &&
@@ -3135,11 +3133,20 @@ export class Engine {
     this.environment.sync(this.player.position, snap);
     this.environment.present(this.player.position, 0, this.camera.position);
     const visualState = this.environment.getVisualState();
+    this.presentVisualEnvironment(visualState);
+    this.synchronizeTimeDependentWorld();
+    this.emitSnapshot(true);
+  }
+
+  /**
+   * The environment map is captured inside renderPipeline.presentEnvironment,
+   * so world materials take the new capture last.
+   */
+  private presentVisualEnvironment(visualState: Readonly<EnvironmentVisualState>) {
     this.world.presentEnvironment(visualState);
     this.horizon.presentEnvironment(visualState);
     this.renderPipeline.presentEnvironment(visualState);
-    this.synchronizeTimeDependentWorld();
-    this.emitSnapshot(true);
+    this.materialLibrary.setEnvironment(this.scene.environment, this.scene.environmentIntensity);
   }
 
   private synchronizeTimeDependentWorld() {
@@ -3266,6 +3273,7 @@ export class Engine {
     this.contextStatus = "ready";
     this.renderPipeline.handleContextRestored();
     this.renderPipeline.presentEnvironment(this.environment.getVisualState());
+    this.materialLibrary.setEnvironment(this.scene.environment, this.scene.environmentIntensity);
     this.emitSnapshot(true);
   };
 
