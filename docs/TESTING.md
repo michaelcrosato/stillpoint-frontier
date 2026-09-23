@@ -12,12 +12,14 @@ construction tests without raising timeouts. On constrained machines, append
 For a source-only release check, run typecheck, lint, test:coverage, build, then
 test:rendered. The last command tests the built Worker response, not a browser.
 Coverage gates apply to the explicit include list in vitest.config.ts, not the
-entire repository. That list covers about two thirds of the source lines under app/,
-lib/ and components/; Engine.ts, HorizonRenderer.ts and every React component sit
-outside it, so the reported percentages describe the included slice and not the
-codebase. Thresholds are aggregate, not per file, so an
-individual included file can sit well below the bar. Browser/GPU lifecycles still
-need separate acceptance.
+entire repository. The list holds every unit-testable module under lib/. Engine.ts,
+RenderPipeline.ts and EnvironmentMapRuntime.ts (browser-owned GPU lifecycles), the
+thin system installers only Engine exercises, type-only modules and every React
+component sit outside it, so the reported percentages describe the included slice
+and not the codebase. The thresholds apply to the slice as a whole, and each file
+must also clear a per-file floor set at the weakest file: 65% of statements and
+lines, 50% of branches and functions. Browser/GPU lifecycles still need separate
+acceptance.
 
 - `npm run typecheck` — strict TypeScript across the site, worker, game, and tests.
 - `npm run lint` — ESLint across source and tests.
