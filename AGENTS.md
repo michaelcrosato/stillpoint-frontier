@@ -6,6 +6,8 @@
 - docs/ARCHITECTURE.md: ownership and performance contracts.
 - docs/TESTING.md: automated checks and GPU acceptance.
 - docs/AUDIT.md: recent fixes, known limits, and refactor priorities.
+- docs/DEPENDENCIES.md: dependency policy, overrides, and open advisories.
+- docs/audits/: dated audit reports and the decisions taken on each finding.
 
 ## Product and source rules
 

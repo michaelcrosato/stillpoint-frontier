@@ -185,7 +185,7 @@ import {
 import {
   npcById,
   npcPoseAt,
-} from "./npcs/authoredNpc";
+} from "./npcs/stillpointNpcs";
 import {
   DEFAULT_GAME_SETTINGS,
   normalizeGameSettings,
@@ -2793,6 +2793,8 @@ export class Engine {
     const renderMetrics = this.renderPipeline.render(
       deltaSeconds,
       this.graphicsBenchmark.isMeasuringGpu,
+      // The benchmark records its resolution at the start of its warm-up.
+      this.graphicsBenchmark.isActive,
     );
     this.graphicsBenchmark.resolveGpuSamples(renderMetrics.gpuSamples);
     this.trackPerformance(timestamp);
@@ -3198,13 +3200,17 @@ export class Engine {
    * Switching the beam changes the scene's light list, and the light counts
    * are part of every program key. Whenever the last frame compiled new
    * programs (a quality change, a new environment map size, dusk lighting, a
-   * new material), render once in the pose the beam is not in, so the next
-   * switch compiles nothing.
+   * new material), compile the scene in the pose the beam is not in, so the
+   * next switch finds its material programs ready.
    *
-   * A render, not renderer.compile(): compile() covers only the scene's own
-   * materials, not the shadow depth passes or the bloom occluder, whose keys
-   * also carry the light counts. The posed beam has zero intensity, and the
-   * real frame renders straight after, so the image never shows the pose.
+   * A compile, not a render: where KHR_parallel_shader_compile exists the
+   * driver builds these programs off the main thread, so the transition that
+   * triggered the warm-up costs little more than it would alone. A render in
+   * the posed state stalled for the full compile, roughly doubling the stall
+   * at dusk or a quality change at Ultra. compile() skips the shadow depth and
+   * bloom occluder programs; those are small, and the first switch-on stayed
+   * under 35 ms. The pipeline binds its post-processing target so the keys
+   * match real frames.
    */
   private keepFlashlightVariantsWarm() {
     if (!this.ready || this.disposed || this.graphicsBenchmark.isMeasuringGpu) return;
@@ -3216,7 +3222,8 @@ export class Engine {
     }
     this.flashlight.prepareForCompile(this.flashlight.isEnabled ? "off" : "on");
     try {
-      this.renderPipeline.render(0);
+      // The pipeline compiles synchronously; its promise only carries failure.
+      this.renderPipeline.compile().catch(() => undefined);
     } catch {
       // Best-effort: the real frame follows and reports its own failures.
     } finally {
@@ -3280,7 +3287,9 @@ export class Engine {
     this.emitSnapshot(true);
   };
 
-  private handleContextRestored = () => {
+  private handleContextRestored = () => this.onContextRestored();
+
+  private onContextRestored() {
     this.contextStatus = "ready";
     this.renderPipeline.handleContextRestored();
     this.renderPipeline.presentEnvironment(this.environment.getVisualState());
@@ -3289,8 +3298,10 @@ export class Engine {
       this.scene.environmentIntensity,
       this.scene.environmentRotation,
     );
+    // The lost context took the cached sun shadow map with it.
+    this.shadowUpdates.markDirty("context");
     this.emitSnapshot(true);
-  };
+  }
 
   private installTestBridge() {
     window.__STILLPOINT_TEST__ = {

@@ -135,12 +135,15 @@ export function takeAllContainerItems(
   return { inventory: nextInventory, states: nextStates, quantity };
 }
 
+/** Saved container states kept per survey; entries past the cap are dropped. */
+const MAX_CONTAINER_STATES = 512;
+
 export function normalizeContainerStates(value: unknown): ContainerStates {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const states: ContainerStates = {};
   let accepted = 0;
   for (const [containerId, raw] of Object.entries(value)) {
-    if (accepted >= 512 || !CONTAINER_ID.test(containerId) || !raw || typeof raw !== "object") continue;
+    if (accepted >= MAX_CONTAINER_STATES || !CONTAINER_ID.test(containerId) || !raw || typeof raw !== "object") continue;
     const source = raw as { opened?: unknown; looted?: unknown; remaining?: unknown };
     if (source.opened !== true || !source.remaining || typeof source.remaining !== "object") continue;
     const remaining: Partial<Record<ItemId, number>> = {};

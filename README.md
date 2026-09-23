@@ -50,6 +50,7 @@ These are the default keys. Settings supports rebinding.
 | Phone light / scanner | L / G |
 | Map / inventory / field guide | M / I / J |
 | Camera presets | V |
+| Graphics quality (Performance → Cinematic → Ultra) | Q |
 | Camera zoom | Mouse wheel during captured play |
 | Pause / release pointer | Escape |
 | Developer console | Backquote or DEV button |
@@ -65,8 +66,10 @@ from 45° to 70°. Camera obstruction retracts the view. Gameplay aim and
 interaction range stay at the player, not at the displaced camera.
 
 Map controls: scroll, use +/−, or use the slider to zoom from 1× to 32×.
-Drag to pan. P centers the player. N centers the target. 0 fits the territory.
-Alt + Arrow Keys pans. Arrow Keys move a waypoint; Enter places one.
+Drag to pan. P centers the player. N centers the target. 0 or Home fits the
+territory. Alt + Arrow Keys pans. Arrow Keys move the waypoint 1 km, or 5 km
+with Shift, starting from the player when none is set. Enter sets a waypoint
+at the player when none is set. Delete or Backspace clears it.
 Escape closes the map. Map shortcuts apply when the map plot has focus.
 Ctrl/Cmd combinations and modified wheel gestures remain browser controls.
 

@@ -44,8 +44,12 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
   player control, player condition, chunk streaming, location discovery, navigation,
   scanning, interaction, equipment, environment, and environmental-audio systems.
 - `ChunkManager` maintains a 9×9 visual ring, creates deterministic chunk content from
-  the world seed and integer chunk coordinates, and owns every render resource that must
-  be disposed when a chunk leaves the ring. Collider and target caches remain limited to
+  the world seed and integer chunk coordinates, and owns each chunk's own render resources,
+  disposed when the chunk leaves the ring. Geometry and materials that are identical in
+  every chunk come from a `ChunkAssetCache`: each chunk holds a lease on the assets it
+  uses, and an asset is disposed when its last lease is released. A chunk builder that
+  throws leaves nothing behind: its partial tree is disposed, its lease released, and the
+  next update retries it. Collider and target caches remain limited to
   the inner 5×5 gameplay ring so the doubled horizon does not inflate fixed-step work. Every
   rendered solid is paired with a circle or exact oriented-box collider from the same recipe;
   a 16 m uniform grid narrows each swept movement query. Placement reserves roads, water,
@@ -77,6 +81,7 @@ adds alert, flee, and return modes while keeping presentation rigid and unsaved.
   shadows. The near LOD follows chunk crossings while outer LODs snap to progressively
   coarser cells and are reused, so walking does not rebuild the atlas horizon every 96 m;
   changing the profile cannot expand gameplay streaming or recreate city travel stalls.
+  A ring whose inner edge the rendered fog fully hides is not drawn.
   Crownspire adds one 216-triangle, camera-relative upper-landform proxy beyond those rings.
   It preserves the landmark's true bearing and angular size inside the active far plane,
   fades out as the physical terrain becomes resident, and responds to horizon color, cloud,
@@ -325,26 +330,36 @@ The initial target is an RTX 3060-class machine at 1440p/60:
 - Citizen matrices present once per rendered frame with fixed-step interpolation, so they
   remain smooth on 60 Hz and high-refresh displays. Performance mode reduces population
   density rather than motion cadence. Hard resident targets remain 5,000 and 2,200 visible
-  citizens respectively, with no citizen shadows.
+  citizens respectively. Citizens cast nothing into the shadow map; one instanced draw of
+  soft blob shadows, twice each body's footprint, grounds up to 512 of them within 56 m.
 - Wildlife is capped at 72 rigid instances in cinematic/Ultra mode and 36 in performance mode,
-  spread across no more than six candidates per chunk with no shadows, pathfinding, or
-  persistent AI; each visible resident carries only a bounded four-mode reaction record.
+  spread across no more than six candidates per chunk with no shadow-map shadows,
+  pathfinding, or persistent AI (walking animals get blob shadows within 72 m); each visible resident carries only a bounded four-mode reaction record.
   AnimalEngine recomputes each species' culling sphere from the presented instance
   matrices. This covers moving animals on Crownspire and below sea level in Sunscar;
   a fixed sphere near sea level does not. The extra bound calculation visits at most
   72 instances per presented frame and adds no draw calls or resident animals.
-- One shadow-casting directional sun/moon key; 2K shadow map in cinematic and 4K in Ultra. Dynamic
-  weather changes palette, fog, exposure, and one shader-driven precipitation field.
+- One shadow-casting directional sun/moon key; 2K shadow map in cinematic and 4K in Ultra. The
+  sun and moon keys crossfade through twilight. The sun shadow map is cached: it re-renders
+  when the light turns more than 0.0005 rad, the player moves more than 1 m, a caster reports
+  a change (chunk streaming, harvests, doors, placements, the avatar, the forest lab), the
+  WebGL context is restored, or 30 evaluations pass. Presets without shadows release the
+  maps. Dynamic weather changes palette, fog, exposure, and one shader-driven precipitation field.
 - Persistent field torches keep emissive markers while only the nearest 12 cinematic/Ultra or six
   performance lights activate at night, bounding renderer light growth as camps accumulate.
 - The optional phone light reuses two persistent spotlights across toggles. Its unshadowed
   spill is limited to 11 m to reduce light leaks; performance mode disables its single 1K
-  core shadow while preserving the beam.
+  core shadow while preserving the beam. Whenever a frame compiles new programs, the scene
+  is compiled once more in the beam's other pose, so switching it seldom compiles; where
+  `KHR_parallel_shader_compile` exists that work stays off the main thread.
 - Environmental audio reuses one gesture-unlocked context, four persistent procedural
   ambience loops, and short-lived one-shot footstep/cue nodes. Paused or blocked audio is a
   contained capability failure and never blocks simulation or rendering.
 - Pixel ratio is capped at 1.75 in cinematic, 2 in opt-in Ultra, and 1 in performance;
-  performance disables shadows.
+  performance disables shadows. Where GPU timer queries exist, adaptive resolution renders
+  at 0.6 to 1 of that pixel ratio. From GPU time sampled every 15th frame, it steps down by
+  0.1 after sustained time over 1.25× the 60 fps budget and back up under 0.6×. It holds
+  still through benchmarks and is off in test mode.
 - The sun/moon shadow anchor is quantized in its light plane at the active shadow-map
   texel size. The light and target move together, preserving direction while preventing
   sub-texel shadow crawling; a session-only developer switch exposes the unstabilized path.
@@ -364,14 +379,17 @@ The initial target is an RTX 3060-class machine at 1440p/60:
   disabled; vegetation shadow silhouettes remain static. Quality strengths live in `QUALITY_PRESETS`; developer A/B switches are
   session-only and benchmark captures record their state.
 - A camera-centered procedural sky renders sun/moon discs, horizon glow, and multi-layer
-  wind-driven clouds without texture assets. One shared world-space water shader renders all
+  wind-driven clouds without texture assets. Separate sun and moon discs are drawn only by
+  the bloom pass, at 0.9 of the horizon draw distance so terrain hides their glow. One shared world-space water shader renders all
   river and sea chunks with seamless ripples, Fresnel tinting, and weather-aware sun glint.
 - EnvironmentMapRuntime owns its reflection texture and borrows the renderer for PMREM
   capture. A finally block restores the prior render target, cube face, mip level,
   clear policy, tone mapping, XR flag, and capture background on success or failure.
   Failed updates retain the previous reflection and do not retry the same atmosphere
   signature each frame. This isolates renderer state; it does not prove that Three
-  releases every internal allocation when capture fails partway through.
+  releases every internal allocation when capture fails partway through. Sun azimuth is
+  not part of the signature: between captures the map rotates by the captured minus the
+  current azimuth, because Three samples at the transpose of `envMapRotation`.
 - The compositor keeps ACES/output conversion last, with independently switchable selective
   bloom, Ultra-only near-field GTAO, and a restrained atmosphere-aware grade. The grade responds
   to daylight, golden hour, cloud, rain, dust, and night without changing simulation state. If an
@@ -412,9 +430,9 @@ The initial target is an RTX 3060-class machine at 1440p/60:
   is reported separately as `PASS`, `MISS`, or `CAP_LIMITED`, so a 144 Hz target measured on
   a stable 60 Hz display is not mistaken for an engine-budget failure. Real acceptance
   captures belong on pinned hardware.
-- Every unloaded chunk disposes owned geometry/materials and releases shared material references.
+- Every unloaded chunk disposes owned geometry/materials and releases its shared-asset lease.
 
 The next production hardening modules are worker-based chunk recipes, floating-origin
-rebasing, shared geometry ownership, vertical capsule
+rebasing, vertical capsule
 collision, and authored road routing around water and grades. Their boundaries already
 align with the present world, system, and feature layers.

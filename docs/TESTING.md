@@ -9,15 +9,21 @@ Unit tests use two workers by default. This limits CPU contention in full chunk
 construction tests without raising timeouts. On constrained machines, append
 `-- --maxWorkers=1` to test:unit or test:coverage.
 
+Property tests run from one fixed fast-check seed, so every run tries the same
+inputs. Set `FC_SEED=<integer>` to replay the seed a failure reports or to explore
+other inputs.
+
 For a source-only release check, run typecheck, lint, test:coverage, build, then
 test:rendered. The last command tests the built Worker response, not a browser.
 Coverage gates apply to the explicit include list in vitest.config.ts, not the
-entire repository. That list covers about two thirds of the source lines under app/,
-lib/ and components/; Engine.ts, HorizonRenderer.ts and every React component sit
-outside it, so the reported percentages describe the included slice and not the
-codebase. Thresholds are aggregate, not per file, so an
-individual included file can sit well below the bar. Browser/GPU lifecycles still
-need separate acceptance.
+entire repository. The list holds every unit-testable module under lib/. Engine.ts,
+RenderPipeline.ts and EnvironmentMapRuntime.ts (browser-owned GPU lifecycles), the
+thin system installers only Engine exercises, type-only modules and every React
+component sit outside it, so the reported percentages describe the included slice
+and not the codebase. The thresholds apply to the slice as a whole, and each file
+must also clear a per-file floor set at the weakest file: 65% of statements and
+lines, 50% of branches and functions. Browser/GPU lifecycles still need separate
+acceptance.
 
 - `npm run typecheck` — strict TypeScript across the site, worker, game, and tests.
 - `npm run lint` — ESLint across source and tests.
@@ -116,10 +122,15 @@ then restore them through normal mixing.
 Performance regressions count material writes during 81-root registration and bound
 registered chunk residency throughout successful far travel. Chunk tests also inject
 failure before construction and verify same-center retry and fresh gameplay caches.
-They do not prove exception-safe mid-factory allocation or automatic Engine recovery.
+Failures injected inside a chunk builder and in its final lighting pass leave no chunk
+behind: the partial tree is disposed, its shared-asset lease released, and the next
+update retries it. They do not prove automatic Engine recovery.
 These are work-count/resource invariants, not hardware FPS assertions.
-The version-42 follow-up adds a dry-canyon save round trip at −640.57 m. It
+The version-43 fix added a dry-canyon save round trip at −640.57 m. It
 preserves both player state and camp placement and rejects invalid heights.
+Terrain height goldens pin nine literal world positions to half a millimetre,
+including dry canyon floor at −640.56 m at (37,100, −13,485), because saves
+store literal positions.
 Engine tests keep horizon changes and Reset Settings out of the survey save
 path, before and after launch. Crafting tests cover all six recipes at the
 output limit and with exactly enough room. Rendered component markup tests

@@ -125,11 +125,11 @@ export class EnvironmentMapRuntime {
     if (this.disposed || !this.enabled) return;
     const nextSignature = environmentMapSignature(state, this.quality);
     if (nextSignature === this.signature) {
-      // Three samples the map at envMapRotation x direction, and a turn of
-      // theta about Y lowers a direction's azimuth by theta: turning by the
-      // sun's travel since the capture brings today's sun back onto the
-      // captured one.
-      this.setRotation(wrapAngle(sunAzimuth(state.sunDirection) - this.capturedAzimuth));
+      // Three uploads the transpose of the rotation and samples the map at
+      // that times the direction, so a turn of theta about Y raises the
+      // sampled azimuth (atan2(z, x)) by theta. Turning back by the sun's
+      // travel since the capture brings today's sun onto the captured one.
+      this.setRotation(wrapAngle(this.capturedAzimuth - sunAzimuth(state.sunDirection)));
       return;
     }
 

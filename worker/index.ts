@@ -22,9 +22,11 @@ interface ExecutionContext {
  * from the assets binding and never reach this handler; they are content-hashed,
  * immutable and carry no credentials.
  *
- * No Content-Security-Policy: the RSC payload arrives in inline script tags, so
- * a policy worth having needs a per-response nonce, which this entry point
- * cannot mint without buffering and rewriting every document.
+ * The Content-Security-Policy sets only directives that break nothing here:
+ * no plugins, no <base> rewrites, no form posts to another origin. It leaves
+ * scripts unrestricted: the RSC payload arrives in inline script tags, so a
+ * script policy needs a per-response nonce, which this entry point cannot mint
+ * without buffering and rewriting every document.
  *
  * No X-Frame-Options / frame-ancestors: whether the hosting platform frames the
  * site for previews is not documented, and breaking a live preview is a worse
@@ -36,6 +38,7 @@ const SECURITY_HEADERS: Readonly<Record<string, string>> = {
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+  "Content-Security-Policy": "object-src 'none'; base-uri 'self'; form-action 'self'",
 };
 
 /** Responses that must not carry a body when reconstructed. */

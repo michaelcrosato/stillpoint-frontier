@@ -121,13 +121,6 @@ import type {
   WorldLineOfSightOptions,
   WorldTarget,
 } from "./targets";
-export type {
-  InstancedTargetVisual,
-  WorldLineOfSightOptions,
-  WorldTarget,
-  WorldTargetAction,
-  WorldTargetKind,
-} from "./targets";
 
 interface ChunkRuntime {
   key: string;
@@ -681,12 +674,21 @@ export class ChunkManager {
     return this.buildingLease;
   }
 
+  /**
+   * Builds and registers one chunk. A builder that throws leaves nothing
+   * behind: the partial root is removed and disposed, then the lease is
+   * released, and the chunk stays unloaded so the next update retries it.
+   */
   private loadChunk(chunkX: number, chunkZ: number) {
     const assets = this.assets.lease();
+    const root = new THREE.Group();
+    root.name = `chunk:${chunkKey(chunkX, chunkZ)}`;
     this.buildingLease = assets;
     try {
-      this.buildChunk(chunkX, chunkZ, assets);
+      this.buildChunk(chunkX, chunkZ, root, assets);
     } catch (error) {
+      // Dispose before releasing, so disposal still skips the shared assets.
+      this.disposeObjectTree(root);
       assets.release();
       throw error;
     } finally {
@@ -694,11 +696,14 @@ export class ChunkManager {
     }
   }
 
-  private buildChunk(chunkX: number, chunkZ: number, assets: ChunkAssetLease) {
+  private buildChunk(
+    chunkX: number,
+    chunkZ: number,
+    root: THREE.Group,
+    assets: ChunkAssetLease,
+  ) {
     const key = chunkKey(chunkX, chunkZ);
     const center = chunkCenter({ x: chunkX, z: chunkZ });
-    const root = new THREE.Group();
-    root.name = `chunk:${key}`;
     const climate = sampleClimate(center.x, center.z);
     const nightLighting: ChunkNightLighting = {
       windowMeshes: [],
@@ -857,7 +862,9 @@ export class ChunkManager {
 
     this.materialLibrary.track(root);
     this.scene.add(root);
-    const runtime = {
+    this.applyNightLighting(nightLighting);
+    // Registration comes last: nothing after it can fail and strand a chunk.
+    this.loaded.set(key, {
       key,
       chunkX,
       chunkZ,
@@ -867,9 +874,7 @@ export class ChunkManager {
       targets,
       doors,
       nightLighting,
-    };
-    this.loaded.set(key, runtime);
-    this.applyNightLighting(nightLighting);
+    });
   }
 
   private createDoorTarget(door: AuthoredDoorRuntime): WorldTarget {

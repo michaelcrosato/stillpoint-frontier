@@ -5,7 +5,7 @@ import {
   CONTRACT_DEFINITIONS,
   hasOutstandingContract,
 } from "../lib/game/gameplay/contracts";
-import { npcById, npcGreeting } from "../lib/game/npcs/authoredNpc";
+import { npcById, npcGreeting } from "../lib/game/npcs/stillpointNpcs";
 import type { GameSnapshot } from "../lib/game/state";
 import FeatureDialog from "./FeatureDialog";
 

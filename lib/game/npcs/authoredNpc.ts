@@ -61,31 +61,3 @@ export function createAuthoredNpcTarget(
 }
 
 export { updateAuthoredNpcTarget };
-
-/** Transitional public barrel: data/model/presentation now have separate ports. */
-export type {
-  NpcAnchorReference,
-  NpcAppearance,
-  NpcDefinition,
-  NpcDialogueTopic,
-  NpcGreeting,
-  NpcPose,
-  NpcScheduleEntry,
-} from "./model";
-export {
-  minuteOfDay,
-  npcDefinitionIssues,
-  npcGreetingAt,
-  npcScheduleEntryAt,
-} from "./model";
-export {
-  AUTHORED_NPCS,
-  authoredNpcDefinitionIssues,
-  authoredNpcScheduleAnchor,
-  npcById,
-  npcGreeting,
-  npcPoseAt,
-  npcPoseForDefinition,
-  type NpcId,
-  type NpcScheduleAnchor,
-} from "./stillpointNpcs";

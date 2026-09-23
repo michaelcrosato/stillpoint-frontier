@@ -45,8 +45,11 @@ export class PlayerFlashlight {
   constructor(
     private readonly scene: THREE.Scene,
     quality: QualityLevel,
-    /** `renderer.capabilities.reversedDepthBuffer`; sets the depth-bias sign. */
-    private readonly reversedDepth = false,
+    /**
+     * `renderer.capabilities.reversedDepthBuffer`; sets the depth-bias sign.
+     * Required: a wrong default would bias the wrong way on reversed hardware.
+     */
+    private readonly reversedDepth: boolean,
   ) {
     this.quality = quality;
     this.root.name = "player-phone-light";
