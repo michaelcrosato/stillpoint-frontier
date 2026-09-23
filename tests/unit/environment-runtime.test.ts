@@ -45,7 +45,8 @@ describe("environment visual runtime", () => {
     expect(environment.sun.shadow.map).toBeNull();
     expect(disposeAllocatedShadow).toHaveBeenCalledTimes(1);
     expect(environment.sun.shadow.bias).toBeCloseTo(-0.00008);
-    expect(environment.sun.shadow.normalBias).toBeCloseTo(0.015);
+    // Half of one 4096 texel of the 176 m box.
+    expect(environment.sun.shadow.normalBias).toBeCloseTo(176 / 4096 / 2, 8);
     expect(precipitation.geometry.drawRange.count).toBe(720);
     environment.setQuality("performance");
     expect(environment.sun.castShadow).toBe(false);

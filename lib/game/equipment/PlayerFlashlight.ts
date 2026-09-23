@@ -4,6 +4,7 @@ import {
   qualityUsesShadows,
   type QualityLevel,
 } from "../config";
+import { shadowDepthBias } from "../rendering/ShadowBias";
 
 export const FLASHLIGHT_RANGE_METERS = 48;
 const CORE_INTENSITY = 190;
@@ -44,6 +45,8 @@ export class PlayerFlashlight {
   constructor(
     private readonly scene: THREE.Scene,
     quality: QualityLevel,
+    /** `renderer.capabilities.reversedDepthBuffer`; sets the depth-bias sign. */
+    private readonly reversedDepth = false,
   ) {
     this.quality = quality;
     this.root.name = "player-phone-light";
@@ -98,7 +101,10 @@ export class PlayerFlashlight {
       );
       this.core.shadow.needsUpdate = true;
     }
-    this.core.shadow.bias = quality === "ultra" ? -0.0001 : -0.00018;
+    this.core.shadow.bias = shadowDepthBias(
+      quality === "ultra" ? 0.0001 : 0.00018,
+      this.reversedDepth,
+    );
     this.core.shadow.normalBias = quality === "ultra" ? 0.025 : 0.035;
     this.applyRuntimeState();
   }

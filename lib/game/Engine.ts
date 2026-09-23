@@ -630,7 +630,11 @@ export class Engine {
           this.world.queryColliders(current, desired, radius, minY, maxY),
       });
       this.playerAvatar = new PlayerAvatar(this.scene, this.quality);
-      this.flashlight = new PlayerFlashlight(this.scene, this.quality);
+      this.flashlight = new PlayerFlashlight(
+        this.scene,
+        this.quality,
+        this.renderer.capabilities.reversedDepthBuffer === true,
+      );
       this.audio = new EnvironmentalAudio(
         audioLevelsFromSettings(this.settings),
         this.testMode,

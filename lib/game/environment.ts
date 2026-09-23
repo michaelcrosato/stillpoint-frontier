@@ -32,6 +32,10 @@ import {
   type EnvironmentSample,
   type WeatherId,
 } from "./environment/model";
+import {
+  SUN_SHADOW_EXTENT_METERS,
+  sunShadowBiases,
+} from "./rendering/ShadowBias";
 import { sampleClimate } from "./world/macroWorld";
 
 const CINEMATIC_PRECIPITATION_POINTS = 720;
@@ -345,10 +349,10 @@ export function createEnvironment(
   sun.castShadow = qualityUsesShadows(quality);
   sun.shadow.camera.near = 1;
   sun.shadow.camera.far = 260;
-  sun.shadow.camera.left = -88;
-  sun.shadow.camera.right = 88;
-  sun.shadow.camera.top = 88;
-  sun.shadow.camera.bottom = -88;
+  sun.shadow.camera.left = -SUN_SHADOW_EXTENT_METERS / 2;
+  sun.shadow.camera.right = SUN_SHADOW_EXTENT_METERS / 2;
+  sun.shadow.camera.top = SUN_SHADOW_EXTENT_METERS / 2;
+  sun.shadow.camera.bottom = -SUN_SHADOW_EXTENT_METERS / 2;
   // three 0.185 removed PCFSoftShadowMap, so shadow.radius is the only
   // remaining softness control for the 5-tap Vogel PCF kernel. The flashlight
   // already sets 2; the sun was left at the default 1, which is the hardest
@@ -856,8 +860,13 @@ export function createEnvironment(
         sun.shadow.mapSize.set(shadowMapSize, shadowMapSize);
         sun.shadow.needsUpdate = true;
       }
-      sun.shadow.bias = nextQuality === "ultra" ? -0.00008 : -0.00015;
-      sun.shadow.normalBias = nextQuality === "ultra" ? 0.015 : 0.02;
+      const biases = sunShadowBiases(
+        nextQuality,
+        renderer.capabilities.reversedDepthBuffer === true,
+        shadowMapSize,
+      );
+      sun.shadow.bias = biases.bias;
+      sun.shadow.normalBias = biases.normalBias;
       precipitation.points.geometry.setDrawRange(
         0,
         qualityUsesHighDetail(nextQuality)
