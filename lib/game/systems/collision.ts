@@ -512,15 +512,22 @@ export class PlanarCollisionIndex {
   ): PlanarCollider[] {
     if (!isFinitePosition(current) || !isFinitePosition(desired)) return [];
     const safeRadius = Number.isFinite(radius) && radius >= 0 ? radius : 0;
-    // Sliding and start-overlap recovery can deflect the center beyond the raw
-    // segment AABB by an obstacle diameter. Include that halo so the
-    // index never drops a second contact near a corner or invalid spawn.
-    const padding = safeRadius + this.maximumColliderReach * 2 + CONTACT_SKIN;
+    // A slide spends the remaining movement along a contact, so it can carry
+    // the centre sideways by up to the full movement length, well outside the
+    // raw segment's box. Every reachable point lies within that length of the
+    // start, plus an obstacle diameter for start-overlap recovery and the
+    // contact skin of each sweep step.
+    const reach = Math.hypot(desired.x - current.x, desired.z - current.z);
+    const padding =
+      reach +
+      safeRadius +
+      this.maximumColliderReach * 2 +
+      CONTACT_SKIN * (MAX_SWEEP_ITERATIONS + 2);
     const bounds = {
-      minX: Math.min(current.x, desired.x) - padding,
-      maxX: Math.max(current.x, desired.x) + padding,
-      minZ: Math.min(current.z, desired.z) - padding,
-      maxZ: Math.max(current.z, desired.z) + padding,
+      minX: current.x - padding,
+      maxX: current.x + padding,
+      minZ: current.z - padding,
+      maxZ: current.z + padding,
     };
     const found = new Set<PlanarCollider>();
     const minCellX = Math.floor(bounds.minX / this.cellSize);
