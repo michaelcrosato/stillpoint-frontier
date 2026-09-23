@@ -173,6 +173,24 @@ export function sampleDaylight(totalWorldMinutes: number): DaylightSample {
   };
 }
 
+export interface KeyLightHandover {
+  useSun: boolean;
+  intensityScale: number;
+}
+
+/**
+ * One directional light carries the sun by day and the moon by night. Across
+ * the handover window it fades to black and back, so its direction and colour
+ * switch while it contributes nothing, instead of popping mid-dusk.
+ */
+export function keyLightHandover(sunElevation: number): KeyLightHandover {
+  const sunWeight = smoothstep(-0.1, -0.02, sunElevation);
+  return {
+    useSun: sunWeight >= 0.5,
+    intensityScale: Math.abs(2 * sunWeight - 1),
+  };
+}
+
 function selectWeather(seed: string, biomeId: BiomeId, epoch: number) {
   const profile = BIOME_WEATHER_PROFILES[biomeId];
   const random = seededRandom(`${seed}:weather:${biomeId}:${epoch}`);

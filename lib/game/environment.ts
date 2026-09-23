@@ -26,6 +26,7 @@ import {
 import {
   GAME_MINUTES_PER_REAL_SECOND,
   WORLD_START_MINUTES,
+  keyLightHandover,
   sampleEnvironment,
   sanitizeWorldMinutes,
   type EnvironmentSample,
@@ -590,7 +591,8 @@ export function createEnvironment(
     fog.density = effectiveFogDensity(displaySample);
     (scene.background as THREE.Color).copy(fogColor).multiplyScalar(0.72);
 
-    const useSun = displaySample.sunElevation > -0.06;
+    const handover = keyLightHandover(displaySample.sunElevation);
+    const useSun = handover.useSun;
     calculateCelestialDirections(
       displaySample.sunElevation,
       displaySample.sunAzimuth,
@@ -625,10 +627,14 @@ export function createEnvironment(
       temporaryColor.lerpColors(sunDay, sunDawn, displaySample.goldenHour * 0.86);
       sun.color.copy(temporaryColor);
       skyMaterial.uniforms.sunDiscColor.value.copy(temporaryColor);
-      sun.intensity = 4.2 * displaySample.lightScale;
+      sun.intensity = 4.2 * displaySample.lightScale * handover.intensityScale;
     } else {
       sun.color.copy(moonColor);
-      sun.intensity = 0.34 * displaySample.night * (1 - displaySample.cloudCover * 0.52);
+      sun.intensity =
+        0.34 *
+        displaySample.night *
+        (1 - displaySample.cloudCover * 0.52) *
+        handover.intensityScale;
     }
     if (lightningFlash > 0) {
       sun.color.lerp(lightningColor, lightningFlash * 0.9);
