@@ -42,6 +42,22 @@ describe("deterministic world atmosphere", () => {
     });
   });
 
+  it("moves the sun continuously between whole minutes", () => {
+    const before = sampleDaylight(420);
+    const middle = sampleDaylight(420.5);
+    const after = sampleDaylight(421);
+    expect(middle.sunElevation).not.toBe(before.sunElevation);
+    expect(middle.sunElevation).toBeGreaterThan(before.sunElevation);
+    expect(middle.sunElevation).toBeLessThan(after.sunElevation);
+    expect(middle.minuteOfDay).toBe(420);
+  });
+
+  it("leaves whole-minute samples unchanged", () => {
+    const sample = sampleDaylight(720);
+    expect(sample.sunElevation).toBeCloseTo(1, 12);
+    expect(sample.minuteOfDay).toBe(720);
+  });
+
   it("makes noon visibly brighter than midnight without invalid values", () => {
     const climate = climateForBiome("grey_meadow");
     const noon = sampleEnvironment(12 * 60, climate);

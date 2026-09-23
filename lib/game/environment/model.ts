@@ -151,7 +151,9 @@ export function sampleDaylight(totalWorldMinutes: number): DaylightSample {
   const totalMinutes = sanitizeWorldMinutes(totalWorldMinutes);
   const wholeMinutes = Math.floor(totalMinutes);
   const minuteOfDay = wholeMinutes % MINUTES_PER_WORLD_DAY;
-  const dayProgress = minuteOfDay / MINUTES_PER_WORLD_DAY;
+  // The clock reads whole minutes; the sun keeps the fraction so its elevation
+  // moves as smoothly as its azimuth.
+  const dayProgress = (totalMinutes % MINUTES_PER_WORLD_DAY) / MINUTES_PER_WORLD_DAY;
   const sunElevation = Math.sin((dayProgress - 0.25) * Math.PI * 2);
   const daylight = smoothstep(-0.12, 0.25, sunElevation);
   const horizonProximity = 1 - Math.min(1, Math.abs(sunElevation - 0.08) / 0.34);
