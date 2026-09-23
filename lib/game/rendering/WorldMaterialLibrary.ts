@@ -7,7 +7,10 @@ import {
   type InstalledSurfaceDetail,
   type ProceduralSurfaceDetailProfile,
 } from "./ProceduralSurfaceDetail";
-import { createSharedWorldUniforms } from "./SharedWorldUniforms";
+import {
+  createSharedWorldUniforms,
+  renewSharedWorldBinding,
+} from "./SharedWorldUniforms";
 import {
   installVegetationWind,
   vegetationWindStrength,
@@ -242,12 +245,21 @@ export class WorldMaterialLibrary {
       next.cloudShadows === this.features.cloudShadows &&
       next.wetSurfaces === this.features.wetSurfaces
     ) return;
+    // Uniforms gate each effect, so only a change in which hooks are needed
+    // rebuilds them. A rebuild re-keys every hooked material: it may have
+    // rendered without its hooks meanwhile, and three binds hook uniforms
+    // only when it compiles a key that is new to the material.
+    const rebuild =
+      this.needsSurfaceShader(next) !== this.needsSurfaceShader() ||
+      next.vegetationWind !== this.features.vegetationWind;
     this.features = next;
-    for (const tracked of this.tracked.values()) {
-      this.rebuildShaderHooks(tracked);
+    if (rebuild) {
+      renewSharedWorldBinding(this.shared);
+      for (const tracked of this.tracked.values()) {
+        this.rebuildShaderHooks(tracked);
+      }
+      this.appliedWetness = null;
     }
-    // Rebuilt hooks carry fresh per-material uniforms.
-    this.appliedWetness = null;
     this.apply();
   }
 
@@ -368,12 +380,8 @@ export class WorldMaterialLibrary {
     tracked.surfaceDetail = null;
   }
 
-  private needsSurfaceShader() {
-    return (
-      this.features.surfaceDetail ||
-      this.features.cloudShadows ||
-      this.features.wetSurfaces
-    );
+  private needsSurfaceShader(features: WorldMaterialFeatureState = this.features) {
+    return features.surfaceDetail || features.cloudShadows || features.wetSurfaces;
   }
 
   /**

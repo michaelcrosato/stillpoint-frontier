@@ -1,11 +1,16 @@
 import * as THREE from "three";
 import {
-  createSharedWorldUniforms,
+  DEFAULT_SHARED_WORLD_UNIFORMS,
+  sharedWorldBindingKey,
   type SharedWorldUniforms,
 } from "./SharedWorldUniforms";
 
 export const VEGETATION_WIND_ATTRIBUTE = "stillpointWindWeight";
-const vegetationWindInstallGenerations = new WeakMap<THREE.Material, number>();
+/** Per-material uniforms survive reinstalls; see installVegetationWind. */
+const vegetationWindUniforms = new WeakMap<
+  THREE.Material,
+  { shared: SharedWorldUniforms; uniforms: VegetationWindUniforms }
+>();
 
 export interface VegetationWindUniforms {
   uStillpointWindEnabled: { value: number };
@@ -182,19 +187,17 @@ function patchWindVertexShader(source: string) {
 function installWindShader(
   material: THREE.Material,
   uniforms: VegetationWindUniforms,
+  shared: SharedWorldUniforms,
 ) {
   const previousCompile = material.onBeforeCompile;
   const previousCacheKey = material.customProgramCacheKey;
-  const installGeneration =
-    (vegetationWindInstallGenerations.get(material) ?? 0) + 1;
-  vegetationWindInstallGenerations.set(material, installGeneration);
   const compile: THREE.Material["onBeforeCompile"] = (shader, renderer) => {
     previousCompile.call(material, shader, renderer);
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = patchWindVertexShader(shader.vertexShader);
   };
   const cacheKey = () =>
-    `${previousCacheKey.call(material)}|stillpoint-vegetation-wind-v1-${installGeneration}`;
+    `${previousCacheKey.call(material)}|stillpoint-vegetation-wind-v2-${sharedWorldBindingKey(shared)}`;
   material.onBeforeCompile = compile;
   material.customProgramCacheKey = cacheKey;
   material.needsUpdate = true;
@@ -216,13 +219,19 @@ export function installVegetationWind(
   material: THREE.MeshStandardMaterial,
   amplitude: number,
   /** Globally identical uniforms, referenced rather than copied. */
-  shared: SharedWorldUniforms = createSharedWorldUniforms(),
+  shared: SharedWorldUniforms = DEFAULT_SHARED_WORLD_UNIFORMS,
 ): InstalledVegetationWind {
   // Keep deformation on the beauty material. Three's auxiliary custom-depth
   // path is deliberately not installed here: a failed shadow variant can make
   // the entire renderer unavailable, while a static vegetation shadow is a
   // safe visual fallback and preserves the gameplay-facing wind effect.
-  const uniforms = createUniforms(amplitude, shared);
-  const uninstall = installWindShader(material, uniforms);
+  // As with surface detail, a reinstall must hand back the uniform objects
+  // three bound when this material first compiled the key.
+  const fresh = createUniforms(amplitude, shared);
+  const cached = vegetationWindUniforms.get(material);
+  const uniforms = cached?.shared === shared ? cached.uniforms : fresh;
+  uniforms.uStillpointWindAmplitude.value = fresh.uStillpointWindAmplitude.value;
+  vegetationWindUniforms.set(material, { shared, uniforms });
+  const uninstall = installWindShader(material, uniforms, shared);
   return { uniforms, dispose: uninstall };
 }

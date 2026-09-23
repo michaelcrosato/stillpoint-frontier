@@ -72,7 +72,10 @@ describe("vegetation wind", () => {
     expect(peerMaterial.customProgramCacheKey()).toBe(cacheKey);
     wind.dispose();
     const reinstalled = installVegetationWind(material, 0.42);
-    expect(material.customProgramCacheKey()).not.toBe(cacheKey);
+    expect(material.customProgramCacheKey()).toBe(cacheKey);
+    expect(reinstalled.uniforms.uStillpointWindAmplitude).toBe(
+      wind.uniforms.uStillpointWindAmplitude,
+    );
     reinstalled.dispose();
     peerWind.dispose();
     peerMaterial.dispose();

@@ -6,6 +6,10 @@ import {
   surfaceDetailProfile,
   wrapSurfaceDetailCoordinate,
 } from "../../lib/game/rendering/ProceduralSurfaceDetail";
+import {
+  createSharedWorldUniforms,
+  renewSharedWorldBinding,
+} from "../../lib/game/rendering/SharedWorldUniforms";
 
 function compileMaterial(material: THREE.Material) {
   const shader: {
@@ -99,7 +103,7 @@ describe("procedural surface detail", () => {
       installed.uniforms.uStillpointWetPooling,
     );
     expect(material.customProgramCacheKey()).toContain(
-      "stillpoint-surface-detail-v2",
+      "stillpoint-surface-detail-v3",
     );
     installed.dispose();
     expect(material.onBeforeCompile).toBe(previousCompile);
@@ -108,8 +112,39 @@ describe("procedural surface detail", () => {
       material,
       surfaceDetailProfile("terrain")!,
     );
-    expect(material.customProgramCacheKey()).not.toBe(cacheKey);
+    // Same content, same key: three reuses the program, and the reinstalled
+    // hook hands it the very uniform objects it was compiled with.
+    expect(material.customProgramCacheKey()).toBe(cacheKey);
+    expect(reinstalled.uniforms.uStillpointDetailFrequency).toBe(
+      installed.uniforms.uStillpointDetailFrequency,
+    );
+    expect(reinstalled.uniforms.uStillpointSurfaceWetness).toBe(
+      installed.uniforms.uStillpointSurfaceWetness,
+    );
     reinstalled.dispose();
+    material.dispose();
+  });
+
+  it("gives materials with the same hook one program key", () => {
+    const shared = createSharedWorldUniforms();
+    const first = new THREE.MeshStandardMaterial();
+    const second = new THREE.MeshStandardMaterial();
+    const a = installProceduralSurfaceDetail(first, surfaceDetailProfile("terrain")!, shared);
+    a.dispose();
+    installProceduralSurfaceDetail(first, surfaceDetailProfile("terrain")!, shared);
+    installProceduralSurfaceDetail(second, surfaceDetailProfile("terrain")!, shared);
+    expect(first.customProgramCacheKey()).toBe(second.customProgramCacheKey());
+    first.dispose();
+    second.dispose();
+  });
+
+  it("re-keys every hooked material when its shared binding is renewed", () => {
+    const shared = createSharedWorldUniforms();
+    const material = new THREE.MeshStandardMaterial();
+    installProceduralSurfaceDetail(material, surfaceDetailProfile("terrain")!, shared);
+    const before = material.customProgramCacheKey();
+    renewSharedWorldBinding(shared);
+    expect(material.customProgramCacheKey()).not.toBe(before);
     material.dispose();
   });
 });

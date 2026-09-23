@@ -1,12 +1,17 @@
 import * as THREE from "three";
 import {
-  createSharedWorldUniforms,
+  DEFAULT_SHARED_WORLD_UNIFORMS,
+  sharedWorldBindingKey,
   type SharedWorldUniforms,
 } from "./SharedWorldUniforms";
 import type { WorldMaterialRole } from "./WorldMaterialLibrary";
 
 export const SURFACE_DETAIL_PERIOD_METERS = 256;
-const surfaceDetailInstallGenerations = new WeakMap<THREE.Material, number>();
+/** Per-material uniforms survive reinstalls; see installProceduralSurfaceDetail. */
+const surfaceDetailUniforms = new WeakMap<
+  THREE.Material,
+  { shared: SharedWorldUniforms; uniforms: ProceduralSurfaceDetailUniforms }
+>();
 
 export interface ProceduralSurfaceDetailProfile {
   frequency: number;
@@ -168,15 +173,13 @@ function createUniforms(
   profile: ProceduralSurfaceDetailProfile,
   shared: SharedWorldUniforms,
 ): ProceduralSurfaceDetailUniforms {
-  return {
+  return writeProfile({
     uStillpointDetailEnabled: shared.uStillpointDetailEnabled,
-    uStillpointDetailFrequency: { value: profile.frequency },
-    uStillpointDetailColor: { value: profile.colorStrength },
-    uStillpointDetailRoughness: { value: profile.roughnessStrength },
-    uStillpointDetailNormal: { value: profile.normalStrength },
-    uStillpointDetailFade: {
-      value: new THREE.Vector2(profile.fadeStart, profile.fadeEnd),
-    },
+    uStillpointDetailFrequency: { value: 0 },
+    uStillpointDetailColor: { value: 0 },
+    uStillpointDetailRoughness: { value: 0 },
+    uStillpointDetailNormal: { value: 0 },
+    uStillpointDetailFade: { value: new THREE.Vector2() },
     uStillpointSurfaceWetness: { value: 0 },
     uStillpointCloudShadows: shared.uStillpointCloudShadows,
     uStillpointCloudCover: shared.uStillpointCloudCover,
@@ -184,7 +187,19 @@ function createUniforms(
     uStillpointWetPooling: shared.uStillpointWetPooling,
     uStillpointCloudOffset: shared.uStillpointCloudOffset,
     uStillpointWeatherExposure: { value: 1 },
-  };
+  }, profile);
+}
+
+function writeProfile(
+  uniforms: ProceduralSurfaceDetailUniforms,
+  profile: ProceduralSurfaceDetailProfile,
+) {
+  uniforms.uStillpointDetailFrequency.value = profile.frequency;
+  uniforms.uStillpointDetailColor.value = profile.colorStrength;
+  uniforms.uStillpointDetailRoughness.value = profile.roughnessStrength;
+  uniforms.uStillpointDetailNormal.value = profile.normalStrength;
+  uniforms.uStillpointDetailFade.value.set(profile.fadeStart, profile.fadeEnd);
+  return uniforms;
 }
 
 const SURFACE_DETAIL_PARS = /* glsl */ `
@@ -400,21 +415,25 @@ export function installProceduralSurfaceDetail(
   material: THREE.MeshStandardMaterial,
   profile: ProceduralSurfaceDetailProfile,
   /** Globally identical uniforms, referenced rather than copied. */
-  shared: SharedWorldUniforms = createSharedWorldUniforms(),
+  shared: SharedWorldUniforms = DEFAULT_SHARED_WORLD_UNIFORMS,
 ): InstalledSurfaceDetail {
-  const uniforms = createUniforms(profile, shared);
+  // A reinstall keeps the key, so three may reuse the program without running
+  // onBeforeCompile, and it then binds the uniforms it bound before. The
+  // reinstalled hook must therefore hand back the same objects.
+  const cached = surfaceDetailUniforms.get(material);
+  const uniforms = cached?.shared === shared
+    ? writeProfile(cached.uniforms, profile)
+    : createUniforms(profile, shared);
+  surfaceDetailUniforms.set(material, { shared, uniforms });
   const previousCompile = material.onBeforeCompile;
   const previousCacheKey = material.customProgramCacheKey;
-  const installGeneration =
-    (surfaceDetailInstallGenerations.get(material) ?? 0) + 1;
-  surfaceDetailInstallGenerations.set(material, installGeneration);
   const compile: THREE.Material["onBeforeCompile"] = (shader, renderer) => {
     previousCompile.call(material, shader, renderer);
     Object.assign(shader.uniforms, uniforms);
     shader.fragmentShader = patchFragmentShader(shader.fragmentShader);
   };
   const cacheKey = () =>
-    `${previousCacheKey.call(material)}|stillpoint-surface-detail-v2-${installGeneration}`;
+    `${previousCacheKey.call(material)}|stillpoint-surface-detail-v3-${sharedWorldBindingKey(shared)}`;
   material.onBeforeCompile = compile;
   material.customProgramCacheKey = cacheKey;
   material.needsUpdate = true;

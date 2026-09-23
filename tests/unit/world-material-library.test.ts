@@ -61,6 +61,50 @@ describe("world material library shared uniforms", () => {
     geometry.dispose();
   });
 
+  it("keeps program keys and material versions through uniform-gated feature toggles", () => {
+    const library = new WorldMaterialLibrary();
+    const geometry = new THREE.BoxGeometry();
+    const material = tagWorldMaterial(new THREE.MeshStandardMaterial(), {
+      role: "terrain",
+      weatherExposure: 1,
+    });
+    library.track(new THREE.Mesh(geometry, material));
+    const key = material.customProgramCacheKey();
+    const version = material.version;
+    const all = { surfaceDetail: true, vegetationWind: true, cloudShadows: true, wetSurfaces: true };
+    // Surface detail off while cloud shadows stay on: the hook stays, gated by a uniform.
+    library.setFeatures({ ...all, surfaceDetail: false });
+    library.setFeatures({ ...all, cloudShadows: false });
+    expect(material.customProgramCacheKey()).toBe(key);
+    expect(material.version).toBe(version);
+    // Every surface feature off removes the hook; turning one back on must
+    // re-key, so three re-runs onBeforeCompile and binds the hook's uniforms.
+    library.setFeatures({ ...all, surfaceDetail: false, cloudShadows: false, wetSurfaces: false });
+    library.setFeatures(all);
+    expect(material.customProgramCacheKey()).not.toBe(key);
+    library.dispose();
+    material.dispose();
+    geometry.dispose();
+  });
+
+  it("keeps the program key when a released material is tracked again", () => {
+    const library = new WorldMaterialLibrary();
+    const geometry = new THREE.BoxGeometry();
+    const material = tagWorldMaterial(new THREE.MeshStandardMaterial(), {
+      role: "terrain",
+      weatherExposure: 1,
+    });
+    const first = new THREE.Mesh(geometry, material);
+    library.track(first);
+    const key = material.customProgramCacheKey();
+    library.untrack(first);
+    library.track(new THREE.Mesh(geometry, material));
+    expect(material.customProgramCacheKey()).toBe(key);
+    library.dispose();
+    material.dispose();
+    geometry.dispose();
+  });
+
   it("writes per-material values only when their inputs change", () => {
     const library = new WorldMaterialLibrary();
     const geometry = new THREE.BoxGeometry();
