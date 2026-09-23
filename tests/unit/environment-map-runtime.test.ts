@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
 import type { EnvironmentVisualState } from "../../lib/game/environment";
 import { EnvironmentMapRuntime } from "../../lib/game/rendering/EnvironmentMapRuntime";
+import { sunAzimuth } from "../../lib/game/rendering/RenderingPolicy";
 
 const atmosphere = {
   skyColor: new THREE.Color(0x587682),
@@ -100,6 +101,37 @@ describe("environment map rotation", () => {
     sunDirection: new THREE.Vector3(Math.cos(azimuth) * 0.6, 0.8, Math.sin(azimuth) * 0.6),
   }) as EnvironmentVisualState;
 
+  /**
+   * The direction three samples for a view direction: three r185 uploads the
+   * transpose of makeRotationFromEuler(envMapRotation) (WebGLMaterials) and
+   * the shader multiplies the direction by it.
+   */
+  function sampledDirection(rotation: THREE.Euler, direction: THREE.Vector3) {
+    const lookup = new THREE.Matrix3()
+      .setFromMatrix4(new THREE.Matrix4().makeRotationFromEuler(rotation))
+      .transpose();
+    return direction.clone().applyMatrix3(lookup);
+  }
+
+  it("samples today's sun where the capture recorded it", () => {
+    const { renderer, previousTarget } = createRenderer();
+    const scene = new THREE.Scene();
+    const runtime = new EnvironmentMapRuntime(renderer as unknown as THREE.WebGLRenderer, scene, "cinematic");
+    try {
+      runtime.present(sunAt(0.4));
+      for (const azimuth of [0.7, -0.2, 0.4 + 3.5]) {
+        const today = sunAt(azimuth);
+        runtime.present(today);
+        expect(runtime.diagnostics.revision).toBe(1);
+        const sampled = sampledDirection(scene.environmentRotation, today.sunDirection);
+        expect(sunAzimuth(sampled)).toBeCloseTo(0.4, 6);
+      }
+    } finally {
+      runtime.dispose();
+      previousTarget.dispose();
+    }
+  });
+
   it("turns the captured map with the sun instead of recapturing", () => {
     const { renderer, previousTarget } = createRenderer();
     const scene = new THREE.Scene();
@@ -110,11 +142,11 @@ describe("environment map rotation", () => {
       expect(runtime.diagnostics.rotationY).toBeCloseTo(0);
       runtime.present(sunAt(0.7));
       expect(runtime.diagnostics.revision).toBe(1);
-      expect(runtime.diagnostics.rotationY).toBeCloseTo(0.3);
-      expect(scene.environmentRotation.y).toBeCloseTo(0.3);
+      expect(runtime.diagnostics.rotationY).toBeCloseTo(-0.3);
+      expect(scene.environmentRotation.y).toBeCloseTo(-0.3);
       // Wrapped into (-pi, pi].
       runtime.present(sunAt(0.4 + 3.5));
-      expect(runtime.diagnostics.rotationY).toBeCloseTo(3.5 - Math.PI * 2);
+      expect(runtime.diagnostics.rotationY).toBeCloseTo(Math.PI * 2 - 3.5);
     } finally {
       runtime.dispose();
       previousTarget.dispose();
