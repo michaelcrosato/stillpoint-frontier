@@ -9,12 +9,14 @@ import {
 } from "../../lib/game/animals/reactions";
 import type { AnimalPose, AnimalRecipe } from "../../lib/game/animals/animalRecipes";
 import {
-  authoredNpcScheduleAnchor,
   createAuthoredNpcTarget,
-  AUTHORED_NPCS,
   updateAuthoredNpcTarget,
   type AuthoredNpcDefinition,
 } from "../../lib/game/npcs/authoredNpc";
+import {
+  authoredNpcScheduleAnchor,
+  AUTHORED_NPCS,
+} from "../../lib/game/npcs/stillpointNpcs";
 import {
   applyPlacedRuntimeLighting,
   createPlacedRuntime,

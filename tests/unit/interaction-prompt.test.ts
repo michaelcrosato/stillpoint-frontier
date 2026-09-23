@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import { interactionPromptFor } from "../../lib/game/gameplay/interactionPrompt";
 import { DEFAULT_KEY_BINDINGS } from "../../lib/game/settings";
-import type { WorldTarget } from "../../lib/game/world/ChunkManager";
+import type { WorldTarget } from "../../lib/game/world/targets";
 
 function target(action: WorldTarget["action"], overrides: Partial<WorldTarget> = {}): WorldTarget {
   return {

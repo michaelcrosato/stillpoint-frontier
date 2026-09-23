@@ -185,7 +185,7 @@ import {
 import {
   npcById,
   npcPoseAt,
-} from "./npcs/authoredNpc";
+} from "./npcs/stillpointNpcs";
 import {
   DEFAULT_GAME_SETTINGS,
   normalizeGameSettings,

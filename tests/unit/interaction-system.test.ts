@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
 import { InteractionSystem } from "../../lib/game/systems/InteractionSystem";
 import type { GameRuntimeContext } from "../../lib/game/systems/runtime";
-import type { WorldTarget } from "../../lib/game/world/ChunkManager";
+import type { WorldTarget } from "../../lib/game/world/targets";
 
 function target(
   action: WorldTarget["action"],

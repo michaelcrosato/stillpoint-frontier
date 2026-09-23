@@ -121,13 +121,6 @@ import type {
   WorldLineOfSightOptions,
   WorldTarget,
 } from "./targets";
-export type {
-  InstancedTargetVisual,
-  WorldLineOfSightOptions,
-  WorldTarget,
-  WorldTargetAction,
-  WorldTargetKind,
-} from "./targets";
 
 interface ChunkRuntime {
   key: string;

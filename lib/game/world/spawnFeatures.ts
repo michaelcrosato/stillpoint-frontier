@@ -3,10 +3,8 @@ import { qualityUsesShadows, type QualityLevel } from "../config";
 import type { CraftingStationKind } from "../gameplay/crafting";
 import type { ContainerStates, LootTableId } from "../gameplay/loot";
 import type { RestSiteDefinition } from "../gameplay/resting";
-import {
-  AUTHORED_NPCS,
-  createAuthoredNpcTarget,
-} from "../npcs/authoredNpc";
+import { createAuthoredNpcTarget } from "../npcs/authoredNpc";
+import { AUTHORED_NPCS } from "../npcs/stillpointNpcs";
 import type { PlanarCollider } from "../systems/collision";
 import type { WorldTarget } from "./targets";
 import {
