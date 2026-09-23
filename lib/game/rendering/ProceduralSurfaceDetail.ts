@@ -1,4 +1,8 @@
 import * as THREE from "three";
+import {
+  createSharedWorldUniforms,
+  type SharedWorldUniforms,
+} from "./SharedWorldUniforms";
 import type { WorldMaterialRole } from "./WorldMaterialLibrary";
 
 export const SURFACE_DETAIL_PERIOD_METERS = 256;
@@ -162,9 +166,10 @@ export function wrapSurfaceDetailCoordinate(value: number) {
 
 function createUniforms(
   profile: ProceduralSurfaceDetailProfile,
+  shared: SharedWorldUniforms,
 ): ProceduralSurfaceDetailUniforms {
   return {
-    uStillpointDetailEnabled: { value: 1 },
+    uStillpointDetailEnabled: shared.uStillpointDetailEnabled,
     uStillpointDetailFrequency: { value: profile.frequency },
     uStillpointDetailColor: { value: profile.colorStrength },
     uStillpointDetailRoughness: { value: profile.roughnessStrength },
@@ -173,11 +178,11 @@ function createUniforms(
       value: new THREE.Vector2(profile.fadeStart, profile.fadeEnd),
     },
     uStillpointSurfaceWetness: { value: 0 },
-    uStillpointCloudShadows: { value: 0 },
-    uStillpointCloudCover: { value: 0 },
-    uStillpointDaylight: { value: 1 },
-    uStillpointWetPooling: { value: 0 },
-    uStillpointCloudOffset: { value: new THREE.Vector2() },
+    uStillpointCloudShadows: shared.uStillpointCloudShadows,
+    uStillpointCloudCover: shared.uStillpointCloudCover,
+    uStillpointDaylight: shared.uStillpointDaylight,
+    uStillpointWetPooling: shared.uStillpointWetPooling,
+    uStillpointCloudOffset: shared.uStillpointCloudOffset,
     uStillpointWeatherExposure: { value: 1 },
   };
 }
@@ -394,8 +399,10 @@ function patchFragmentShader(source: string) {
 export function installProceduralSurfaceDetail(
   material: THREE.MeshStandardMaterial,
   profile: ProceduralSurfaceDetailProfile,
+  /** Globally identical uniforms, referenced rather than copied. */
+  shared: SharedWorldUniforms = createSharedWorldUniforms(),
 ): InstalledSurfaceDetail {
-  const uniforms = createUniforms(profile);
+  const uniforms = createUniforms(profile, shared);
   const previousCompile = material.onBeforeCompile;
   const previousCacheKey = material.customProgramCacheKey;
   const installGeneration =

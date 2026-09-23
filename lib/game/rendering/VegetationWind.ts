@@ -1,4 +1,8 @@
 import * as THREE from "three";
+import {
+  createSharedWorldUniforms,
+  type SharedWorldUniforms,
+} from "./SharedWorldUniforms";
 
 export const VEGETATION_WIND_ATTRIBUTE = "stillpointWindWeight";
 const vegetationWindInstallGenerations = new WeakMap<THREE.Material, number>();
@@ -62,12 +66,15 @@ export function prepareVegetationGeometry<T extends THREE.BufferGeometry>(
   return geometry;
 }
 
-function createUniforms(amplitude: number): VegetationWindUniforms {
+function createUniforms(
+  amplitude: number,
+  shared: SharedWorldUniforms,
+): VegetationWindUniforms {
   return {
-    uStillpointWindEnabled: { value: 1 },
-    uStillpointWindTime: { value: 0 },
-    uStillpointWindDirection: { value: new THREE.Vector2(1, 0) },
-    uStillpointWindStrength: { value: 0 },
+    uStillpointWindEnabled: shared.uStillpointWindEnabled,
+    uStillpointWindTime: shared.uStillpointWindTime,
+    uStillpointWindDirection: shared.uStillpointWindDirection,
+    uStillpointWindStrength: shared.uStillpointWindStrength,
     uStillpointWindAmplitude: {
       value: Number.isFinite(amplitude)
         ? THREE.MathUtils.clamp(amplitude, 0, 1.5)
@@ -208,12 +215,14 @@ function installWindShader(
 export function installVegetationWind(
   material: THREE.MeshStandardMaterial,
   amplitude: number,
+  /** Globally identical uniforms, referenced rather than copied. */
+  shared: SharedWorldUniforms = createSharedWorldUniforms(),
 ): InstalledVegetationWind {
   // Keep deformation on the beauty material. Three's auxiliary custom-depth
   // path is deliberately not installed here: a failed shadow variant can make
   // the entire renderer unavailable, while a static vegetation shadow is a
   // safe visual fallback and preserves the gameplay-facing wind effect.
-  const uniforms = createUniforms(amplitude);
+  const uniforms = createUniforms(amplitude, shared);
   const uninstall = installWindShader(material, uniforms);
   return { uniforms, dispose: uninstall };
 }

@@ -6,6 +6,90 @@ import {
   worldMaterialDescriptor,
 } from "../../lib/game/rendering/WorldMaterialLibrary";
 
+function compiledUniforms(material: THREE.Material) {
+  const shader = {
+    uniforms: {} as Record<string, THREE.IUniform>,
+    vertexShader: THREE.ShaderLib.physical.vertexShader,
+    fragmentShader: THREE.ShaderLib.physical.fragmentShader,
+  };
+  material.onBeforeCompile(
+    shader as unknown as THREE.WebGLProgramParametersWithUniforms,
+    {} as THREE.WebGLRenderer,
+  );
+  return shader.uniforms;
+}
+
+describe("world material library shared uniforms", () => {
+  it("shares globally identical uniforms, so one present() updates every material", () => {
+    const library = new WorldMaterialLibrary();
+    const geometry = new THREE.BoxGeometry();
+    const ground = [0, 1].map(() =>
+      tagWorldMaterial(new THREE.MeshStandardMaterial(), { role: "terrain", weatherExposure: 1 }),
+    );
+    const trees = [0, 1].map(() =>
+      tagWorldMaterial(new THREE.MeshStandardMaterial(), {
+        role: "vegetation",
+        detail: false,
+        windAmplitude: 0.4,
+      }),
+    );
+    for (const material of [...ground, ...trees]) library.track(new THREE.Mesh(geometry, material));
+    const [groundA, groundB] = ground.map(compiledUniforms);
+    const [treeA, treeB] = trees.map(compiledUniforms);
+    for (const name of ["uStillpointCloudOffset", "uStillpointCloudCover", "uStillpointDaylight"]) {
+      expect(groundA[name]).toBeDefined();
+      expect(groundA[name]).toBe(groundB[name]);
+    }
+    for (const name of ["uStillpointWindTime", "uStillpointWindDirection", "uStillpointWindStrength"]) {
+      expect(treeA[name]).toBeDefined();
+      expect(treeA[name]).toBe(treeB[name]);
+    }
+    library.present({
+      surfaceWetness: 0,
+      effectSeconds: 7,
+      windKph: 30,
+      windDirection: 90,
+      cloudCover: 0.6,
+      daylight: 0.4,
+    });
+    expect(groundB.uStillpointCloudCover.value).toBe(0.6);
+    expect(groundB.uStillpointDaylight.value).toBe(0.4);
+    expect(treeB.uStillpointWindTime.value).toBe(7);
+    expect(treeB.uStillpointWindDirection.value.y).toBeCloseTo(1);
+    library.dispose();
+    for (const material of [...ground, ...trees]) material.dispose();
+    geometry.dispose();
+  });
+
+  it("writes per-material values only when their inputs change", () => {
+    const library = new WorldMaterialLibrary();
+    const geometry = new THREE.BoxGeometry();
+    let writes = 0;
+    const materials = [0, 1, 2].map(() => {
+      const material = tagWorldMaterial(new THREE.MeshStandardMaterial(), {
+        role: "road",
+        weatherExposure: 1,
+      });
+      let roughness = material.roughness;
+      Object.defineProperty(material, "roughness", {
+        get: () => roughness,
+        set: (value: number) => { roughness = value; writes += 1; },
+      });
+      library.track(new THREE.Mesh(geometry, material));
+      return material;
+    });
+    library.present({ surfaceWetness: 0.5, effectSeconds: 1, cloudCover: 0.2 });
+    const afterFirst = writes;
+    library.present({ surfaceWetness: 0.5, effectSeconds: 2, cloudCover: 0.3 });
+    expect(writes).toBe(afterFirst);
+    library.present({ surfaceWetness: 0.6, effectSeconds: 3 });
+    expect(writes).toBe(afterFirst + 3);
+    library.dispose();
+    for (const material of materials) material.dispose();
+    geometry.dispose();
+  });
+});
+
 describe("world material library", () => {
   it("initializes new materials once without rewriting earlier streamed roots", () => {
     const library = new WorldMaterialLibrary();
