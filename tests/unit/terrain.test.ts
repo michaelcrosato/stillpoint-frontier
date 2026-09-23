@@ -79,3 +79,21 @@ describe("world coordinates", () => {
     expect(Number.isFinite(sampleTerrainHeightLod(x, z, 1_536))).toBe(true);
   });
 });
+
+describe("terrain height goldens", () => {
+  // Saves store literal world positions, so a change to these heights moves
+  // saved players and camps. Change them deliberately, never to pass a test.
+  it.each([
+    ["the spawn", 0, 0, 10.6928],
+    ["a chunk seam", 48, 0, 11.6313],
+    ["dry Sunscar Canyon floor", 37_100, -13_485, -640.5649],
+    ["the Sunscar Canyon channel", 37_005, -13_455, -657.68],
+    ["the mountain summit", -8_640, -4_800, 1_198.9395],
+    ["Ironvale", -23_850, -23_275, 5.3265],
+    ["a far survey point", 12_345, -6_789, 7.6034],
+    ["a far survey point", -40_000, 35_000, 18.3529],
+    ["a far survey point", 47_000, -47_000, 71.3717],
+  ])("holds %s (%d, %d) at its recorded height", (_place, x, z, height) => {
+    expect(sampleTerrainHeight(x, z)).toBeCloseTo(height, 3);
+  });
+});
