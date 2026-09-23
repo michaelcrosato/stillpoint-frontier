@@ -26,6 +26,7 @@ import {
 import {
   GAME_MINUTES_PER_REAL_SECOND,
   WORLD_START_MINUTES,
+  fogVisibilityMeters,
   keyLightHandover,
   sampleEnvironment,
   sanitizeWorldMinutes,
@@ -826,7 +827,7 @@ export function createEnvironment(
         publishedSample.visibilityMeters = Math.round(
           Math.min(
             HORIZON_PRESETS[horizonMode].drawDistanceMeters,
-            1.978 / effectiveFogDensity(targetSample),
+            fogVisibilityMeters(effectiveFogDensity(targetSample)),
           ),
         );
         publishedSource = targetSample;
