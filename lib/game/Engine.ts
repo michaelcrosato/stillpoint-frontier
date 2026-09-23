@@ -402,6 +402,11 @@ export class Engine {
   private readonly materialLibrary: WorldMaterialLibrary;
   /** Decides when the cached sun shadow map is re-rendered. */
   private readonly shadowUpdates = new ShadowUpdatePolicy();
+  /**
+   * Program count after the last flashlight warm-up. Zero, so the first frame
+   * after boot warms the passes boot's compile() cannot reach.
+   */
+  private flashlightWarmPrograms = 0;
   private readonly input: InputManager;
   private readonly world: ChunkManager;
   private readonly forestStress: ForestStressTest;
@@ -2779,6 +2784,7 @@ export class Engine {
     frameIntervalMilliseconds: number,
     cpuFrameStartedAt: number,
   ) {
+    this.keepFlashlightVariantsWarm();
     const renderMetrics = this.renderPipeline.render(
       deltaSeconds,
       this.graphicsBenchmark.isMeasuringGpu,
@@ -3168,21 +3174,37 @@ export class Engine {
     this.playerAvatar.setQuality(this.quality);
     this.flashlight.setQuality(this.quality);
     this.resize();
-    if (this.ready && !this.disposed) this.rewarmFlashlightVariants();
   }
 
   /**
-   * A new preset changes shader variants, and the shadowed flashlight's would
-   * otherwise first compile when the player switches the beam on. Boot warms
-   * them the same way; before boot is ready, boot's own warm-up covers it.
+   * Switching the beam changes the scene's light list, and the light counts
+   * are part of every program key. Whenever the last frame compiled new
+   * programs (a quality change, a new environment map size, dusk lighting, a
+   * new material), render once in the pose the beam is not in, so the next
+   * switch compiles nothing.
+   *
+   * A render, not renderer.compile(): compile() covers only the scene's own
+   * materials, not the shadow depth passes or the bloom occluder, whose keys
+   * also carry the light counts. The posed beam has zero intensity, and the
+   * real frame renders straight after, so the image never shows the pose.
    */
-  private rewarmFlashlightVariants() {
-    this.flashlight.prepareForCompile();
-    // compile() finishes its work before it returns (render-compile.test.ts),
-    // so the pose can be restored at once. Warm-up is best-effort: if it
-    // fails, the next render compiles lazily.
-    this.renderPipeline.compile().catch(() => undefined);
-    this.flashlight.finishCompile();
+  private keepFlashlightVariantsWarm() {
+    if (!this.ready || this.disposed || this.graphicsBenchmark.isMeasuringGpu) return;
+    const programs = this.renderer.info.programs?.length ?? 0;
+    if (programs <= this.flashlightWarmPrograms) {
+      // Follow releases down, so later growth is still noticed.
+      this.flashlightWarmPrograms = programs;
+      return;
+    }
+    this.flashlight.prepareForCompile(this.flashlight.isEnabled ? "off" : "on");
+    try {
+      this.renderPipeline.render(0);
+    } catch {
+      // Best-effort: the real frame follows and reports its own failures.
+    } finally {
+      this.flashlight.finishCompile();
+    }
+    this.flashlightWarmPrograms = this.renderer.info.programs?.length ?? 0;
   }
 
   private toggleQuality() {

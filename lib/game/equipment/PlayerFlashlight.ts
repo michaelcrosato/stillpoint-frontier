@@ -121,9 +121,18 @@ export class PlayerFlashlight {
     this.root.updateMatrixWorld(true);
   }
 
-  /** Precompile the spotlight shader path without flashing the entry scene. */
-  prepareForCompile() {
+  /**
+   * Pose the rig for a shader warm-up without drawing it: "on" puts both beams
+   * in the light list at zero intensity, "off" takes them out. finishCompile
+   * restores the runtime state either way.
+   */
+  prepareForCompile(pose: "on" | "off" = "on") {
     if (this.disposed) return;
+    if (pose === "off") {
+      this.root.visible = false;
+      this.core.castShadow = false;
+      return;
+    }
     this.root.visible = true;
     this.core.castShadow = qualityUsesShadows(this.quality);
     this.core.intensity = 0;
