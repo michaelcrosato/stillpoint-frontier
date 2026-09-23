@@ -11,7 +11,8 @@ describe("citizen presentation", () => {
     citizens.updateStreaming(0, 8);
     expect(citizens.loadedCount).toBe(CITIZEN_RESIDENT_CHUNKS);
     const mesh = scene.children.find(
-      (child): child is THREE.InstancedMesh => child instanceof THREE.InstancedMesh,
+      (child): child is THREE.InstancedMesh =>
+        child instanceof THREE.InstancedMesh && child.name.startsWith("ambient-citizens:"),
     );
     expect(mesh).toBeDefined();
     expect(mesh?.count ?? 0).toBeGreaterThan(0);

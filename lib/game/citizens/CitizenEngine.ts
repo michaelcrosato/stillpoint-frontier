@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { BlobShadows } from "../rendering/BlobShadows";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import {
   CHUNK_SIZE,
@@ -59,6 +60,14 @@ function createCitizenGeometry() {
   return geometry;
 }
 
+/** Half the larger horizontal extent of a geometry: its footprint radius. */
+function footprintRadius(geometry: THREE.BufferGeometry) {
+  geometry.computeBoundingBox();
+  const box = geometry.boundingBox;
+  if (!box) return 0.3;
+  return Math.max(box.max.x - box.min.x, box.max.z - box.min.z) / 2;
+}
+
 /**
  * Ambient population renderer. Citizens are derivable scene decoration: they
  * never enter interaction targets, collision caches, save data, or future NPC
@@ -78,11 +87,22 @@ export class CitizenEngine {
   private elapsedSeconds = 0;
   private worldMinutes = 12 * 60;
   private disposed = false;
+  /** Citizens never cast into the shadow map; these ground the nearby ones. */
+  private readonly blobs: BlobShadows;
+  private readonly footprint = footprintRadius(this.geometry);
+  private readonly viewPosition = new THREE.Vector3();
 
   constructor(
     private readonly scene: THREE.Scene,
     private quality: QualityLevel,
-  ) {}
+  ) {
+    this.blobs = new BlobShadows(scene, {
+      name: "citizen-blob-shadows",
+      capacity: 512,
+      fadeStart: 24,
+      fadeEnd: 56,
+    });
+  }
 
   update(playerX: number, playerZ: number, deltaSeconds: number, paused: boolean) {
     this.updateStreaming(playerX, playerZ);
@@ -95,7 +115,8 @@ export class CitizenEngine {
    * remains deterministic; the accumulator interpolates between simulation
    * ticks so crowds stay smooth on 60 Hz and high-refresh displays.
    */
-  present(interpolationSeconds = 0) {
+  present(interpolationSeconds = 0, viewPosition?: Readonly<THREE.Vector3>) {
+    if (viewPosition) this.viewPosition.copy(viewPosition);
     const safeInterpolation = Number.isFinite(interpolationSeconds)
       ? Math.min(0.1, Math.max(0, interpolationSeconds))
       : 0;
@@ -192,6 +213,7 @@ export class CitizenEngine {
     this.disposed = true;
     for (const chunk of this.loaded.values()) this.unloadChunk(chunk);
     this.loaded.clear();
+    this.blobs.dispose();
     this.geometry.dispose();
     this.material.dispose();
   }
@@ -252,6 +274,7 @@ export class CitizenEngine {
     const position = new THREE.Vector3();
     const scale = new THREE.Vector3();
     const up = new THREE.Vector3(0, 1, 0);
+    this.blobs.begin(this.viewPosition);
     for (const chunk of this.loaded.values()) {
       const mesh = chunk.mesh;
       if (!mesh) continue;
@@ -270,8 +293,15 @@ export class CitizenEngine {
         scale.set(recipe.width, recipe.height / MODEL_HEIGHT, recipe.depth);
         matrix.compose(position, quaternion, scale);
         mesh.setMatrixAt(index, matrix);
+        this.blobs.add(
+          pose.x,
+          pose.y,
+          pose.z,
+          this.footprint * Math.max(recipe.width, recipe.depth),
+        );
       }
       mesh.instanceMatrix.needsUpdate = true;
     }
+    this.blobs.end();
   }
 }

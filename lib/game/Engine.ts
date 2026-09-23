@@ -2638,8 +2638,8 @@ export class Engine {
       !this.developerPanelOpen
         ? this.accumulator
         : 0;
-    this.citizens.present(interpolation);
-    this.animals.present(interpolation);
+    this.citizens.present(interpolation, this.camera.position);
+    this.animals.present(interpolation, this.camera.position);
     this.flashlight.present(this.playerCamera);
   }
 
