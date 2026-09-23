@@ -127,6 +127,8 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/unit/**/*.test.ts"],
+    // Property tests run from one fixed fast-check seed; FC_SEED overrides it.
+    setupFiles: ["tests/unit/setup/fastCheckSeed.ts"],
     reporters: ["default"],
     // Chunk construction is CPU-heavy. Bound contention without relaxing tests.
     maxWorkers: 2,

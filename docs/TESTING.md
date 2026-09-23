@@ -9,6 +9,10 @@ Unit tests use two workers by default. This limits CPU contention in full chunk
 construction tests without raising timeouts. On constrained machines, append
 `-- --maxWorkers=1` to test:unit or test:coverage.
 
+Property tests run from one fixed fast-check seed, so every run tries the same
+inputs. Set `FC_SEED=<integer>` to replay the seed a failure reports or to explore
+other inputs.
+
 For a source-only release check, run typecheck, lint, test:coverage, build, then
 test:rendered. The last command tests the built Worker response, not a browser.
 Coverage gates apply to the explicit include list in vitest.config.ts, not the
