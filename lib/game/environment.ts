@@ -87,7 +87,8 @@ export interface EnvironmentRuntime {
   sync(position: THREE.Vector3, snap?: boolean): void;
   setWorldMinutes(minutes: number): void;
   getPersistentWorldMinutes(): number;
-  getSample(): EnvironmentSample;
+  /** One shared object, updated in place: read its fields, do not keep it. */
+  getSample(): Readonly<EnvironmentSample>;
   getVisualState(): Readonly<EnvironmentVisualState>;
   setDeveloperMode(enabled: boolean): void;
   setDeveloperClockPaused(paused: boolean): void;
@@ -498,6 +499,11 @@ export function createEnvironment(
   let climate = sampleClimate(0, 8);
   let targetSample = sampleEnvironment(worldMinutes, climate);
   let displaySample = { ...targetSample };
+  // getSample() is read by several systems every frame. It returns this one
+  // object, refreshed only when the target sample or horizon mode changes.
+  const publishedSample: EnvironmentSample = { ...targetSample };
+  let publishedSource: EnvironmentSample | null = null;
+  let publishedHorizon: HorizonMode | null = null;
   const topColor = new THREE.Color();
   const horizonColor = new THREE.Color();
   const groundColor = new THREE.Color();
@@ -805,13 +811,18 @@ export function createEnvironment(
       return worldMinutes;
     },
     getSample() {
-      const density = effectiveFogDensity(targetSample);
-      return {
-        ...targetSample,
-        visibilityMeters: Math.round(
-          Math.min(HORIZON_PRESETS[horizonMode].drawDistanceMeters, 1.978 / density),
-        ),
-      };
+      if (publishedSource !== targetSample || publishedHorizon !== horizonMode) {
+        Object.assign(publishedSample, targetSample);
+        publishedSample.visibilityMeters = Math.round(
+          Math.min(
+            HORIZON_PRESETS[horizonMode].drawDistanceMeters,
+            1.978 / effectiveFogDensity(targetSample),
+          ),
+        );
+        publishedSource = targetSample;
+        publishedHorizon = horizonMode;
+      }
+      return publishedSample;
     },
     getVisualState() {
       return visualState;

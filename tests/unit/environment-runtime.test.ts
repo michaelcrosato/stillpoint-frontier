@@ -21,6 +21,28 @@ describe("environment visual runtime", () => {
     expect(stormLightningFlash(Number.NaN, "storm", 0)).toBe(0);
   });
 
+  it("reuses one sample object and updates it when the environment changes", () => {
+    const renderer = {
+      toneMappingExposure: 1,
+      capabilities: { maxTextureSize: 8192 },
+    } as unknown as THREE.WebGLRenderer;
+    const environment = createEnvironment(new THREE.Scene(), renderer, "cinematic");
+    const position = new THREE.Vector3(10, 4, -8);
+    const first = environment.getSample();
+    expect(environment.getSample()).toBe(first);
+
+    const minutesBefore = first.totalMinutes;
+    environment.tick(position, 60, true);
+    const afterTick = environment.getSample();
+    expect(afterTick).toBe(first);
+    expect(afterTick.totalMinutes).toBeGreaterThan(minutesBefore);
+
+    const standardVisibility = afterTick.visibilityMeters;
+    environment.setHorizonMode("extended");
+    expect(environment.getSample().visibilityMeters).not.toBe(standardVisibility);
+    environment.dispose();
+  });
+
   it("drives sky, celestial, cloud, and live shadow quality state", () => {
     const scene = new THREE.Scene();
     const renderer = {

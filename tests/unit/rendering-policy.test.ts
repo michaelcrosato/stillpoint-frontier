@@ -56,6 +56,60 @@ describe("rendering policy", () => {
     expect(environmentMapSignature(state, "ultra")).not.toBe(first);
   });
 
+  it("compares PMREM signatures as numbers, not per-frame strings", () => {
+    const state = environmentSample();
+    expect(typeof environmentMapSignature(state, "cinematic")).toBe("number");
+    expect(environmentMapSignature({ ...state }, "cinematic"))
+      .toBe(environmentMapSignature(state, "cinematic"));
+  });
+
+  it("keeps a stable signature for non-finite input instead of recapturing every frame", () => {
+    const hostile = {
+      ...environmentSample(),
+      dust: Number.NaN,
+      sunDirection: new THREE.Vector3(Number.NaN, Number.NaN, Number.NaN),
+    };
+    const signature = environmentMapSignature(hostile, "cinematic");
+    expect(Number.isFinite(signature)).toBe(true);
+    expect(environmentMapSignature(hostile, "cinematic")).toBe(signature);
+  });
+
+  it("gives every distinct bucket combination a distinct signature", () => {
+    const qualities = ["performance", "cinematic", "ultra"] as const;
+    const direction = new THREE.Vector3();
+    const buckets = new Set<string>();
+    const signatures = new Set<number>();
+    for (const quality of qualities) {
+      for (let daylight = 0; daylight <= 5; daylight += 1) {
+        for (let golden = 0; golden <= 3; golden += 1) {
+          for (let cloud = 0; cloud <= 3; cloud += 1) {
+            for (let dust = 0; dust <= 2; dust += 1) {
+              for (let elevation = 0; elevation <= 7; elevation += 1) {
+                for (let azimuth = 0; azimuth < 12; azimuth += 1) {
+                  // Stay off the poles, where azimuth is undefined.
+                  const y = THREE.MathUtils.clamp((elevation / 7) * 2 - 1, -0.99, 0.99);
+                  const angle = (azimuth / 12) * Math.PI * 2 - Math.PI;
+                  const radius = Math.sqrt(1 - y * y);
+                  direction.set(Math.cos(angle) * radius, y, Math.sin(angle) * radius);
+                  buckets.add([quality, daylight, golden, cloud, dust, elevation, azimuth].join(":"));
+                  signatures.add(Number(environmentMapSignature({
+                    daylight: daylight / 5,
+                    goldenHour: golden / 3,
+                    cloudCover: cloud / 3,
+                    dust: dust / 2,
+                    sunDirection: direction,
+                  }, quality)));
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    expect(buckets.size).toBe(3 * 6 * 4 * 4 * 3 * 8 * 12);
+    expect(signatures.size).toBe(buckets.size);
+  });
+
   it("uses deterministic linear grading before the output pass", () => {
     expect(FieldGradeShader.fragmentShader).toContain("interleavedGradientNoise");
     expect(FieldGradeShader.fragmentShader).toContain("uGoldenHour");
