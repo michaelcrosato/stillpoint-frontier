@@ -645,8 +645,8 @@ export class RenderPipeline {
 
   /**
    * Bloom sources keep their material and everything else becomes a black
-   * occluder. Objects marked hideInBloom (the sky dome) are hidden instead: an
-   * occluder writes depth and would cover the celestial discs behind it.
+   * occluder. Objects marked hideInBloom (the sky dome) are hidden instead,
+   * so they can never write depth over bloom sources behind them.
    */
   private darkenForBloom(object: THREE.Object3D) {
     if (this.bloomLayer.test(object.layers)) return;

@@ -122,7 +122,7 @@ then restore them through normal mixing.
 Performance regressions count material writes during 81-root registration and bound
 registered chunk residency throughout successful far travel. Chunk tests also inject
 failure before construction and verify same-center retry and fresh gameplay caches.
-Failures injected inside a chunk builder and after registration leave no chunk
+Failures injected inside a chunk builder and in its final lighting pass leave no chunk
 behind: the partial tree is disposed, its shared-asset lease released, and the next
 update retries it. They do not prove automatic Engine recovery.
 These are work-count/resource invariants, not hardware FPS assertions.
