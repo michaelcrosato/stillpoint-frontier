@@ -2793,6 +2793,8 @@ export class Engine {
     const renderMetrics = this.renderPipeline.render(
       deltaSeconds,
       this.graphicsBenchmark.isMeasuringGpu,
+      // The benchmark records its resolution at the start of its warm-up.
+      this.graphicsBenchmark.isActive,
     );
     this.graphicsBenchmark.resolveGpuSamples(renderMetrics.gpuSamples);
     this.trackPerformance(timestamp);

@@ -6,6 +6,7 @@ import {
   adaptivePixelRatio,
 } from "../../lib/game/rendering/AdaptiveResolution";
 import { RenderPipeline } from "../../lib/game/rendering/RenderPipeline";
+import { Engine } from "../../lib/game/Engine";
 
 const BUDGET = 1000 / 60;
 const heavy = BUDGET * 1.5;
@@ -145,5 +146,50 @@ describe("render pipeline adaptive resolution", () => {
     expect(probes).toHaveLength(2);
     Object.assign(pipeline, { gpuFrameTimer: { diagnostics: { status: "unsupported" } } });
     expect(Array.from({ length: 30 }, () => internals.shouldProbeGpu()).some(Boolean)).toBe(false);
+  });
+});
+
+describe("adaptive resolution during a benchmark", () => {
+  it("neither probes GPU time nor adapts while the resolution is held", () => {
+    const controller = new AdaptiveResolution({ budgetMilliseconds: BUDGET });
+    const begin = vi.fn(() => true);
+    const samples = Array.from({ length: 5 }, (_, index) => ({ frameToken: index, milliseconds: heavy }));
+    const pipeline = Object.create(RenderPipeline.prototype) as RenderPipeline;
+    Object.assign(pipeline, {
+      disposed: false,
+      frameToken: 0,
+      framesSinceGpuProbe: 0,
+      renderer: { info: { reset: vi.fn() }, render: vi.fn() },
+      options: { scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera() },
+      gpuFrameTimer: { diagnostics: { status: "ready", pendingQueries: 1 }, poll: () => samples, begin, end: vi.fn() },
+      adaptiveResolution: controller,
+      usesPostProcessing: () => false,
+      resize: vi.fn(),
+    });
+    for (let frame = 0; frame < 30; frame += 1) pipeline.render(0, false, true);
+    expect(begin).not.toHaveBeenCalled();
+    expect(controller.scale).toBe(1);
+  });
+
+  it("holds the resolution for the whole benchmark, warm-up included", () => {
+    const render = vi.fn(() => ({ frameToken: 1, cpuRenderMilliseconds: 1, gpuQuerySubmitted: false, gpuSamples: [] }));
+    const engine = Object.create(Engine.prototype) as unknown as {
+      renderCurrentFrame(deltaSeconds: number, timestamp: number, interval: number, startedAt: number): void;
+    };
+    Object.assign(engine, {
+      keepFlashlightVariantsWarm: () => undefined,
+      trackPerformance: () => undefined,
+      started: false,
+      testMode: true,
+      renderPipeline: { render, renderer: { info: { render: { calls: 0, triangles: 0 } } } },
+      graphicsBenchmark: { isMeasuringGpu: false, isActive: true, resolveGpuSamples: vi.fn(), recordFrame: vi.fn() },
+    });
+    vi.stubGlobal("document", { hidden: false });
+    try {
+      engine.renderCurrentFrame(0.016, 0, 16, 0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(render).toHaveBeenCalledWith(0.016, false, true);
   });
 });

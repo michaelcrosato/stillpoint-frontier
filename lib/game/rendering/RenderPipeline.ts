@@ -287,7 +287,11 @@ export class RenderPipeline {
     }
   }
 
-  render(deltaSeconds = 0, measureGpu = false): RenderFrameMetrics {
+  /**
+   * Renders one frame. holdResolution keeps adaptive resolution still (no
+   * probes, no changes), as a benchmark needs from its warm-up to its end.
+   */
+  render(deltaSeconds = 0, measureGpu = false, holdResolution = measureGpu): RenderFrameMetrics {
     if (this.disposed) {
       return {
         frameToken: this.frameToken,
@@ -300,10 +304,11 @@ export class RenderPipeline {
     const gpuSamples = measureGpu || timerBeforeFrame.pendingQueries > 0
       ? this.gpuFrameTimer.poll()
       : [];
-    this.applyGpuSamples(gpuSamples, measureGpu);
+    this.applyGpuSamples(gpuSamples, holdResolution);
     const frameToken = ++this.frameToken;
     const gpuQuerySubmitted =
-      (measureGpu || this.shouldProbeGpu()) && this.gpuFrameTimer.begin(frameToken);
+      (measureGpu || (!holdResolution && this.shouldProbeGpu())) &&
+      this.gpuFrameTimer.begin(frameToken);
     const cpuStartedAt = performance.now();
     this.renderer.info.reset();
     try {
@@ -351,10 +356,10 @@ export class RenderPipeline {
   /** Feeds polled GPU times to adaptive resolution; true when it resized. */
   private applyGpuSamples(
     samples: readonly GpuFrameTimingSample[],
-    benchmarking: boolean,
+    hold: boolean,
   ) {
     // A benchmark measures one fixed resolution.
-    if (benchmarking || samples.length === 0) return false;
+    if (hold || samples.length === 0) return false;
     let changed = false;
     for (const sample of samples) {
       if (this.adaptiveResolution.sample(sample.milliseconds)) changed = true;
