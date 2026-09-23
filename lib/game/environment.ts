@@ -514,6 +514,9 @@ export function createEnvironment(
   });
   const sky = new THREE.Mesh(skyGeometry, skyMaterial);
   sky.name = "atmosphere-sky";
+  // Hidden, not darkened, in the bloom pass: a darkened dome writes depth and
+  // would cover the celestial discs, which sit near the far plane.
+  sky.userData.hideInBloom = true;
   sky.frustumCulled = false;
   sky.renderOrder = -3;
   scene.add(sky);

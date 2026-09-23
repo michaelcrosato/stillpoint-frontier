@@ -636,23 +636,31 @@ export class RenderPipeline {
     }
   }
 
-  private readonly darkenBloomOccluder = (object: THREE.Object3D) => {
+  private readonly darkenBloomOccluder = (object: THREE.Object3D) => this.darkenForBloom(object);
+
+  /**
+   * Bloom sources keep their material and everything else becomes a black
+   * occluder. Objects marked hideInBloom (the sky dome) are hidden instead: an
+   * occluder writes depth and would cover the celestial discs behind it.
+   */
+  private darkenForBloom(object: THREE.Object3D) {
     if (this.bloomLayer.test(object.layers)) return;
+    const hide =
+      object.userData.hideInBloom === true ||
+      object instanceof THREE.Points ||
+      object instanceof THREE.Line ||
+      object instanceof THREE.Sprite;
+    if (hide) {
+      if (!object.visible) return;
+      this.bloomHidden.add(object);
+      object.visible = false;
+      return;
+    }
     if (object instanceof THREE.Mesh) {
       this.bloomMaterials.set(object, object.material);
       object.material = this.bloomOccluderMaterial;
-      return;
     }
-    if (
-      object.visible &&
-      (object instanceof THREE.Points ||
-        object instanceof THREE.Line ||
-        object instanceof THREE.Sprite)
-    ) {
-      this.bloomHidden.add(object);
-      object.visible = false;
-    }
-  };
+  }
 
   /**
    * Restores exactly what the darken pass changed. Iterating the two

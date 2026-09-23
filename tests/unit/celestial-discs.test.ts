@@ -91,6 +91,51 @@ describe("celestial discs", () => {
   });
 });
 
+describe("bloom pass sky handling", () => {
+  it("hides objects marked hideInBloom for the bloom render and restores them", () => {
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera();
+    const sky = new THREE.Mesh(new THREE.SphereGeometry(), new THREE.MeshBasicMaterial());
+    sky.userData.hideInBloom = true;
+    scene.add(sky);
+    const visibleDuringBloom: boolean[] = [];
+    const pipeline = Object.create(RenderPipeline.prototype) as RenderPipeline;
+    Object.assign(pipeline, {
+      options: { scene, camera },
+      renderer: { shadowMap: { autoUpdate: true } },
+      bloomBackground: new THREE.Color(0),
+      bloomLayer: (() => { const layers = new THREE.Layers(); layers.set(BLOOM_LAYER); return layers; })(),
+      bloomOccluderMaterial: new THREE.MeshBasicMaterial(),
+      bloomMaterials: new Map(),
+      bloomHidden: new Set(),
+      bloomComposer: { render: () => visibleDuringBloom.push(sky.visible) },
+      bloomCompositePass: { uniforms: { tBloom: { value: null } } },
+      bloomPass: { renderTargetsHorizontal: [{ texture: null }] },
+    });
+    // The traversal callback is an instance arrow that delegates to darkenForBloom.
+    Object.assign(pipeline, {
+      darkenBloomOccluder: (object: THREE.Object3D) =>
+        (RenderPipeline.prototype as unknown as { darkenForBloom(object: THREE.Object3D): void })
+          .darkenForBloom.call(pipeline, object),
+    });
+    (pipeline as unknown as { renderSelectiveBloom(delta: number): void }).renderSelectiveBloom(0);
+    expect(visibleDuringBloom).toEqual([false]);
+    expect(sky.visible).toBe(true);
+    expect(sky.material).toBeInstanceOf(THREE.MeshBasicMaterial);
+  });
+
+  it("marks the sky dome to be hidden, not darkened, in the bloom pass", () => {
+    const scene = new THREE.Scene();
+    const renderer = {
+      toneMappingExposure: 1,
+      capabilities: { maxTextureSize: 8192 },
+    } as unknown as THREE.WebGLRenderer;
+    const environment = createEnvironment(scene, renderer, "cinematic");
+    expect(scene.getObjectByName("atmosphere-sky")?.userData.hideInBloom).toBe(true);
+    environment.dispose();
+  });
+});
+
 describe("bloom pass camera layers", () => {
   it("sees bloom-only objects during the bloom render and not after", () => {
     const scene = new THREE.Scene();
