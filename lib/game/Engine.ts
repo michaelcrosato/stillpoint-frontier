@@ -3154,6 +3154,21 @@ export class Engine {
     this.playerAvatar.setQuality(this.quality);
     this.flashlight.setQuality(this.quality);
     this.resize();
+    if (this.ready && !this.disposed) this.rewarmFlashlightVariants();
+  }
+
+  /**
+   * A new preset changes shader variants, and the shadowed flashlight's would
+   * otherwise first compile when the player switches the beam on. Boot warms
+   * them the same way; before boot is ready, boot's own warm-up covers it.
+   */
+  private rewarmFlashlightVariants() {
+    this.flashlight.prepareForCompile();
+    // compile() finishes its work before it returns (render-compile.test.ts),
+    // so the pose can be restored at once. Warm-up is best-effort: if it
+    // fails, the next render compiles lazily.
+    this.renderPipeline.compile().catch(() => undefined);
+    this.flashlight.finishCompile();
   }
 
   private toggleQuality() {
