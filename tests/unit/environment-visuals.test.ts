@@ -69,4 +69,31 @@ describe("directional shadow stabilization", () => {
     expect(cinematicError).toBeLessThan(Math.SQRT2 * (176 / 2_048) * 0.5);
     expect(ultraError).toBeLessThan(Math.SQRT2 * (176 / 4_096) * 0.5);
   });
+
+  it.each([
+    [new THREE.Vector3(1e-4, 1, 0)],
+    [new THREE.Vector3(0, 1, -1e-5)],
+    [new THREE.Vector3(0, 1, 0)],
+    [new THREE.Vector3(0.4, 0.8, 0.3)],
+  ])("snaps in the same basis three's shadow camera uses (%o)", (offset) => {
+    const camera = new THREE.OrthographicCamera(-88, 88, 88, -88, 1, 260);
+    const anchor = new THREE.Vector3(12.37, 4.2, -33.91);
+    camera.position.copy(anchor).add(offset);
+    camera.lookAt(anchor);
+    camera.updateMatrixWorld(true);
+    const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
+    const up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+    const snapped = stabilizeDirectionalShadowAnchor(anchor, offset, camera, new THREE.Vector2(2048, 2048));
+    const delta = snapped.clone().sub(anchor);
+    const forward = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 2);
+    expect(Math.abs(delta.dot(forward))).toBeLessThan(1e-9);
+    const texel = 176 / 2048;
+    expect(Math.abs(delta.dot(right))).toBeLessThanOrEqual(texel / 2 + 1e-9);
+    expect(Math.abs(delta.dot(up))).toBeLessThanOrEqual(texel / 2 + 1e-9);
+    // The point of snapping: the anchor lands on the shadow camera's own texel grid.
+    for (const axis of [right, up]) {
+      const texels = snapped.dot(axis) / texel;
+      expect(Math.abs(texels - Math.round(texels))).toBeLessThan(1e-6);
+    }
+  });
 });

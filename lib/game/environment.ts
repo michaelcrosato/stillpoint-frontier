@@ -126,11 +126,20 @@ export function stabilizeDirectionalShadowAnchor(
   const height = Math.max(0.001, camera.top - camera.bottom);
   const texelX = width / Math.max(1, mapSize.x);
   const texelY = height / Math.max(1, mapSize.y);
-  scratch.forward.copy(lightOffset).normalize();
+  // Build the basis exactly as Matrix4.lookAt builds the shadow camera's, so
+  // the grid we snap to is the grid the shadow map is rasterised on. That
+  // includes its handling of a light at the zenith.
+  scratch.forward.copy(lightOffset);
+  if (scratch.forward.lengthSq() === 0) scratch.forward.z = 1;
+  scratch.forward.normalize();
   scratch.right.set(0, 1, 0).cross(scratch.forward);
-  if (scratch.right.lengthSq() < 0.000001) scratch.right.set(1, 0, 0);
-  else scratch.right.normalize();
-  scratch.up.copy(scratch.forward).cross(scratch.right).normalize();
+  if (scratch.right.lengthSq() === 0) {
+    scratch.forward.z += 0.0001;
+    scratch.forward.normalize();
+    scratch.right.set(0, 1, 0).cross(scratch.forward);
+  }
+  scratch.right.normalize();
+  scratch.up.copy(scratch.forward).cross(scratch.right);
   const projectedX = scratch.right.dot(anchor);
   const projectedY = scratch.up.dot(anchor);
   const correctionX = Math.round(projectedX / texelX) * texelX - projectedX;
