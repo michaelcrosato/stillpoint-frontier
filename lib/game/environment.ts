@@ -36,6 +36,7 @@ import {
   SUN_SHADOW_EXTENT_METERS,
   sunShadowBiases,
 } from "./rendering/ShadowBias";
+import { ShadowUpdatePolicy } from "./rendering/ShadowUpdatePolicy";
 import { sampleClimate } from "./world/macroWorld";
 
 const CINEMATIC_PRECIPITATION_POINTS = 720;
@@ -337,6 +338,7 @@ export function createEnvironment(
   renderer: THREE.WebGLRenderer,
   quality: QualityLevel,
   initialWorldMinutes = WORLD_START_MINUTES,
+  shadowUpdates = new ShadowUpdatePolicy(),
 ): EnvironmentRuntime {
   const fog = new THREE.FogExp2(0x8f7657, 0.00365);
   scene.fog = fog;
@@ -359,6 +361,9 @@ export function createEnvironment(
   // already sets 2; the sun was left at the default 1, which is the hardest
   // setting available.
   sun.shadow.radius = 2.5;
+  // The map is re-rendered only when shadowUpdates says its inputs changed;
+  // see applyAtmosphere.
+  sun.shadow.autoUpdate = false;
   const sunTarget = new THREE.Object3D();
   scene.add(sun, sunTarget);
   sun.target = sunTarget;
@@ -642,6 +647,11 @@ export function createEnvironment(
     }
     sun.position.copy(shadowAnchor).add(shadowLightOffset);
     sunTarget.position.copy(shadowAnchor);
+    // Only ever set the flag: three clears it after rendering, and a render
+    // requested elsewhere (a new map after a quality change) must survive.
+    if (sun.castShadow && shadowUpdates.shouldRender(shadowAnchor, shadowLightOffset)) {
+      sun.shadow.needsUpdate = true;
+    }
     if (useSun) {
       temporaryColor.lerpColors(sunDay, sunDawn, displaySample.goldenHour * 0.86);
       sun.color.copy(temporaryColor);
@@ -874,6 +884,7 @@ export function createEnvironment(
       // With shadow.autoUpdate off, three skips a light that has no map
       // unless it is asked to render one.
       if (sun.castShadow && sun.shadow.map === null) sun.shadow.needsUpdate = true;
+      shadowUpdates.markDirty("quality");
       const biases = sunShadowBiases(
         nextQuality,
         renderer.capabilities.reversedDepthBuffer === true,

@@ -8,6 +8,10 @@ import {
   tagWorldMaterial,
   type WorldMaterialLibrary,
 } from "../rendering/WorldMaterialLibrary";
+import {
+  NO_SHADOW_INVALIDATOR,
+  type ShadowInvalidator,
+} from "../rendering/ShadowUpdatePolicy";
 import { prepareVegetationGeometry } from "../rendering/VegetationWind";
 import {
   CANOPY_BENCHMARK_LEVELS,
@@ -48,6 +52,8 @@ interface TileRecipe {
 
 interface TileRuntime {
   lod: THREE.LOD;
+  /** Level last seen by update(); three switches levels during render. */
+  shadowLevel: number;
   centerX: number;
   centerZ: number;
   sablePines: number;
@@ -270,6 +276,8 @@ export class ForestStressTest {
     private readonly scene: THREE.Scene,
     quality: QualityLevel,
     private readonly materialLibrary: WorldMaterialLibrary,
+    /** Told when the fixture changes what casts into the sun's shadow. */
+    private readonly shadowInvalidator: ShadowInvalidator = NO_SHADOW_INVALIDATOR,
   ) {
     this.quality = quality;
   }
@@ -288,8 +296,26 @@ export class ForestStressTest {
     } else if (this.root && distance > CANOPY_BENCHMARK_ZONE.unloadRadius) {
       this.clear();
     }
-    if (this.root) this.updateActiveLodBudget(playerX, playerZ);
+    if (this.root) {
+      this.updateActiveLodBudget(playerX, playerZ);
+      this.reportLodSwitches();
+    }
     return this.root !== null;
+  }
+
+  /**
+   * THREE.LOD picks levels from the camera during render, so a switch shows
+   * up here one frame later; the cached sun shadow re-renders then.
+   */
+  private reportLodSwitches() {
+    let switched = false;
+    for (const tile of this.tiles) {
+      const level = tile.lod.getCurrentLevel();
+      if (level === tile.shadowLevel) continue;
+      tile.shadowLevel = level;
+      switched = true;
+    }
+    if (switched) this.shadowInvalidator.markDirty("forest");
   }
 
   setLevel(level: number) {
@@ -474,6 +500,7 @@ export class ForestStressTest {
     root.add(lod);
     return {
       lod,
+      shadowLevel: lod.getCurrentLevel(),
       centerX: recipe.centerX,
       centerZ: recipe.centerZ,
       sablePines: sable.length,
@@ -668,6 +695,7 @@ export class ForestStressTest {
         object.userData.shadowCandidate === true &&
         qualityUsesShadows(this.quality);
     });
+    if (this.root) this.shadowInvalidator.markDirty("forest");
   }
 
   private clear() {
@@ -676,6 +704,7 @@ export class ForestStressTest {
     this.root = null;
     this.materialLibrary.untrack(root);
     this.scene.remove(root);
+    this.shadowInvalidator.markDirty("forest");
     root.traverse((object) => {
       if (object instanceof THREE.InstancedMesh) object.dispose();
     });

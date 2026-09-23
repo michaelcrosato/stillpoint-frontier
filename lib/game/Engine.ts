@@ -35,6 +35,10 @@ import {
   RenderPipeline,
   type GraphicsDiagnostics,
 } from "./rendering/RenderPipeline";
+import {
+  ShadowUpdatePolicy,
+  type ShadowUpdateDiagnostics,
+} from "./rendering/ShadowUpdatePolicy";
 import { WorldMaterialLibrary } from "./rendering/WorldMaterialLibrary";
 import {
   DEFAULT_GRAPHICS_FEATURES,
@@ -305,6 +309,7 @@ export interface GameTestBridge {
   };
   audio(): EnvironmentalAudio["diagnostics"];
   graphics(): GraphicsDiagnostics;
+  shadowUpdates(): ShadowUpdateDiagnostics;
   graphicsFeatures(): GraphicsFeatureState;
   setGraphicsFeature(id: GraphicsFeatureId, enabled: boolean): boolean;
   graphicsBenchmark(): GraphicsBenchmarkSnapshot;
@@ -395,6 +400,8 @@ export class Engine {
   private readonly renderPipeline: RenderPipeline;
   private readonly renderer: THREE.WebGLRenderer;
   private readonly materialLibrary: WorldMaterialLibrary;
+  /** Decides when the cached sun shadow map is re-rendered. */
+  private readonly shadowUpdates = new ShadowUpdatePolicy();
   private readonly input: InputManager;
   private readonly world: ChunkManager;
   private readonly forestStress: ForestStressTest;
@@ -612,11 +619,13 @@ export class Engine {
         this.featureProgress.containerStates,
         this.featureProgress.placedEntities,
         this.materialLibrary,
+        this.shadowUpdates,
       );
       this.forestStress = new ForestStressTest(
         this.scene,
         this.quality,
         this.materialLibrary,
+        this.shadowUpdates,
       );
       this.horizon = new HorizonRenderer(
         this.scene,
@@ -629,7 +638,11 @@ export class Engine {
         queryColliders: (current, desired, radius, minY, maxY) =>
           this.world.queryColliders(current, desired, radius, minY, maxY),
       });
-      this.playerAvatar = new PlayerAvatar(this.scene, this.quality);
+      this.playerAvatar = new PlayerAvatar(
+        this.scene,
+        this.quality,
+        this.shadowUpdates,
+      );
       this.flashlight = new PlayerFlashlight(
         this.scene,
         this.quality,
@@ -644,6 +657,7 @@ export class Engine {
         this.renderer,
         this.quality,
         saved.worldMinutes,
+        this.shadowUpdates,
       );
       this.applyGraphicsFeatures();
       this.environment.setHorizonMode(this.horizonMode);
@@ -3280,6 +3294,7 @@ export class Engine {
       flashlight: () => this.flashlight.diagnostics,
       audio: () => this.audio.diagnostics,
       graphics: () => this.renderPipeline.diagnostics,
+      shadowUpdates: () => this.shadowUpdates.diagnostics,
       graphicsFeatures: () => ({ ...this.graphicsFeatures }),
       setGraphicsFeature: (id, enabled) =>
         this.setGraphicsFeature(id, enabled),

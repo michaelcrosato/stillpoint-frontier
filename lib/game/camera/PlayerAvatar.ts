@@ -1,5 +1,9 @@
 import * as THREE from "three";
 import { PLAYER_HEIGHT, qualityUsesShadows, type QualityLevel } from "../config";
+import {
+  NO_SHADOW_INVALIDATOR,
+  type ShadowInvalidator,
+} from "../rendering/ShadowUpdatePolicy";
 import type { CameraRigDiagnostics } from "./CameraRig";
 
 export const AVATAR_FADE_START_DISTANCE = 0.65;
@@ -23,9 +27,15 @@ export class PlayerAvatar {
   readonly root = new THREE.Group();
   private readonly materials: THREE.MeshStandardMaterial[];
   private castsShadows = false;
+  private casting = false;
   private opacity = 0;
 
-  constructor(scene: THREE.Scene, quality: QualityLevel) {
+  constructor(
+    scene: THREE.Scene,
+    quality: QualityLevel,
+    /** Told when the avatar's contribution to the sun's shadow changes. */
+    private readonly shadowInvalidator: ShadowInvalidator = NO_SHADOW_INVALIDATOR,
+  ) {
     this.root.name = "player-avatar";
     this.root.visible = false;
 
@@ -91,22 +101,35 @@ export class PlayerAvatar {
       material.opacity = opacity;
       material.depthWrite = !transparent;
     }
-    this.root.traverse((object) => {
-      if (!(object instanceof THREE.Mesh)) return;
-      object.castShadow = this.castsShadows && opacity >= 0.999;
-    });
+    this.applyCasting();
     if (!this.root.visible) return;
+    const scaleY = THREE.MathUtils.clamp(eyeHeight / PLAYER_HEIGHT, 0.72, 1);
+    if (
+      this.casting &&
+      (!this.root.position.equals(position) ||
+        this.root.rotation.y !== yaw ||
+        this.root.scale.y !== scaleY)
+    ) {
+      this.shadowInvalidator.markDirty("avatar");
+    }
     this.root.position.copy(position);
     this.root.rotation.set(0, yaw, 0);
-    this.root.scale.set(1, THREE.MathUtils.clamp(eyeHeight / PLAYER_HEIGHT, 0.72, 1), 1);
+    this.root.scale.set(1, scaleY, 1);
   }
 
   setQuality(quality: QualityLevel) {
     this.castsShadows = qualityUsesShadows(quality);
+    this.applyCasting();
+  }
+
+  private applyCasting() {
+    const casting = this.castsShadows && this.opacity >= 0.999;
+    if (casting === this.casting) return;
+    this.casting = casting;
     this.root.traverse((object) => {
-      if (!(object instanceof THREE.Mesh)) return;
-      object.castShadow = this.castsShadows && this.opacity >= 0.999;
+      if (object instanceof THREE.Mesh) object.castShadow = casting;
     });
+    this.shadowInvalidator.markDirty("avatar");
   }
 
   dispose() {
