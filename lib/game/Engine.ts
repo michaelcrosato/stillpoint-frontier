@@ -3146,7 +3146,11 @@ export class Engine {
     this.world.presentEnvironment(visualState);
     this.horizon.presentEnvironment(visualState);
     this.renderPipeline.presentEnvironment(visualState);
-    this.materialLibrary.setEnvironment(this.scene.environment, this.scene.environmentIntensity);
+    this.materialLibrary.setEnvironment(
+      this.scene.environment,
+      this.scene.environmentIntensity,
+      this.scene.environmentRotation,
+    );
   }
 
   private synchronizeTimeDependentWorld() {
@@ -3273,7 +3277,11 @@ export class Engine {
     this.contextStatus = "ready";
     this.renderPipeline.handleContextRestored();
     this.renderPipeline.presentEnvironment(this.environment.getVisualState());
-    this.materialLibrary.setEnvironment(this.scene.environment, this.scene.environmentIntensity);
+    this.materialLibrary.setEnvironment(
+      this.scene.environment,
+      this.scene.environmentIntensity,
+      this.scene.environmentRotation,
+    );
     this.emitSnapshot(true);
   };
 
