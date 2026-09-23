@@ -28,6 +28,7 @@ import {
 } from "./GpuFrameTimer";
 import type { GraphicsFeatureState } from "./GraphicsFeatures";
 import { GraphicsCapabilities } from "./GraphicsCapabilities";
+import { AdaptiveResolution, adaptivePixelRatio } from "./AdaptiveResolution";
 import { ShortRangeGtaoPass } from "./ShortRangeGtaoPass";
 
 export {
@@ -36,12 +37,16 @@ export {
   renderPixelRatio,
 } from "./RenderingPolicy";
 
+const GPU_PROBE_INTERVAL = 15;
+
 export interface RenderPipelineOptions {
   canvas: HTMLCanvasElement;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   quality: QualityLevel;
   preserveDrawingBuffer?: boolean;
+  /** Off for deterministic test sessions; see AdaptiveResolution. */
+  adaptiveResolution?: boolean;
 }
 
 export interface GraphicsDiagnostics {
@@ -73,6 +78,8 @@ export interface GraphicsDiagnostics {
   gpuVendor: string;
   gpuRenderer: string;
   environmentMap: EnvironmentMapDiagnostics;
+  /** Fraction of the resolved pixel ratio adaptive resolution renders at. */
+  resolutionScale: number;
 }
 
 type RenderPipelineFeatureState = Pick<
@@ -141,9 +148,17 @@ export class RenderPipeline {
   private postProcessingFallback = false;
   private postProcessingFailureCount = 0;
   private disposed = false;
+  /** Lowers render resolution while the GPU is the limit. */
+  private readonly adaptiveResolution: AdaptiveResolution;
+  private framesSinceGpuProbe = 0;
+  private devicePixelRatio = 1;
 
   constructor(private readonly options: RenderPipelineOptions) {
     this.quality = options.quality;
+    this.adaptiveResolution = new AdaptiveResolution(
+      { budgetMilliseconds: 1000 / 60 },
+      options.adaptiveResolution !== false,
+    );
     this.bloomLayer.set(BLOOM_LAYER);
     const contextAttributes: WebGLContextAttributes = {
       alpha: false,
@@ -285,8 +300,10 @@ export class RenderPipeline {
     const gpuSamples = measureGpu || timerBeforeFrame.pendingQueries > 0
       ? this.gpuFrameTimer.poll()
       : [];
+    this.applyGpuSamples(gpuSamples, measureGpu);
     const frameToken = ++this.frameToken;
-    const gpuQuerySubmitted = measureGpu && this.gpuFrameTimer.begin(frameToken);
+    const gpuQuerySubmitted =
+      (measureGpu || this.shouldProbeGpu()) && this.gpuFrameTimer.begin(frameToken);
     const cpuStartedAt = performance.now();
     this.renderer.info.reset();
     try {
@@ -327,6 +344,36 @@ export class RenderPipeline {
     };
   }
 
+  get resolutionScale() {
+    return this.adaptiveResolution.scale;
+  }
+
+  /** Feeds polled GPU times to adaptive resolution; true when it resized. */
+  private applyGpuSamples(
+    samples: readonly GpuFrameTimingSample[],
+    benchmarking: boolean,
+  ) {
+    // A benchmark measures one fixed resolution.
+    if (benchmarking || samples.length === 0) return false;
+    let changed = false;
+    for (const sample of samples) {
+      if (this.adaptiveResolution.sample(sample.milliseconds)) changed = true;
+    }
+    if (!changed) return false;
+    this.resize(this.width, this.height, this.devicePixelRatio);
+    return true;
+  }
+
+  /** One GPU timing every GPU_PROBE_INTERVAL frames is enough to follow load. */
+  private shouldProbeGpu() {
+    if (!this.adaptiveResolution.active) return false;
+    if (this.gpuFrameTimer.diagnostics.status === "unsupported") return false;
+    this.framesSinceGpuProbe += 1;
+    if (this.framesSinceGpuProbe < GPU_PROBE_INTERVAL) return false;
+    this.framesSinceGpuProbe = 0;
+    return true;
+  }
+
   presentEnvironment(state: Readonly<EnvironmentVisualState>) {
     this.environmentMap.present(state);
     this.gradePass.uniforms.uDaylight.value = state.daylight;
@@ -360,18 +407,22 @@ export class RenderPipeline {
   resize(width: number, height: number, devicePixelRatio: number) {
     if (this.disposed) return;
     const preset = QUALITY_PRESETS[this.quality];
+    this.devicePixelRatio = devicePixelRatio;
     this.width = Math.max(1, Math.floor(width));
     this.height = Math.max(1, Math.floor(height));
     const context = this.renderer.getContext();
     const maxFramebufferSize = Number(
       context.getParameter(context.MAX_RENDERBUFFER_SIZE),
     );
-    this.pixelRatio = renderPixelRatio(
-      devicePixelRatio,
-      preset.pixelRatioCap,
-      this.width,
-      this.height,
-      maxFramebufferSize,
+    this.pixelRatio = adaptivePixelRatio(
+      renderPixelRatio(
+        devicePixelRatio,
+        preset.pixelRatioCap,
+        this.width,
+        this.height,
+        maxFramebufferSize,
+      ),
+      this.adaptiveResolution.scale,
     );
     this.renderer.setPixelRatio(this.pixelRatio);
     this.renderer.setSize(this.width, this.height, false);
@@ -389,6 +440,8 @@ export class RenderPipeline {
 
   setQuality(quality: QualityLevel) {
     if (this.disposed) return;
+    // A new preset starts from its own cap; the caller resizes next.
+    this.adaptiveResolution.reset();
     const samplesChanged =
       this.composer.renderTarget1.samples !== this.composerSamples(quality);
     this.quality = quality;
@@ -447,6 +500,7 @@ export class RenderPipeline {
       gpuTimerStatus: timer.status,
       gpuQueriesPending: timer.pendingQueries,
       environmentMap: this.environmentMap.diagnostics,
+      resolutionScale: this.adaptiveResolution.scale,
     };
   }
 

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
+import { AdaptiveResolution } from "../../lib/game/rendering/AdaptiveResolution";
 import { RenderPipeline } from "../../lib/game/rendering/RenderPipeline";
 
 describe("optional compositor direct-render fallback", () => {
@@ -36,6 +37,7 @@ describe("optional compositor direct-render fallback", () => {
       disposed: false, frameToken: 0, postProcessingFailureCount: 0,
       renderer, options: { scene, camera }, fallbackClearColor: new THREE.Color(),
       gpuFrameTimer: { diagnostics: { pendingQueries: 0 } },
+      adaptiveResolution: new AdaptiveResolution({ budgetMilliseconds: 1000 / 60 }, false),
       usesPostProcessing: () => true,
       bloomPass: { enabled: stage === "bloom" },
       renderSelectiveBloom: fail, composer: { render: fail },

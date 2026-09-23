@@ -604,6 +604,7 @@ export class Engine {
       this.renderPipeline = new RenderPipeline({
         canvas: this.canvas,
         preserveDrawingBuffer: this.testMode,
+        adaptiveResolution: !this.testMode,
         scene: this.scene,
         camera: this.camera,
         quality: this.quality,
