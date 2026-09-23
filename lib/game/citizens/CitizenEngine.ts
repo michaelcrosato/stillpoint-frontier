@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { BlobShadows } from "../rendering/BlobShadows";
+import { BLOB_FOOTPRINT_SPREAD, BlobShadows, footprintRadius } from "../rendering/BlobShadows";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import {
   CHUNK_SIZE,
@@ -58,14 +58,6 @@ function createCitizenGeometry() {
   geometry.computeVertexNormals();
   geometry.computeBoundingSphere();
   return geometry;
-}
-
-/** Half the larger horizontal extent of a geometry: its footprint radius. */
-function footprintRadius(geometry: THREE.BufferGeometry) {
-  geometry.computeBoundingBox();
-  const box = geometry.boundingBox;
-  if (!box) return 0.3;
-  return Math.max(box.max.x - box.min.x, box.max.z - box.min.z) / 2;
 }
 
 /**
@@ -297,7 +289,7 @@ export class CitizenEngine {
           pose.x,
           pose.y,
           pose.z,
-          this.footprint * Math.max(recipe.width, recipe.depth),
+          this.footprint * BLOB_FOOTPRINT_SPREAD * Math.max(recipe.width, recipe.depth),
         );
       }
       mesh.instanceMatrix.needsUpdate = true;

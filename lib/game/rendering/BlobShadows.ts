@@ -3,6 +3,21 @@ import * as THREE from "three";
 /** Lift above the ground so the blob wins the depth test on flat terrain. */
 export const BLOB_SHADOW_LIFT = 0.03;
 
+/**
+ * Blob radius per unit of body footprint. The shader holds a blob above half
+ * strength only within about half its radius, so a blob twice the footprint
+ * shows around the feet instead of hiding under the body.
+ */
+export const BLOB_FOOTPRINT_SPREAD = 2;
+
+/** Half the larger horizontal extent of a geometry: its footprint radius. */
+export function footprintRadius(geometry: THREE.BufferGeometry) {
+  geometry.computeBoundingBox();
+  const box = geometry.boundingBox;
+  if (!box) return 0.3;
+  return Math.max(box.max.x - box.min.x, box.max.z - box.min.z) / 2;
+}
+
 export interface BlobShadowOptions {
   name: string;
   capacity: number;

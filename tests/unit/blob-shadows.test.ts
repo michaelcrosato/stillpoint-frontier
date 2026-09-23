@@ -3,7 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import { AnimalEngine } from "../../lib/game/animals/AnimalEngine";
 import { ANIMAL_SPECIES } from "../../lib/game/animals/animalRecipes";
 import { CitizenEngine } from "../../lib/game/citizens/CitizenEngine";
-import { BLOB_SHADOW_LIFT, BlobShadows } from "../../lib/game/rendering/BlobShadows";
+import {
+  BLOB_SHADOW_LIFT,
+  BlobShadows,
+  footprintRadius,
+} from "../../lib/game/rendering/BlobShadows";
 
 function blobs(scene = new THREE.Scene()) {
   return new BlobShadows(scene, { name: "test-blobs", capacity: 4, fadeStart: 20, fadeEnd: 60 });
@@ -13,6 +17,23 @@ function blobCentre(shadows: BlobShadows, index: number) {
   const matrix = new THREE.Matrix4();
   shadows.mesh.getMatrixAt(index, matrix);
   return new THREE.Vector3().setFromMatrixPosition(matrix);
+}
+
+function instanceAt(mesh: THREE.InstancedMesh, index: number) {
+  const matrix = new THREE.Matrix4();
+  mesh.getMatrixAt(index, matrix);
+  const position = new THREE.Vector3();
+  const scale = new THREE.Vector3();
+  matrix.decompose(position, new THREE.Quaternion(), scale);
+  return { position, scale };
+}
+
+function blobUnder(shadows: THREE.InstancedMesh, position: THREE.Vector3) {
+  for (let index = 0; index < shadows.count; index += 1) {
+    const blob = instanceAt(shadows, index);
+    if (Math.hypot(blob.position.x - position.x, blob.position.z - position.z) < 1e-3) return blob;
+  }
+  return undefined;
 }
 
 describe("blob shadows", () => {
@@ -58,6 +79,11 @@ describe("blob shadows", () => {
     shadows.dispose();
   });
 
+  it("measures a footprint as half the larger horizontal extent", () => {
+    expect(footprintRadius(new THREE.BoxGeometry(0.8, 3, 0.4))).toBeCloseTo(0.4);
+    expect(footprintRadius(new THREE.BoxGeometry(0.5, 0.2, 1.4))).toBeCloseTo(0.7);
+  });
+
   it("releases its mesh, geometry and material", () => {
     const scene = new THREE.Scene();
     const shadows = blobs(scene);
@@ -86,6 +112,7 @@ describe("agent grounding", () => {
     const first = new THREE.Matrix4();
     crowd!.getMatrixAt(0, first);
     const citizen = new THREE.Vector3().setFromMatrixPosition(first);
+    const citizenScale = instanceAt(crowd!, 0).scale;
     citizens.present(0, citizen.clone().add(new THREE.Vector3(0, 2, 0)));
     const shadows = scene.getObjectByName("citizen-blob-shadows") as THREE.InstancedMesh;
     expect(shadows).toBeInstanceOf(THREE.InstancedMesh);
@@ -97,6 +124,10 @@ describe("agent grounding", () => {
     });
     expect(centres.some((centre) => Math.hypot(centre.x - citizen.x, centre.z - citizen.z) < 1e-3)).toBe(true);
     expect(shadows.count).toBeLessThanOrEqual(citizens.visibleCount);
+    // The shader holds a blob above half strength only within about half its
+    // radius, so a blob twice the footprint shows around the feet.
+    const body = footprintRadius(crowd!.geometry) * Math.max(citizenScale.x, citizenScale.z);
+    expect(blobUnder(shadows, citizen)!.scale.x / 2).toBeCloseTo(2 * body, 4);
     citizens.dispose();
     expect(scene.getObjectByName("citizen-blob-shadows")).toBeUndefined();
   });
@@ -114,5 +145,28 @@ describe("agent grounding", () => {
     expect(shadows.count).toBeLessThanOrEqual(grounded);
     animals.dispose();
     expect(scene.getObjectByName("animal-blob-shadows")).toBeUndefined();
+  });
+
+  it("spreads each walking animal's blob to twice its footprint", () => {
+    const scene = new THREE.Scene();
+    const animals = new AnimalEngine(scene, "cinematic");
+    animals.update(600, 600, 0, false);
+    animals.present(0, new THREE.Vector3(600, 2, 600));
+    const herd = scene.children.find(
+      (child): child is THREE.InstancedMesh =>
+        child instanceof THREE.InstancedMesh &&
+        child.name.startsWith("ambient-animals:") &&
+        child.count > 0 &&
+        !ANIMAL_SPECIES[child.userData.speciesId as keyof typeof ANIMAL_SPECIES].flying,
+    );
+    expect(herd).toBeDefined();
+    const animal = instanceAt(herd!, 0);
+    animals.present(0, animal.position.clone().add(new THREE.Vector3(0, 2, 0)));
+    const shadows = scene.getObjectByName("animal-blob-shadows") as THREE.InstancedMesh;
+    const blob = blobUnder(shadows, animal.position);
+    expect(blob).toBeDefined();
+    const body = footprintRadius(herd!.geometry) * animal.scale.x;
+    expect(blob!.scale.x / 2).toBeCloseTo(2 * body, 4);
+    animals.dispose();
   });
 });

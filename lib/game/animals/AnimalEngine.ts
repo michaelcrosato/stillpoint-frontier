@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { BlobShadows } from "../rendering/BlobShadows";
+import { BLOB_FOOTPRINT_SPREAD, BlobShadows, footprintRadius } from "../rendering/BlobShadows";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import {
   ANIMAL_CHUNK_LOAD_RADIUS,
@@ -138,14 +138,6 @@ function groundDimensions(
  * Sparse, non-interactive wildlife. Rigid analytic poses avoid skeletons and
  * animation clips while render-frame interpolation keeps movement smooth.
  */
-/** Half the larger horizontal extent of a geometry: its footprint radius. */
-function footprintRadius(geometry: THREE.BufferGeometry) {
-  geometry.computeBoundingBox();
-  const box = geometry.boundingBox;
-  if (!box) return 0.3;
-  return Math.max(box.max.x - box.min.x, box.max.z - box.min.z) / 2;
-}
-
 export class AnimalEngine {
   private readonly material = new THREE.MeshStandardMaterial({
     color: 0xffffff,
@@ -249,7 +241,7 @@ export class AnimalEngine {
         scale.setScalar(recipe.scale);
         matrix.compose(position, quaternion, scale);
         mesh.setMatrixAt(index, matrix);
-        if (!flying) this.blobs.add(pose.x, pose.y, pose.z, footprint * recipe.scale);
+        if (!flying) this.blobs.add(pose.x, pose.y, pose.z, footprint * BLOB_FOOTPRINT_SPREAD * recipe.scale);
       });
       if (recipes.length > 0) mesh.instanceMatrix.needsUpdate = true;
       // Terrain height, flight, and reactions can move instances outside a
