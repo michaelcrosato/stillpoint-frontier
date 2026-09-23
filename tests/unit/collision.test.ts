@@ -280,13 +280,31 @@ describe("continuous player collision", () => {
 });
 
 describe("collision spatial index", () => {
+  const colliders: PlanarCollider[] = [
+    { ...circle, id: "west", x: -7, z: 2, radius: 2 },
+    { ...building, id: "center", rotation: 0.4, halfWidth: 3, halfDepth: 1 },
+    { ...circle, id: "east", x: 8, z: -3, radius: 1.5 },
+    { ...building, id: "north", x: 3, z: 9, rotation: -0.2 },
+  ];
+
+  it("covers the region a long slide reaches, not only the raw segment", () => {
+    // fast-check counterexample (seed 1186013471): sliding along the rotated
+    // centre box carries the player about 13 m north, beside "north", which a
+    // query sized to the straight segment left out.
+    const index = new PlanarCollisionIndex(4);
+    index.rebuild(colliders);
+    const current = { x: 9.03893886403151, z: -2.1322692510258454 };
+    const desired = { x: -13.80714823907483, z: 0 };
+    const full = resolvePlanarMovement(current, desired, colliders, PLAYER_RADIUS);
+    expect(full.z).toBeGreaterThan(8);
+    const queried = index.querySweep(current, desired, PLAYER_RADIUS);
+    expect(queried.map((collider) => collider.id)).toContain("north");
+    const indexed = resolvePlanarMovement(current, desired, queried, PLAYER_RADIUS);
+    expect(indexed.x).toBeCloseTo(full.x, 9);
+    expect(indexed.z).toBeCloseTo(full.z, 9);
+  });
+
   it("returns the same movement result as the full collider set", () => {
-    const colliders: PlanarCollider[] = [
-      { ...circle, id: "west", x: -7, z: 2, radius: 2 },
-      { ...building, id: "center", rotation: 0.4, halfWidth: 3, halfDepth: 1 },
-      { ...circle, id: "east", x: 8, z: -3, radius: 1.5 },
-      { ...building, id: "north", x: 3, z: 9, rotation: -0.2 },
-    ];
     const index = new PlanarCollisionIndex(4);
     index.rebuild(colliders);
 

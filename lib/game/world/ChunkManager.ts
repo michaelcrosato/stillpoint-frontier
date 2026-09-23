@@ -111,6 +111,7 @@ import {
   type WoodySpeciesDefinition,
 } from "./vegetation";
 import { WaterSurfaceRuntime } from "./WaterSurface";
+import { ChunkAssetCache, type ChunkAssetLease } from "./ChunkAssetCache";
 import {
   proceduralSurfaceColor,
   terrainSurfaceColor,
@@ -133,6 +134,8 @@ interface ChunkRuntime {
   chunkX: number;
   chunkZ: number;
   root: THREE.Group;
+  /** Shared assets this chunk holds; released when the chunk unloads. */
+  assets: ChunkAssetLease;
   colliders: PlanarCollider[];
   targets: WorldTarget[];
   doors: AuthoredDoorRuntime[];
@@ -206,6 +209,10 @@ export class ChunkManager {
   private readonly benchmarkLake: THREE.Mesh;
   private readonly canyonRiver: THREE.Mesh;
   private readonly sharedMaterials: Set<THREE.Material>;
+  /** Geometry and materials identical in every chunk; see ChunkAssetCache. */
+  private readonly assets = new ChunkAssetCache();
+  /** The lease of the chunk being built; see chunkAssets. */
+  private buildingLease: ChunkAssetLease | null = null;
   private readonly materialLibrary: WorldMaterialLibrary;
   private readonly ownsMaterialLibrary: boolean;
 
@@ -502,6 +509,11 @@ export class ChunkManager {
     return this.loaded.size;
   }
 
+  /** Shared assets currently held by resident chunks. */
+  get sharedAssets() {
+    return this.assets.size;
+  }
+
   get doorsSnapshot() {
     return [...this.loaded.values()].flatMap((chunk) =>
       chunk.doors.map((door) => ({ id: door.id, open: door.isOpen })),
@@ -616,6 +628,8 @@ export class ChunkManager {
     };
     this.placedRecords = [];
     this.waterSurface.dispose();
+    // After every root is untracked, so the library has restored them.
+    this.assets.dispose();
     if (this.ownsMaterialLibrary) this.materialLibrary.dispose();
     this.refreshCaches();
   }
@@ -659,7 +673,28 @@ export class ChunkManager {
     ];
   }
 
+  /** Shared assets for the chunk loadChunk is building. */
+  private get chunkAssets() {
+    if (!this.buildingLease) {
+      throw new Error("Shared chunk assets are only available while a chunk loads");
+    }
+    return this.buildingLease;
+  }
+
   private loadChunk(chunkX: number, chunkZ: number) {
+    const assets = this.assets.lease();
+    this.buildingLease = assets;
+    try {
+      this.buildChunk(chunkX, chunkZ, assets);
+    } catch (error) {
+      assets.release();
+      throw error;
+    } finally {
+      this.buildingLease = null;
+    }
+  }
+
+  private buildChunk(chunkX: number, chunkZ: number, assets: ChunkAssetLease) {
     const key = chunkKey(chunkX, chunkZ);
     const center = chunkCenter({ x: chunkX, z: chunkZ });
     const root = new THREE.Group();
@@ -694,7 +729,7 @@ export class ChunkManager {
     terrainGeometry.setAttribute("color", new THREE.BufferAttribute(terrainColors, 3));
     terrainGeometry.computeVertexNormals();
 
-    const terrainMaterial = tagWorldMaterial(
+    const terrainMaterial = this.chunkAssets.material("terrain", () => tagWorldMaterial(
       new THREE.MeshStandardMaterial({
         color: 0xffffff,
         roughness: 0.96,
@@ -709,7 +744,7 @@ export class ChunkManager {
         environmentScale: 0.72,
         wetReflectionBoost: 0.48,
       },
-    );
+    ));
     const terrain = new THREE.Mesh(terrainGeometry, terrainMaterial);
     terrain.name = `terrain:${key}`;
     terrain.position.set(center.x, 0, center.z);
@@ -827,6 +862,7 @@ export class ChunkManager {
       chunkX,
       chunkZ,
       root,
+      assets,
       colliders,
       targets,
       doors,
@@ -1036,7 +1072,7 @@ export class ChunkManager {
 
     const roads = new THREE.Mesh(
       createRoadSurfaceGeometry(segments),
-      tagWorldMaterial(
+      this.chunkAssets.material("road", () => tagWorldMaterial(
         new THREE.MeshStandardMaterial({
           color: 0xffffff,
           roughness: 0.94,
@@ -1053,7 +1089,7 @@ export class ChunkManager {
           environmentScale: 0.62,
           wetReflectionBoost: 0.72,
         },
-      ),
+      )),
     );
     roads.name = `roads:${key}`;
     roads.receiveShadow = true;
@@ -1219,21 +1255,19 @@ export class ChunkManager {
       const influence = Math.max(0.08, settlementInfluence(settlement, centerX, centerZ));
       const count = Math.max(2, Math.floor(spec.count * (0.35 + influence * 0.65)));
       const random = seededRandom(`${WORLD_SEED}:chunk:${key}:settlement:${settlement.id}:v1`);
-      const geometry = new THREE.BoxGeometry(1, 1, 1);
-      const material = tagWorldMaterial(
-        new THREE.MeshStandardMaterial({
-          color: 0xffffff,
-          roughness: 0.78,
-          metalness: settlement.tier === "megacity" ? 0.22 : 0.08,
-        }),
-        {
-          role: "building",
-          weatherExposure: 1,
-          wetRoughness: 0.42,
-          environmentScale: 0.86,
-          wetReflectionBoost: 0.4,
-        },
-      );
+      const geometry = this.chunkAssets.geometry("unit-box", () => new THREE.BoxGeometry(1, 1, 1));
+      const metalness = settlement.tier === "megacity" ? 0.22 : 0.08;
+      const material = this.chunkAssets.material(`settlement-building:${metalness}`, () =>
+        tagWorldMaterial(
+          new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.78, metalness }),
+          {
+            role: "building",
+            weatherExposure: 1,
+            wetRoughness: 0.42,
+            environmentScale: 0.86,
+            wetReflectionBoost: 0.4,
+          },
+        ));
       const buildings = new THREE.InstancedMesh(geometry, material, count);
       buildings.name = `settlement:${settlement.id}:${key}`;
       buildings.castShadow = qualityUsesShadows(this.quality);
@@ -1251,8 +1285,9 @@ export class ChunkManager {
             : settlement.tier === "town"
               ? 2
               : 1;
-      const windowGeometry = new THREE.PlaneGeometry(1, 1);
-      const windowMaterial = new THREE.MeshBasicMaterial({
+      const windowGeometry = this.chunkAssets.geometry("unit-plane", () => new THREE.PlaneGeometry(1, 1));
+      // Night lighting sets one opacity for every chunk, so one material serves all.
+      const windowMaterial = this.chunkAssets.material("city-windows", () => new THREE.MeshBasicMaterial({
         color: 0xffffff,
         transparent: true,
         opacity: 0,
@@ -1261,7 +1296,7 @@ export class ChunkManager {
         polygonOffset: true,
         polygonOffsetFactor: -1,
         polygonOffsetUnits: -1,
-      });
+      }));
       const windows = new THREE.InstancedMesh(
         windowGeometry,
         windowMaterial,
@@ -1393,8 +1428,6 @@ export class ChunkManager {
         nightLighting.windowMeshes.push(windows);
         nightLighting.windowCount += renderedWindows;
       } else {
-        windowGeometry.dispose();
-        windowMaterial.dispose();
         windows.dispose();
       }
       this.addSettlementMarker(
@@ -1420,8 +1453,9 @@ export class ChunkManager {
     if (Math.abs(settlement.z - centerZ) > CHUNK_SIZE / 2) return;
     const height = settlement.tier === "megacity" ? 125 : settlement.tier === "city" ? 58 : 18;
     const marker = new THREE.Mesh(
-      new THREE.BoxGeometry(settlement.tier === "megacity" ? 18 : 8, height, 8),
-      tagWorldMaterial(
+      this.chunkAssets.geometry(`settlement-marker:${settlement.tier}`, () =>
+        new THREE.BoxGeometry(settlement.tier === "megacity" ? 18 : 8, height, 8)),
+      this.chunkAssets.material(`settlement-marker:${settlement.tier}`, () => tagWorldMaterial(
         new THREE.MeshStandardMaterial({
           color: 0x242a28,
           emissive: settlement.tier === "megacity" ? 0x193834 : 0x000000,
@@ -1436,7 +1470,7 @@ export class ChunkManager {
           environmentScale: 1.1,
           wetReflectionBoost: 0.45,
         },
-      ),
+      )),
     );
     marker.name = `landmark:${settlement.id}`;
     marker.position.set(
@@ -1521,8 +1555,8 @@ export class ChunkManager {
     const random = seededRandom(`${WORLD_SEED}:chunk:${key}:rocks:v1`);
     const count = Math.max(3, Math.floor(4 + density * 13 + random() * 4));
     const rocks = new THREE.InstancedMesh(
-      new THREE.DodecahedronGeometry(1, 0),
-      tagWorldMaterial(
+      this.chunkAssets.geometry("rock", () => new THREE.DodecahedronGeometry(1, 0)),
+      this.chunkAssets.material("rock", () => tagWorldMaterial(
         new THREE.MeshStandardMaterial({
           color: 0xffffff,
           roughness: 1,
@@ -1535,7 +1569,7 @@ export class ChunkManager {
           environmentScale: 0.7,
           wetReflectionBoost: 0.58,
         },
-      ),
+      )),
       count,
     );
     rocks.name = `rocks:${key}`;
@@ -1702,8 +1736,8 @@ export class ChunkManager {
     for (const group of speciesGroups.values()) {
       const species = group[0].species;
       const trees = new THREE.InstancedMesh(
-        createWoodyGeometry(species),
-        vegetationMaterial(),
+        this.chunkAssets.geometry(`woody:${species.id}`, () => createWoodyGeometry(species)),
+        this.chunkAssets.material("vegetation:woody", () => vegetationMaterial()),
         group.length,
       );
       trees.name = `forest:${key}:${species.id}`;
@@ -1766,8 +1800,8 @@ export class ChunkManager {
         `${WORLD_SEED}:chunk:${key}:groundcover:v1:${profile.groundcover}`,
       );
       const groundcover = new THREE.InstancedMesh(
-        createGroundcoverGeometry(profile),
-        vegetationMaterial("groundcover"),
+        this.chunkAssets.geometry(`groundcover:${biomeId}`, () => createGroundcoverGeometry(profile)),
+        this.chunkAssets.material("vegetation:groundcover", () => vegetationMaterial("groundcover")),
         maximumDecorativeCount,
       );
       groundcover.name = `groundcover:${key}:${profile.groundcover}`;
@@ -1866,8 +1900,8 @@ export class ChunkManager {
     const count = random() > 0.58 ? 3 + Math.floor(random() * 3) : 0;
     if (count === 0) return;
     const ruins = new THREE.InstancedMesh(
-      new THREE.BoxGeometry(0.65, 5, 2.2),
-      tagWorldMaterial(
+      this.chunkAssets.geometry("ruin", () => new THREE.BoxGeometry(0.65, 5, 2.2)),
+      this.chunkAssets.material("ruin", () => tagWorldMaterial(
         new THREE.MeshStandardMaterial({
           color: 0x262825,
           roughness: 0.78,
@@ -1880,7 +1914,7 @@ export class ChunkManager {
           environmentScale: 0.88,
           wetReflectionBoost: 0.45,
         },
-      ),
+      )),
       count,
     );
     ruins.name = `ruins:${key}`;
@@ -2107,14 +2141,14 @@ export class ChunkManager {
     root.name = id;
     root.position.set(x, sampleTerrainHeight(x, z) + 0.48, z);
     const mesh = new THREE.Mesh(
-      new THREE.OctahedronGeometry(0.34, 0),
-      new THREE.MeshStandardMaterial({
+      this.chunkAssets.geometry("pickup", () => new THREE.OctahedronGeometry(0.34, 0)),
+      this.chunkAssets.material("pickup", () => new THREE.MeshStandardMaterial({
         color: 0xd58a45,
         emissive: 0x713713,
         emissiveIntensity: 1.2,
         roughness: 0.42,
         metalness: 0.35,
-      }),
+      })),
     );
     mesh.rotation.set(0.25, 0.7, 0.1);
     mesh.castShadow = qualityUsesShadows(this.quality);
@@ -2188,13 +2222,15 @@ export class ChunkManager {
     root.name = id;
     root.position.set(x, sampleTerrainHeight(x, z), z);
     const trunk = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.42, 0.58, 4, 7),
-      new THREE.MeshStandardMaterial({ color: 0x40372a, roughness: 1 }),
+      this.chunkAssets.geometry("tree-resource:trunk", () => new THREE.CylinderGeometry(0.42, 0.58, 4, 7)),
+      this.chunkAssets.material("tree-resource:trunk", () =>
+        new THREE.MeshStandardMaterial({ color: 0x40372a, roughness: 1 })),
     );
     trunk.position.y = 2;
     const canopy = new THREE.Mesh(
-      new THREE.ConeGeometry(2.15, 5.6, 7),
-      new THREE.MeshStandardMaterial({ color: 0x2d4433, roughness: 1, flatShading: true }),
+      this.chunkAssets.geometry("tree-resource:canopy", () => new THREE.ConeGeometry(2.15, 5.6, 7)),
+      this.chunkAssets.material("tree-resource:canopy", () =>
+        new THREE.MeshStandardMaterial({ color: 0x2d4433, roughness: 1, flatShading: true })),
     );
     canopy.position.y = 5.5;
     for (const mesh of [trunk, canopy]) {
@@ -2309,10 +2345,12 @@ export class ChunkManager {
     root.traverse((object) => {
       if (!(object instanceof THREE.Mesh || object instanceof THREE.InstancedMesh)) return;
       if (object instanceof THREE.InstancedMesh) object.dispose();
-      geometries.add(object.geometry);
+      if (!this.assets.owns(object.geometry)) geometries.add(object.geometry);
       const source = Array.isArray(object.material) ? object.material : [object.material];
       for (const material of source) {
-        if (!this.sharedMaterials.has(material)) materials.add(material);
+        if (!this.sharedMaterials.has(material) && !this.assets.owns(material)) {
+          materials.add(material);
+        }
       }
     });
     for (const geometry of geometries) geometry.dispose();
@@ -2321,5 +2359,6 @@ export class ChunkManager {
 
   private disposeChunk(chunk: ChunkRuntime) {
     this.disposeObjectTree(chunk.root);
+    chunk.assets.release();
   }
 }
