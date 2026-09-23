@@ -558,6 +558,8 @@ export class RenderPipeline {
   private renderSelectiveBloom(deltaSeconds: number) {
     const background = this.options.scene.background;
     const shadowAutoUpdate = this.renderer.shadowMap.autoUpdate;
+    const camera = this.options.camera;
+    const cameraLayers = camera.layers.mask;
     try {
       this.options.scene.background = this.bloomBackground;
       // traverseVisible, not traverse: an invisible subtree is not drawn, so
@@ -566,10 +568,14 @@ export class RenderPipeline {
       // Bloom precedes the beauty pass and does not own shadow freshness. The
       // subsequent main RenderPass remains the single shadow-map update.
       this.renderer.shadowMap.autoUpdate = false;
+      // Bloom-only sources (the celestial discs) sit on BLOOM_LAYER alone; the
+      // camera sees that layer for this render and no other.
+      camera.layers.enable(BLOOM_LAYER);
       this.bloomComposer.render(deltaSeconds);
       this.bloomCompositePass.uniforms.tBloom.value =
         this.bloomPass.renderTargetsHorizontal[0].texture;
     } finally {
+      camera.layers.mask = cameraLayers;
       this.renderer.shadowMap.autoUpdate = shadowAutoUpdate;
       this.restoreBloomOccluders();
       this.options.scene.background = background;

@@ -37,6 +37,7 @@ import {
   SUN_SHADOW_EXTENT_METERS,
   sunShadowBiases,
 } from "./rendering/ShadowBias";
+import { CelestialDiscs, type CelestialDiscInput } from "./rendering/CelestialDiscs";
 import { ShadowUpdatePolicy } from "./rendering/ShadowUpdatePolicy";
 import { sampleClimate } from "./world/macroWorld";
 
@@ -516,6 +517,18 @@ export function createEnvironment(
   sky.frustumCulled = false;
   sky.renderOrder = -3;
   scene.add(sky);
+  const celestialDiscs = new CelestialDiscs(scene);
+  const discInput: CelestialDiscInput = {
+    viewPosition: new THREE.Vector3(),
+    sunDirection: new THREE.Vector3(0, 1, 0),
+    moonDirection: new THREE.Vector3(0, -1, 0),
+    sunColor: skyMaterial.uniforms.sunDiscColor.value,
+    moonColor: skyMaterial.uniforms.moonDiscColor.value,
+    daylight: 1,
+    night: 0,
+    cloudCover: 0,
+    distance: 1,
+  };
 
   const stars = createStars();
   scene.add(stars.points);
@@ -704,6 +717,15 @@ export function createEnvironment(
         (1 - displaySample.cloudCover * 0.52) *
         handover.intensityScale;
     }
+    (discInput.viewPosition as THREE.Vector3).copy(viewPosition);
+    (discInput.sunDirection as THREE.Vector3).copy(sunDirection);
+    (discInput.moonDirection as THREE.Vector3).copy(moonDirection);
+    discInput.daylight = displaySample.daylight;
+    discInput.night = displaySample.night;
+    discInput.cloudCover = displaySample.cloudCover;
+    // Near the far plane, so the horizon and HLOD terrain occlude the glow.
+    discInput.distance = HORIZON_PRESETS[horizonMode].drawDistanceMeters * 0.9;
+    celestialDiscs.present(discInput);
     if (lightningFlash > 0) {
       sun.color.lerp(lightningColor, lightningFlash * 0.9);
       sun.intensity += lightningFlash * 7.5;
@@ -956,6 +978,7 @@ export function createEnvironment(
         stars.points,
         precipitation.points,
       );
+      celestialDiscs.dispose();
       skyGeometry.dispose();
       skyMaterial.dispose();
       stars.geometry.dispose();

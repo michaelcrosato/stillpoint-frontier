@@ -17,6 +17,15 @@ export function markBloomSource<T extends THREE.Object3D>(root: T): T {
   return root;
 }
 
+/**
+ * Puts objects on the bloom layer only, so the main pass never draws them and
+ * the selective bloom pass, whose camera enables the layer, does.
+ */
+export function markBloomOnly<T extends THREE.Object3D>(root: T): T {
+  root.traverse((object) => object.layers.set(BLOOM_LAYER));
+  return root;
+}
+
 export const BloomCompositeShader = {
   name: "BloomCompositeShader",
   uniforms: {
