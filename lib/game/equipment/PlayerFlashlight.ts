@@ -92,15 +92,18 @@ export class PlayerFlashlight {
     if (this.disposed) return;
     this.quality = quality;
     const preset = QUALITY_PRESETS[quality];
-    if (this.core.shadow.mapSize.width !== preset.flashlightShadowMapSize) {
+    const shadows = qualityUsesShadows(quality);
+    // A preset without shadows keeps no map. Switching the beam off keeps it,
+    // so the next switch-on does not reallocate.
+    if (!shadows || this.core.shadow.mapSize.width !== preset.flashlightShadowMapSize) {
       this.core.shadow.map?.dispose();
       this.core.shadow.map = null;
       this.core.shadow.mapSize.set(
         preset.flashlightShadowMapSize,
         preset.flashlightShadowMapSize,
       );
-      this.core.shadow.needsUpdate = true;
     }
+    if (shadows && this.core.shadow.map === null) this.core.shadow.needsUpdate = true;
     this.core.shadow.bias = shadowDepthBias(
       quality === "ultra" ? 0.0001 : 0.00018,
       this.reversedDepth,

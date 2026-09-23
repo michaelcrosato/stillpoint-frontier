@@ -854,12 +854,15 @@ export function createEnvironment(
       sun.castShadow = qualityUsesShadows(nextQuality);
       const maximumTextureSize = renderer.capabilities.maxTextureSize || preset.sunShadowMapSize;
       const shadowMapSize = Math.min(preset.sunShadowMapSize, maximumTextureSize);
-      if (sun.shadow.mapSize.width !== shadowMapSize) {
+      if (!sun.castShadow || sun.shadow.mapSize.width !== shadowMapSize) {
+        // A preset without shadows keeps no map; a new size needs a new one.
         sun.shadow.map?.dispose();
         sun.shadow.map = null;
         sun.shadow.mapSize.set(shadowMapSize, shadowMapSize);
-        sun.shadow.needsUpdate = true;
       }
+      // With shadow.autoUpdate off, three skips a light that has no map
+      // unless it is asked to render one.
+      if (sun.castShadow && sun.shadow.map === null) sun.shadow.needsUpdate = true;
       const biases = sunShadowBiases(
         nextQuality,
         renderer.capabilities.reversedDepthBuffer === true,
