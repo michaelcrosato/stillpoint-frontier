@@ -1,5 +1,46 @@
 # Dependency security review
 
+## Current review: 2026-10-14 UTC
+
+The dependency update candidate resolves the new Next critical advisory and the
+patchable Cloudflare/tooling findings. A fresh `npm audit --json` reports **eight
+high affected packages, zero critical**, all tracing to one unpatched advisory:
+[GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm). These are
+dependency-chain package counts, not eight distinct vulnerabilities.
+
+`braces` 3.0.3 is the current published version; the advisory lists no patched
+version. Deeply nested, attacker-controlled brace patterns can exhaust the Node
+stack. The installed paths are:
+
+- `eslint-config-next` → `@next/eslint-plugin-next` → `fast-glob` → `micromatch` → `braces`
+- `vinext` → `vite-plugin-commonjs` → `vite-plugin-dynamic-import` → `fast-glob` → `micromatch` → `braces`
+
+These paths are lint/build tooling. This review does not establish a remotely
+exploitable path in the deployed game. The high-severity audit gate remains
+enabled and fails until this dependency is patched or replaced by a separately
+reviewed compatible toolchain change. Do not apply the suggested eslint-config-next/Vinext
+downgrades or suppress the advisory to make CI green.
+
+Updates pair React, React DOM, React Server Components and their types at 19.3;
+Vitest and its V8 coverage provider resolve together at 5.0.4; Three and its types
+resolve at 0.186.0. Cloudflare Vite plugin 1.64.0 is paired with Wrangler 4.151.0
+and workers-types 5.20261006.1. Node typings remain on 22 for the Node 22.13.0
+CI runtime. Next is 16.4.0. Targeted in-range transitive refreshes include
+brace-expansion 1.1.21/5.0.12 and source-map-js 1.2.2; the Cloudflare update
+provides sharp 0.35.5 and undici 7.29.1.
+
+No Dependabot/security settings or audit thresholds are changed by this update.
+
+Local validation on Node 24.19.0 passed lint, TypeScript, all 642 unit tests in
+108 files, enforced coverage thresholds, production build and all three rendered
+HTML tests. Coverage on the configured include list was 94.27% statements,
+84.83% branches, 95.29% functions and 96.19% lines. Exact Node 22.13.0 and browser
+gates still require CI: local Chromium was blocked before page load by the
+cloud sandbox (`socket(): Operation not permitted`). No hardware/GPU acceptance
+is claimed.
+
+## Historical review: 2026-09-16 UTC
+
 Reviewed on 2026-09-16 UTC against the committed lockfile with `npm audit`.
 `npm audit` reports **0 vulnerabilities**. The previous review (2026-09-05) left
 eight advisories outstanding; every one is now resolved by a supported version
